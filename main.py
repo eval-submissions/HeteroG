@@ -1,65 +1,26 @@
+import numpy as np
 import tensorflow as tf
-from alexnet import alexnet_v2
-# outputs, endpoints = alexnet_v2(dataset)
 
+x = tf.placeholder(tf.float32, shape=(None, 1024))
+y = tf.placeholder(tf.float32, shape=(None, 10,))
+hidden = tf.contrib.slim.fully_connected(x, 256, activation_fn=tf.nn.softmax)
+output = tf.contrib.slim.fully_connected(hidden, 10, activation_fn=tf.nn.softmax)
+loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
+optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
 
-# sess = tf.Session()
-
-def get_device_list():
-    from tensorflow.python.client import device_lib
-    return [x.name for x in device_lib.list_local_devices()]
-
-sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
-
-with tf.device('/gpu:0'):
-    dataset = tf.random_uniform([64, 224, 224, 3])
-
-with tf.device('/gpu:1'):
-    result = dataset + dataset
+dag = optimizer.graph.as_graph_def().node
 
 graph = tf.get_default_graph()
+
 
 for node in graph.as_graph_def().node:
     node.device = '/device:CPU:0'
 
-sess.run(result)
 
-tf.Operation
+with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
+    sess.run(tf.global_variables_initializer())
+    sess.run(optimizer, { x: np.random.uniform(size=(10, 1024)), y: np.random.uniform(size=(10, 10)) })
 
-writer = tf.summary.FileWriter('.')
-writer.add_graph(tf.get_default_graph())
-writer.flush()
+# design:
+# 1. for the model part, we need only the optimizer_op
 
-tf.import_graph_def()
-
-
-
-### 1. get DAG
-
-tf.get_default_graph().as_graph_def().node
-# each node is a protobuf structure that has op, name, device, input, attr, etc
-# note that `as_graph_def()` is a serilization method: change the returned graph_def do affect the original graph
-
-### 2. add a node
-
-import tensorflow.core.framework.attr_value_pb2
-
-new_node = graph_def.node.add()
-new_node.op = "Cast"
-new_node.name = "To_Float"
-new_node.input.extend(["To_Float"])
-new_node.attr["DstT"].CopyFrom(attr_value_pb2.AttrValue(type=types_pb2.DT_FLOAT))
-new_node.attr["SrcT"].CopyFrom(attr_value_pb2.AttrValue(type=types_pb2.DT_FLOAT))
-new_node.attr["Truncate"].CopyFrom(attr_value_pb2.AttrValue(b=True))
-
-# CopyFrom can also be used to clone a node
-
-### 3. build graph from scrach
-
-# first generate an empty graph_def with
-graph_def = tf.Graph().as_graph_def()
-
-# then
-graph = tf.Graph()
-with graph.as_default():
-    tf.graph_util.import_graph_def(graph_def)
