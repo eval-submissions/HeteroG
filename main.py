@@ -10,11 +10,27 @@ optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
 
 dag = optimizer.graph.as_graph_def().node
 
-graph = tf.get_default_graph()
+class AbstractComputationGraph():
+    def __init__(self):
+        self.name_map = {}
+    
+    def add_node(self, node):
+        self.name_map[node.name] = TaggedNode(node)
 
 
-for node in graph.as_graph_def().node:
-    node.device = '/device:CPU:0'
+class TaggedNode():
+    def __init__(self, node):
+        self.raw_node = node
+        self.input = []
+        self.output = []
+    
+
+def dstributify(op):
+    dag = op.graph.as_graph_def().node
+
+def duplicate_all(n=2):
+    new_gd = tf.Graph().as_graph_def()
+
 
 
 with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
@@ -24,3 +40,9 @@ with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
 # design:
 # 1. for the model part, we need only the optimizer_op
 
+
+['Tile', 'MatMul', 'RandomUniform', 'Shape', 'Identity', 'Sub',
+'Reciprocal', 'Exp', 'ZerosLike', 'AddN', 'Fill', 'Sum', 'VariableV2',
+'Reshape', 'Neg', 'BiasAdd', 'Add', 'BiasAddGrad', 'Const', 'Softmax',
+'BroadcastGradientArgs', 'Placeholder', 'Select', 'ApplyGradientDescent',
+'GreaterEqual', 'Assign', 'NoOp', 'Log1p', 'Mul']
