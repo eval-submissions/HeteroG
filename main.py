@@ -13,7 +13,8 @@ opt = model_fn()
 new_opt = distributify(opt)
 show(new_opt.graph)
 
-with new_opt.graph.as_default():
-    sess = tf.Session()
-    sess.run(new_opt)
+with new_opt.graph.as_default(), tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
+    sess.run(tf.global_variables_initializer())
+    sess.run(new_opt, { x: np.random.uniform(size=(10, 1024)), y: np.random.uniform(size=(10, 10)) })
+
 

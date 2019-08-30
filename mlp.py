@@ -1,3 +1,5 @@
+import tensorflow as tf
+
 def model_fn():
     x = tf.placeholder(tf.float32, shape=(None, 1024))
     y = tf.placeholder(tf.float32, shape=(None, 10,))

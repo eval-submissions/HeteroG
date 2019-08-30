@@ -1,8 +1,10 @@
+from enum import Enum
+
 class ReplicationMethod(Enum):
-    none, copy, cache, sum, fetch, split = range(6)
+    copy, cache, sum, split = range(4)
 
 class ReplicationSpec():
-    # split_spec defines if this operator is not replicated, given the input replicability, what's the replicability of the outputs [none, cache, split]
+    # split_spec defines given the input replicability, what's the replicability of the outputs (cache or split)
     # merge_spec describes when this operator can be replicated, and how the outputs can be merged [copy, cache, sum, split]
     # if the inputs does not match any merge_spec, this operator won't be replicated
     # if the inputs does not match any split_spec, the outputs won't be replicated (so the children also won't be replicated)
@@ -14,21 +16,21 @@ class ReplicationSpec():
             else:
                 return x
 
-        self.split_spec = [([tuplify(x) for x in input], (tuplify(x) for x in output)) for input, output in split_spec]
-        self.merge_spec = [([tuplify(x) for x in input], (tuplify(x) for x in output)) for input, output in merge_spec]
+        self.split_spec = [([tuplify(x) for x in input], [tuplify(x) for x in output]) for input, output in split_spec]
+        self.merge_spec = [([tuplify(x) for x in input], output) for input, output in merge_spec]
 
 def replication_specs():
-    none, copy, cache, sum, fetch, split = ReplicationMethod
+    copy, cache, sum, split = ReplicationMethod
     cs = (cache, split)
     cc = (copy, cache)
     pure = ([cc], [copy])
     default = ([cs], [cache])
-    same = [ ([cache, cs], [cache, none]), ([cs], [split, none]) ]
-    same2 = [ ([cache, cache, cs], [cache, none]), ([cs], [split, none]) ]
+    same = [ ([cache, cs], [cache, ()]), ([cs], [split, ()]) ]
+    same2 = [ ([cache, cache, cs], [cache, ()]), ([cs], [split, ()]) ]
     batch = [ ([split, cc], [split]) ]
     batch2 = [ ([cache, split, cc], [split]), ([split, cc], [split]) ]
     grad = ([split, cc], [sum])
-    
+
     return {
         # special
         "VariableV2": ReplicationSpec([ default ]),
@@ -58,14 +60,14 @@ def replication_specs():
         "GreaterEqual": ReplicationSpec([ *same2 ], [ pure, *batch2 ]),
 
         # element-wise * N
-        "AddN": ReplicationSpec([ ([cache], [cache]), ([split], [split, none]) ], [ pure, ([split], [split]) ]),
+        "AddN": ReplicationSpec([ ([cache], [cache]), ([split], [split, ()]) ], [ pure, ([split], [split]) ]),
 
         # nn operations
         "MatMul": ReplicationSpec([ *same ], [ pure, *batch ]),
         "Reciprocal": ReplicationSpec([ *same ], [ pure, *batch ]), # this is not true?
         "BiasAdd": ReplicationSpec([ *same ], [ pure, *batch ]),
         "BiasAddGrad": ReplicationSpec([ default ], [ pure, grad ]),
-        "SoftMax": ReplicationSpec([ *same ], [ pure, *batch ]),
+        "Softmax": ReplicationSpec([ *same ], [ pure, *batch ]),
     }
 
 replication_specs = replication_specs()
