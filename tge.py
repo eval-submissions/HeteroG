@@ -1,4 +1,6 @@
 import tensorflow as tf
+from tensorflow.core.framework.attr_value_pb2 import AttrValue
+from tensorflow.core.framework.types_pb2 import *
 from specs import *
 
 class AbstractGraph():
@@ -11,11 +13,17 @@ class AbstractGraph():
 
     # replicate all replicable nodes
     def replicate_all(self):
-        for name, node in self.name_map.items():
+        for node in self.name_map.values():
             if hasattr(node, 'replicated'):
                 continue
 
             node.recursive_replicate()
+
+    def compile_all(self, devices=['/device:CPU:0']):
+        self.devices = devices
+        self.target = tf.Graph().as_graph_def()
+        for node in self.name_map.values():
+            node.recursive_compile()
 
 # raw_node: the original node
 # inputs/control: linked input and control nodes
@@ -23,6 +31,7 @@ class AbstractGraph():
 # spec: the output part of the merge spec. only exists if replicated
 # replicability: the output part of the split spec.
 # outputs: a list of tensors
+# replicas: list of replica names. contains only one element if not replicated
 class AbstractNode():
     def __init__(self, node, graph):
         self.raw_node = node
@@ -47,7 +56,7 @@ class AbstractNode():
             else: # this will also be executed if there is no inputs at all - which is desired
                 self.replicability = spec[1]
                 return
-            
+
         self.replicability = [()] # if none of the specs matches, default to not replicable at all
 
     def link_inputs(self):
@@ -65,9 +74,12 @@ class AbstractNode():
     def replicate(self, spec):
         self.replicated = True
         self.spec = spec
-    
+
     # aggresivly replicate a node and all its ancestors
     def recursive_replicate(self):
+        if hasattr(self, 'replicated'):
+            return
+
         try:
             possible_specs = replication_specs[self.raw_node.op].merge_spec
         except KeyError:
@@ -77,13 +89,12 @@ class AbstractNode():
         i = 0
         while len(possible_specs) > 0 and i < len(self.inputs):
             input, index = self.inputs[i]
-            if not hasattr(input, 'replicated'):
-                input.recursive_replicate()
-            
+            input.recursive_replicate()
+
             possible_specs = [spec for spec in possible_specs if \
                 (input.replicated and get_or_last(input.spec, index) in get_or_last(spec[0], i)) or \
                 any(x in get_or_last(spec[0], i) for x in get_or_last(input.replicability, index))]
-        
+
             i += 1
 
         if len(possible_specs) > 0:
@@ -94,23 +105,165 @@ class AbstractNode():
         else:
             self.replicated = False
 
+    def recursive_compile(self):
+        if hasattr(self, 'replica'):
+            return
+
+        for input in self.inputs:
+            input.recursive_compile()
+
+        if self.replicated:
+            n = len(self.graph.devices)
+            replicas = [self.graph.target.add() for i in range(n)]
+            for i, r in replicas:
+                r.CopyFrom(self.raw_node)
+                r.name += "/replica_{}".format(i)
+                pass
+        else:
+            self.replicas = [self.raw_node]
+
+    def get_output(self, index):
+        if not hasattr(self, 'outputs'):
+            self.outputs = []
+
+        while len(self.outputs) <= index:
+            self.outputs.append(AbstractTensor(self, len(self.outputs)))
+
+        return self.outputs[index]
+
+
 class AbstractTensor():
     def __init__(self, node, index):
         self.node = node
         self.index = index
 
-    "get the splited tensor"
-    def get_splited(self, id):
-        pass
+    def get_replicated_split(self, id):
+        if not hasattr(self, 'splited'):
+            if self.node.replicated:
+                if get_or_last(self.node.spec, self.index) is ReplicationMethod.split:
+                    self.splited = lambda id: "{}:{}".format(self.node.replicas[id], self.index)
+                else:
+                    raise Exception("not implemented")
+            else:
+                assert ReplicationMethod.split in get_or_last(self.node.replicability, self.index)
+                target = self.node.graph.target
+                create_raw_node(target, 'Const', '',
+                    "{}/{}".format(self.node.raw_node.name, "aux_split_{}/split_dim".format(self.index)),
+                    dtype = { 'type': DT_INT32 },
+                    value = { 'tensor': { 'dtype': DT_INT32, 'tensor_shape': {}, 'int_val': [0] } }
+                )
+                create_raw_node(target, 'Split', '',
+                    "{}/{}".format(self.node.raw_node.name, "aux_split_{}".format(self.index)),
+                    "{}/{}".format(self.node.raw_node.name, "aux_split_{}/split_dim".format(self.index)),
+                    "{}:{}".format(self.node.replicas[0].name, self.index),
+                    T = { 'type': DT_FLOAT },
+                    num_split = { 'i': len(self.node.graph.devices) }
+                )
+                self.splited = lambda id: "{}/{}:{}".format(self.node.raw_node.name, "aux_split_{}".format(self.index), id)
 
-    "get the cached tensor"
-    def get_cached(self, id):
-        pass
+            ndevices = len(self.node.graph.devices)
+
+        return self.splited(id)
+
+    def get_replicated_cache(self, id):
+        if not hasattr(self, 'cached'):
+            if self.node.replicated:
+                if get_or_last(self.node.spec, self.index) in (ReplicationMethod.cache, ReplicationMethod.copy):
+                    self.cached = lambda id: "{}:{}".format(self.node.replicas[id], self.index)
+                else:
+                    raise Exception("not implemented")
+            else:
+                assert ReplicationMethod.cache in get_or_last(self.node.replicability, self.index)
+                target = self.node.graph.target
+                n = len(self.node.graph.devices)
+                if 'T' in self.node.replicas[0].attr:
+                    dtype = self.node.replicas[0].attr['T']
+                elif 'dtype' in self.node.replicas[0].attr:
+                    dtype = self.node.replicas[0].attr['dtype']
+                else:
+                    raise Exception("cannot determine dtype")
+                for i in range(n):
+                    node = create_raw_node(target, 'Identity', ''
+                        "{}/{}".format(self.node.raw_node.name, "aux_cache_{}_{}".format(self.index, i)),
+                        "{}:{}".format(self.node.replicas[0].name, self.index),
+                    )
+                    node.attr['T'].CopyFrom(dtype)
+                self.cached = lambda id: "{}/{}".format(self.node.raw_node.name, "aux_cache_{}_{}".format(self.index, id))
+
+        return self.cached(id)
+
+    def get_replicated_copy(self, id):
+        assert self.node.replicated and get_or_last(self.node.spec, self.index) is ReplicationMethod.copy
+        return "{}:{}".format(self.node.replicas[id], self.index)
+
+    def get_replicated_sum(self, id):
+        assert self.node.replicated and get_or_last(self.node.spec, self.index) is ReplicationMethod.sum
+        return "{}:{}".format(self.node.replicas[id], self.index)
 
     "return the aggregated tensor"
-    def get_merged(self):
-        pass
+    def get_aggregated(self, id):
+        if not self.node.replicated:
+            return "{}:{}".format(self.node.replicas[0], self.index)
+        switch = {
+            ReplicationMethod.copy: self.get_aggregated_copy,
+            ReplicationMethod.cache: self.get_aggregated_cache,
+            ReplicationMethod.split: self.get_aggregated_split,
+            ReplicationMethod.sum: self.get_aggregated_sum
+        }
+        return switch[get_or_last(self.node.spec, self.index)](id)
 
+    def get_aggregated_copy(self, id):
+        return "{}:{}".format(self.node.replicas[id], self.index)
+
+    def get_aggregated_cache(self, id):
+        raise Exception("this is guarded in `get_aggregated` so never be called")
+        return self.get_replicated_cache(self, id)
+
+    def get_aggregated_split(self, id): # TODO: what if two ops on different devices want the same tensor?
+        if not hasattr(self, 'merged'):
+            target = self.node.graph.target
+            device = self.node.devices[id]
+            create_raw_node(target, 'Const', device,
+                "{}/{}".format(self.node.raw_node.name, "aux_concat_{}/axis".format(self.index)),
+                dtype = { 'type': DT_INT32 },
+                value = { 'tensor': { 'dtype': DT_INT32, 'tensor_shape': {}, 'int_val': [0] } }
+            )
+            create_raw_node(target, 'ConcatV2', device,
+                "{}/{}".format(self.node.raw_node.name, "aux_concat_{}".format(self.index)),
+                *[ "{}:{}".format(replica.name, self.index) for replica in self.node.replicas ],
+                "{}/{}".format(self.node.raw_node.name, "aux_concat_{}/axis".format(self.index)),
+                N = { 'i': len(self.node.replicas) },
+                T = { 'type': DT_FLOAT },
+                Tidx = { 'type': DT_INT32 }
+            )
+            self.merged = "{}/{}".format(self.node.raw_node.name, "aux_concat_{}".format(self.index))
+
+        return self.merged
+
+    def get_aggregated_sum(self, id):
+        if not hasattr(self, 'merged'):
+            target = self.node.graph.target
+            device = self.node.devices[id]
+            create_raw_node(target, 'AddN', device,
+                "{}/{}".format(self.node.raw_node.name, "aux_sum_{}".format(self.index)),
+                *[ "{}:{}".format(replica.name, self.index) for replica in self.node.replicas ],
+                N = { 'i': len(self.node.replicas) },
+                T = { 'type': DT_FLOAT }
+            )
+            self.merged = "{}/{}".format(self.node.raw_node.name, "aux_sum_{}".format(self.index))
+
+        return self.merged
+
+
+def create_raw_node(graph_def, op, device, name, *inputs, **attr):
+    node = graph_def.node.add()
+    node.name = name
+    node.device = device
+    node.op = op
+    node.input.extend(inputs)
+    for name, value in attr.items():
+        node.attr[name] = AttrValue(**value)
+    return node
 
 # main API: replace an op with another op which is backed by a distributed graph
 def distributify(op):

@@ -18,15 +18,16 @@ tf.get_default_graph().as_graph_def().node
 # 2. add a node
 #################
 
-import tensorflow.core.framework.attr_value_pb2
+from tensorflow.core.framework.attr_value_pb2 import AttrValue
+from tensorflow.core.framework.types_pb2 import *
 
 new_node = graph_def.node.add()
 new_node.op = "Cast"
 new_node.name = "To_Float"
 new_node.input.extend(["To_Float"])
-new_node.attr["DstT"].CopyFrom(attr_value_pb2.AttrValue(type=types_pb2.DT_FLOAT))
-new_node.attr["SrcT"].CopyFrom(attr_value_pb2.AttrValue(type=types_pb2.DT_FLOAT))
-new_node.attr["Truncate"].CopyFrom(attr_value_pb2.AttrValue(b=True))
+new_node.attr["DstT"].CopyFrom(AttrValue(type=DT_FLOAT))
+new_node.attr["SrcT"].CopyFrom(AttrValue(type=DT_FLOAT))
+new_node.attr["Truncate"].CopyFrom(AttrValue(b=True))
 
 # CopyFrom can also be used to clone a node
 
