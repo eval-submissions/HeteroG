@@ -17,11 +17,12 @@ fn main() {
     //     node.device = "/device:CPU:0".into()
     // }
 
-    let strategy = strategy::Naive;
-    let target = graph::Target::new(proto::graph::GraphDef::new(), &["/device:CPU:0"]);
+    let mut strategy = strategy::NotAtAll;
+    let mut target = graph::Target::new(proto::graph::GraphDef::new(), &["/device:CPU:0"]);
     let mut graph: graph::Graph = g.node.iter().collect();
 
-    graph.replicate_all(target);
+    strategy::Strategy::plan(&mut strategy, &mut graph, &mut target);
+    graph.compile(&mut target);
 
     let mut fout = std::fs::File::create("gout.pb").unwrap();
     g.write_to_writer(&mut fout).unwrap();
