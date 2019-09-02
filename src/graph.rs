@@ -94,7 +94,7 @@ impl Node {
             return
         }
 
-        for (node_id, index) in self.inputs.iter() {
+        for (node_id, _) in self.inputs.iter() {
             self.graph().nodes[*node_id].compile(target)
         }
 
@@ -110,9 +110,11 @@ impl Node {
                     let dependency = &self.graph().nodes[*node_id].replicas[*device_id].1;
                     node.input.push(format!("^{}", dependency))
                 }
+                target.pb.node.push(node)
             }
         } else {
             let mut node = self.raw_node.clone();
+            node.device = target.devices[self.replicas[0].0].clone();
             node.input = self.inputs.iter().map(|(node_id, index)| {
                 let input = &self.graph().nodes[*node_id];
                 input.get_output(*index).get_aggregated()
@@ -121,6 +123,7 @@ impl Node {
                 let dependency = &self.graph().nodes[*node_id].replicas[0].1; // TODO: this is wrong
                 node.input.push(format!("^{}", dependency))
             }
+            target.pb.node.push(node)
         }
 
         self.compiled = true

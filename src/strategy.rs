@@ -18,7 +18,7 @@ impl Strategy for NotAtAll {
 
             for (node_id, index) in node.inputs.iter() {
                 let tensor = graph.nodes[*node_id].get_output(*index);
-                tensor.aggregated = Some(node.raw_node.name.clone());
+                tensor.aggregated = Some(format!("{}:{}", tensor.node().raw_node.name.clone(), tensor.index));
             }
         }
     }

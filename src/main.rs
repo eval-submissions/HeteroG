@@ -21,5 +21,5 @@ fn main() {
     graph.compile(&mut target);
 
     let mut fout = std::fs::File::create("gout.pb").unwrap();
-    g.write_to_writer(&mut fout).unwrap();
+    target.pb.write_to_writer(&mut fout).unwrap();
 }
