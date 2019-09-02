@@ -7,6 +7,7 @@ use protobuf::{Message, parse_from_bytes};
 
 mod proto;
 mod graph;
+mod strategy;
 
 fn main() {
     let raw_bytes = std::fs::read("g.pb").unwrap();
@@ -16,6 +17,7 @@ fn main() {
     //     node.device = "/device:CPU:0".into()
     // }
 
+    let strategy = strategy::Naive;
     let target = graph::Target::new(proto::graph::GraphDef::new(), &["/device:CPU:0"]);
     let mut graph: graph::Graph = g.node.iter().collect();
 

@@ -1,7 +1,8 @@
 use protobuf::Message;
-use crate::proto::{graph::GraphDef, node_def::NodeDef};
+use crate::proto::{graph::GraphDef, node_def::NodeDef, attr_value::{AttrValue, AttrValue_oneof_value}, types::DataType};
 use std::collections::BTreeMap;
 use std::fmt::Write;
+use crate::strategy::Strategy;
 
 pub struct Graph {
     nodes: Vec<Node>,
@@ -43,7 +44,7 @@ pub enum Replication {
     Replicas(Vec<String>)
 }
 
-pub enum ReplicationMethod { copy, cache, split, sum, temp } // temp means not decided yet since we do not add the inference rules
+pub enum ReplicationMethod { any, copy, cache, split, sum }
 
 pub struct Node {
     graph: *const Graph,
@@ -185,6 +186,8 @@ impl Tensor {
             identity.name = format!("{}/aux_identity_{}", self.node().raw_node.name, id);
             identity.op = "Identity".into();
             identity.device = device.into();
+            let dtype = attr(AttrValue_oneof_value::field_type(DataType::DT_FLOAT)); // TODO: get from raw_node
+            identity.attr.insert("T".into(), dtype);
             if let Replication::Singleton(x) = &self.node().replication {
                 identity.input.push(x.clone())
             } else {
@@ -195,6 +198,11 @@ impl Tensor {
         let name = self.node().raw_node.name.clone();
         self.replicated = Some(Box::new(move |id| format!("{}/aux_identity_{}", name, id)))
     }
+
+    fn replicate_split(&mut self) {
+        unimplemented!()
+    }
+
 }
 
 pub struct Target {
@@ -213,4 +221,10 @@ fn parse_input(x: &str) -> (&str, usize) {
         Some(i) => (&x[..i], x[i+1..].parse().unwrap()),
         None => (x, 0)
     }
+}
+
+fn attr(v: AttrValue_oneof_value) -> AttrValue {
+    let mut a = AttrValue::new();
+    a.value = Some(v);
+    a
 }
