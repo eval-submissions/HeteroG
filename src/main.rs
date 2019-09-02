@@ -11,15 +11,11 @@ mod strategy;
 
 fn main() {
     let raw_bytes = std::fs::read("g.pb").unwrap();
-    let mut g: proto::graph::GraphDef = parse_from_bytes(&raw_bytes).unwrap();
-
-    // for node in g.node.iter_mut() {
-    //     node.device = "/device:CPU:0".into()
-    // }
+    let g: proto::graph::GraphDef = parse_from_bytes(&raw_bytes).unwrap();
 
     let mut strategy = strategy::NotAtAll;
     let mut target = graph::Target::new(proto::graph::GraphDef::new(), &["/device:CPU:0"]);
-    let mut graph: graph::Graph = g.node.iter().collect();
+    let mut graph = graph::Graph::new(g.node.iter());
 
     strategy::Strategy::plan(&mut strategy, &mut graph, &mut target);
     graph.compile(&mut target);

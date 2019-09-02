@@ -10,17 +10,8 @@ pub struct Graph {
 }
 
 impl Graph {
-    /// setup the replicas and links. Note that auxiliary nodes are already there by strategies.
-    pub fn compile(&mut self, target: &mut Target) {
-        for node in self.nodes.iter_mut() {
-            node.compile(target)
-        }
-    }
-}
-
-impl<'a> std::iter::FromIterator<&'a NodeDef> for Graph {
-    fn from_iter<T: IntoIterator<Item=&'a NodeDef>>(iter: T) -> Self {
-        let mut g = Graph { nodes: Vec::new(), name_dict: BTreeMap::new() };
+    pub fn new<'a, T: IntoIterator<Item=&'a NodeDef>>(iter: T) -> Box<Self> {
+        let mut g = Box::new(Graph { nodes: Vec::new(), name_dict: BTreeMap::new() });
 
         for node_def in iter {
             let mut node = Node::new(&g, node_def.clone(), "".into());
@@ -34,6 +25,13 @@ impl<'a> std::iter::FromIterator<&'a NodeDef> for Graph {
 
         g
     }
+
+    /// setup the replicas and links. Note that auxiliary nodes are already there by strategies.
+    pub fn compile(&mut self, target: &mut Target) {
+        for node in self.nodes.iter_mut() {
+            node.compile(target)
+        }
+    }
 }
 
 pub enum ReplicationMethod { undefined, copy, cache, split, sum }
@@ -42,6 +40,7 @@ pub struct Node {
     pub graph: *const Graph,
     pub raw_node: NodeDef,
     pub device: String,
+    pub controls: Vec<usize>, // TODO: more consideration for control dependencies that added aux nodes
     pub inputs: Vec<(usize, usize)>, // nodeid, index
     pub outputs: Vec<Tensor>,
 
@@ -53,6 +52,7 @@ impl Node {
     pub fn new(graph: &Graph, raw_node: NodeDef, device: String) -> Self {
         Node {
             graph, raw_node, device,
+            controls: vec![],
             inputs: vec![],
             outputs: vec![],
             replicas: vec![],
@@ -66,11 +66,15 @@ impl Node {
     }
 
     pub fn link_inputs(&mut self) {
-        self.inputs = self.raw_node.input.iter().map(|input| {
-            let (name, index) = parse_input(input);
-            let id = self.graph().name_dict[name];
-            (id, index)
-        }).collect();
+        for input in self.raw_node.input.iter() {
+            if input.starts_with('^') {
+                self.controls.push(self.graph().name_dict[&input[1..]])
+            } else {
+                let (name, index) = parse_input(input);
+                let id = self.graph().name_dict[name];
+                self.inputs.push((id, index))
+            }
+        }
     }
 
     pub fn get_output(&self, index: usize) -> &mut Tensor {
@@ -102,6 +106,10 @@ impl Node {
                     let input = &self.graph().nodes[*node_id];
                     input.get_output(*index).get_replicated(*device_id)
                 }).collect();
+                for node_id in self.controls.iter() {
+                    let dependency = &self.graph().nodes[*node_id].replicas[*device_id].1;
+                    node.input.push(format!("^{}", dependency))
+                }
             }
         } else {
             let mut node = self.raw_node.clone();
@@ -109,6 +117,10 @@ impl Node {
                 let input = &self.graph().nodes[*node_id];
                 input.get_output(*index).get_aggregated()
             }).collect();
+            for node_id in self.controls.iter() {
+                let dependency = &self.graph().nodes[*node_id].replicas[0].1; // TODO: this is wrong
+                node.input.push(format!("^{}", dependency))
+            }
         }
 
         self.compiled = true
