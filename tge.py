@@ -28,7 +28,7 @@ class AbstractGraph():
 # raw_node: the original node
 # inputs/control: linked input and control nodes
 # replicated: if this operation is replicated
-# spec: the output part of the merge spec. only exists if replicated
+# spec: the merge spec. only exists if replicated
 # replicability: the output part of the split spec.
 # outputs: a list of tensors
 # replicas: list of replica names. contains only one element if not replicated
@@ -39,7 +39,7 @@ class AbstractNode():
 
         if node.op == 'Const': # always replicate Const. They won't be actaully used if we merge them immediatly, especially if we prune the graph
             self.replicated = True
-            self.spec = [ReplicationMethod.copy]
+            self.spec = ([], [ReplicationMethod.copy])
 
     def tag_replicability(self):
         if self.raw_node.op not in replication_specs:
@@ -71,10 +71,6 @@ class AbstractNode():
             else:
                 self.inputs.append((self.graph.name_map[input], 0))
 
-    def replicate(self, spec):
-        self.replicated = True
-        self.spec = spec
-
     # aggresivly replicate a node and all its ancestors
     def recursive_replicate(self):
         if hasattr(self, 'replicated'):
@@ -92,15 +88,15 @@ class AbstractNode():
             input.recursive_replicate()
 
             possible_specs = [spec for spec in possible_specs if \
-                (input.replicated and get_or_last(input.spec, index) in get_or_last(spec[0], i)) or \
+                (input.replicated and get_or_last(input.spec[1], index) in get_or_last(spec[0], i)) or \
                 any(x in get_or_last(spec[0], i) for x in get_or_last(input.replicability, index))]
 
             i += 1
 
         if len(possible_specs) > 0:
             # prefer splitting
-            x = [spec for _,spec in possible_specs if ReplicationMethod.split in spec]
-            self.spec = x[0] if len(x) > 0 else possible_specs[0][1]
+            x = [spec for spec in possible_specs if ReplicationMethod.split in spec[1]]
+            self.spec = x[0] if len(x) > 0 else possible_specs[0]
             self.replicated = True
         else:
             self.replicated = False
@@ -109,18 +105,21 @@ class AbstractNode():
         if hasattr(self, 'replica'):
             return
 
-        for input in self.inputs:
+        for input, index in self.inputs:
             input.recursive_compile()
 
         if self.replicated:
             n = len(self.graph.devices)
             replicas = [self.graph.target.add() for i in range(n)]
-            for i, r in replicas:
+            for id, r in enumerate(replicas):
                 r.CopyFrom(self.raw_node)
-                r.name += "/replica_{}".format(i)
-                pass
+                r.name += "/replica_{}".format(id)
+                for index in range(len(self.inputs)):
+
+
         else:
             self.replicas = [self.raw_node]
+            pass # setup inputs
 
     def get_output(self, index):
         if not hasattr(self, 'outputs'):
@@ -140,7 +139,7 @@ class AbstractTensor():
     def get_replicated_split(self, id):
         if not hasattr(self, 'splited'):
             if self.node.replicated:
-                if get_or_last(self.node.spec, self.index) is ReplicationMethod.split:
+                if get_or_last(self.node.spec[1], self.index) is ReplicationMethod.split:
                     self.splited = lambda id: "{}:{}".format(self.node.replicas[id], self.index)
                 else:
                     raise Exception("not implemented")
@@ -168,7 +167,7 @@ class AbstractTensor():
     def get_replicated_cache(self, id):
         if not hasattr(self, 'cached'):
             if self.node.replicated:
-                if get_or_last(self.node.spec, self.index) in (ReplicationMethod.cache, ReplicationMethod.copy):
+                if get_or_last(self.node.spec[1], self.index) in (ReplicationMethod.cache, ReplicationMethod.copy):
                     self.cached = lambda id: "{}:{}".format(self.node.replicas[id], self.index)
                 else:
                     raise Exception("not implemented")
@@ -193,11 +192,11 @@ class AbstractTensor():
         return self.cached(id)
 
     def get_replicated_copy(self, id):
-        assert self.node.replicated and get_or_last(self.node.spec, self.index) is ReplicationMethod.copy
+        assert self.node.replicated and get_or_last(self.node.spec[1], self.index) is ReplicationMethod.copy
         return "{}:{}".format(self.node.replicas[id], self.index)
 
     def get_replicated_sum(self, id):
-        assert self.node.replicated and get_or_last(self.node.spec, self.index) is ReplicationMethod.sum
+        assert self.node.replicated and get_or_last(self.node.spec[1], self.index) is ReplicationMethod.sum
         return "{}:{}".format(self.node.replicas[id], self.index)
 
     "return the aggregated tensor"
@@ -210,7 +209,7 @@ class AbstractTensor():
             ReplicationMethod.split: self.get_aggregated_split,
             ReplicationMethod.sum: self.get_aggregated_sum
         }
-        return switch[get_or_last(self.node.spec, self.index)](id)
+        return switch[get_or_last(self.node.spec[1], self.index)](id)
 
     def get_aggregated_copy(self, id):
         return "{}:{}".format(self.node.replicas[id], self.index)
