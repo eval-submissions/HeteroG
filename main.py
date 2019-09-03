@@ -30,8 +30,13 @@ init = graph.get_operation_by_name("import/init")
 
 show(opt.graph)
 
-sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
+server = tf.distribute.Server(tf.train.ClusterSpec({
+    "tge": ["net-g10:3901", "net-g11:3901"]
+}), job_name='tge', task_index=1)
+
+sess = tf.Session(server.target, config=tf.ConfigProto(log_device_placement=True))
 sess.run(init)
-sess.run(opt, { x: np.random.uniform(size=(10, 1024)), y: np.random.uniform(size=(10, 10)) })
+for i in range(100):
+    sess.run(opt, { x: np.random.uniform(size=(120, 1024)), y: np.random.uniform(size=(120, 10)) })
 
 

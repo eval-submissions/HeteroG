@@ -14,8 +14,14 @@ fn main() {
     let raw_bytes = std::fs::read("g.pb").unwrap();
     let g: proto::graph::GraphDef = parse_from_bytes(&raw_bytes).unwrap();
 
+    let devices = [
+        "/job:tge/replica:0/task:0/device:CPU:0",
+        "/job:tge/replica:0/task:1/device:CPU:0",
+        "/job:tge/replica:0/task:1/device:GPU:0",
+        "/job:tge/replica:0/task:1/device:GPU:1",
+    ];
     let mut strategy = strategy::DataParallelOneForAll;
-    let mut target = graph::Target::new(proto::graph::GraphDef::new(), &["/device:CPU:0", "/device:GPU:0"]);
+    let mut target = graph::Target::new(proto::graph::GraphDef::new(), &devices);
     let mut graph = graph::Graph::new(g.node.iter());
 
     strategy::Strategy::plan(&mut strategy, &mut graph, &mut target);
