@@ -15,8 +15,8 @@ fn main() {
     let g: proto::graph::GraphDef = parse_from_bytes(&raw_bytes).unwrap();
 
     let devices = [
-        "/job:tge/replica:0/task:0/device:CPU:0",
-        "/job:tge/replica:0/task:1/device:CPU:0",
+        "/job:tge/replica:0/task:0/device:GPU:0",
+        "/job:tge/replica:0/task:0/device:GPU:1",
         "/job:tge/replica:0/task:1/device:GPU:0",
         "/job:tge/replica:0/task:1/device:GPU:1",
     ];
