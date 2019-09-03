@@ -13,7 +13,7 @@ fn main() {
     let raw_bytes = std::fs::read("g.pb").unwrap();
     let g: proto::graph::GraphDef = parse_from_bytes(&raw_bytes).unwrap();
 
-    let mut strategy = strategy::NotAtAll;
+    let mut strategy = strategy::DataParallelOneForAll;
     let mut target = graph::Target::new(proto::graph::GraphDef::new(), &["/device:CPU:0"]);
     let mut graph = graph::Graph::new(g.node.iter());
 

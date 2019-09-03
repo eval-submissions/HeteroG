@@ -1,13 +1,15 @@
 use crate::graph::*;
 use crate::proto::types::DataType;
 use crate::proto::attr_value::{AttrValue, AttrValue_oneof_value};
+use crate::proto::node_def::NodeDef;
+use crate::proto::tensor::TensorProto;
 
 pub trait Strategy {
     /// make the plan, setting the neccesary fields for nodes and tensors and create the aux nodes on target
     fn plan(&mut self, graph: &mut Graph, target: &mut Target);
 }
 
-/// trival strategy that just put everything on CPU0
+/// trivial strategy that just put everything on CPU0
 pub struct NotAtAll;
 
 impl Strategy for NotAtAll {
@@ -24,97 +26,97 @@ impl Strategy for NotAtAll {
     }
 }
 
-pub struct Naive;
+/// aggressively replicate all nodes for data-parallel and use CPU 0 for reduce
+pub struct DataParallelOneForAll;
 
-impl Strategy for Naive {
+impl Strategy for DataParallelOneForAll {
     fn plan(&mut self, graph: &mut Graph, target: &mut Target) {
-        unimplemented!()
+        for node in graph.nodes.iter_mut() {
+            match &node.raw_node.name[..] {
+                "VariableV2" => {
+                    node.replicas.push((0, node.raw_node.name.clone()));
+                    replicate_cache(node.get_output(0), target);
+                }
+                "Placeholder" => {
+                    node.replicas.push((0, node.raw_node.name.clone()));
+                    replicate_split(node.get_output(0), target);
+                }
+                _ => {
+                    replicate_per_device(node, target);
+                }
+            }
+        }
     }
 }
 
-        // if let Replication::Replicas(replicas) = &self.node().replication {
-        //     let replicas = replicas.clone();
-        //     let index = self.index;
-        //     self.replicated = Some(Box::new(move |id| format!("{}:{}", replicas[id], index)))
-        // }
+fn replicate_per_device(node: &mut Node, target: &mut Target) {
+    for i in 0..target.devices.len() {
+        node.replicas.push((i, format!("{}/replica_{}", node.raw_node.name, i)))
+    }
+}
 
-        // match self.method {
-        //     ReplicationMethod::cache => self.replicate_cache(),
-        //     ReplicationMethod::split => unimplemented!(),
-        //     _ => unreachable!()
-        // }
+fn replicate_split(tensor: &mut Tensor, target: &mut Target) {
+    assert!(tensor.node().replicas.len() == 1);
 
-    // fn replicate_cache(&mut self) {
-    //     let target = self.node().graph().target.as_mut().unwrap();
-    //     for (id, device) in target.devices.iter().enumerate() {
-    //         let mut identity = NodeDef::new();
-    //         identity.name = format!("{}/aux_identity_{}", self.node().raw_node.name, id);
-    //         identity.op = "Identity".into();
-    //         identity.device = device.into();
-    //         let dtype = attr(AttrValue_oneof_value::field_type(DataType::DT_FLOAT)); // TODO: get from raw_node
-    //         identity.attr.insert("T".into(), dtype);
-    //         if let Replication::Singleton(x) = &self.node().replication {
-    //             identity.input.push(x.clone())
-    //         } else {
-    //             panic!("sucks")
-    //         }
-    //     }
+    let name = tensor.node().raw_node.name.clone();
+    let index = tensor.index; // clone here because we will move it later
 
-    //     let name = self.node().raw_node.name.clone();
-    //     self.replicated = Some(Box::new(move |id| format!("{}/aux_identity_{}", name, id)))
-    // }
+    let mut dim = NodeDef::new();
+    dim.name = format!("{}/aux_split_{}/split_dim", name, index);
+    dim.op = "Const".into();
+    dim.device = target.devices[tensor.node().replicas[0].0].clone();
+    dim.input.push(tensor.original_name());
+    dim.attr.insert("dtype".into(),
+        attr(AttrValue_oneof_value::field_type(DataType::DT_FLOAT))); // TODO: get from raw_node
+    let value = TensorProto::new();
+    let shape = crate::proto::tensor_shape::TensorShapeProto::new();
+    let scalar = crate::proto::tensor_shape::TensorShapeProto_Dim::new();
+    shape.dim.push(scalar);
 
-    // fn replicate_recursive(&mut self) {
-    //     if let Replication::Undefined = self.replication {} else {
-    //         return
-    //     }
+    value.dtype = DataType::DT_FLOAT; // TODO: get from raw_node
+    value.tensor_shape = protobuf::SingularPtrField::some(shape);
+    value.int_val.push(0);
+    dim.attr.insert("value".into(),
+        attr(AttrValue_oneof_value::tensor(TensorProto::new())));
 
-    //     let new_replication;
-    //     let target = self.graph().target.as_mut().unwrap();
+    // create_raw_node(target, 'Const', '',
+    //     "{}/{}".format(self.node.raw_node.name, "aux_split_{}/split_dim".format(self.index)),
+    //     dtype = { 'type': DT_INT32 },
+    //     value = { 'tensor': { 'dtype': DT_INT32, 'tensor_shape': {}, 'int_val': [0] } }
+    // )
+    // create_raw_node(target, 'Split', '',
+    //     "{}/{}".format(self.node.raw_node.name, "aux_split_{}".format(self.index)),
+    //     "{}/{}".format(self.node.raw_node.name, "aux_split_{}/split_dim".format(self.index)),
+    //     "{}:{}".format(self.node.replicas[0].name, self.index),
+    //     T = { 'type': DT_FLOAT },
+    //     num_split = { 'i': len(self.node.graph.devices) }
+    // )
+}
 
-    //     for (id, _) in &self.inputs {
-    //         let mut input = &mut self.graph().nodes[*id];
-    //         input.replicate_recursive();
-    //     }
+/// direct identity node: no topology and routing considered
+fn replicate_cache(tensor: &mut Tensor, target: &mut Target) {
+    assert!(tensor.node().replicas.len() == 1);
 
-    //     // temporary logic
-    //     if self.raw_node.op == "VariableV2" { // variables cannot be replicated but its output can be cached
-    //         target.pb.node.push(self.raw_node.clone());
-    //         new_replication = Replication::Singleton(self.raw_node.name.clone());
-    //         let x = &mut self.get_output(0);
-    //         x.method = ReplicationMethod::cache;
-    //     } else if self.raw_node.op == "Placeholder" { // Placeholder cannot be replicated but its outputs can be splited
-    //         target.pb.node.push(self.raw_node.clone());
-    //         new_replication = Replication::Singleton(self.raw_node.name.clone());
-    //         let x = &mut self.get_output(0);
-    //         x.method = ReplicationMethod::split;
-    //     } else { // general case, assume pure function, simply duplicate the operator using inputs on the same device
-    //         let replicas = (0..target.devices.len()).map(|id| {
-    //             let mut x = self.raw_node.clone();
+    let name = tensor.node().raw_node.name.clone();
+    let index = tensor.index; // clone here because we will move it later
 
-    //             // setup name
-    //             write!(&mut x.name, "/replica_{}", id).unwrap();
-    //             let name = x.name.clone();
+    for (id, device) in target.devices.iter().enumerate() {
+        let mut identity = NodeDef::new();
 
-    //             // setup device
-    //             x.device = target.devices[id].clone();
+        identity.name = format!("{}/aux_identity_{}_{}", name, index, id);
+        identity.op = "Identity".into();
+        identity.device = device.clone();
 
-    //             // setup inputs
-    //             x.input.clear();
-    //             for (node_id, index) in &self.inputs {
-    //                 let node = &self.graph().nodes[*node_id];
-    //                 let tensor_name = node.get_output(*index).get_replicated(id);
-    //                 x.input.push(tensor_name);
-    //             }
+        let dtype = attr(AttrValue_oneof_value::field_type(DataType::DT_FLOAT)); // TODO: get from raw_node
+        identity.attr.insert("T".into(), dtype);
+        identity.input.push(tensor.original_name());
 
-    //             target.pb.node.push(x);
-    //             name
-    //         }).collect();
-    //         new_replication = Replication::Replicas(replicas);
-    //     }
+        target.pb.node.push(identity)
+    }
 
-    //     self.replication = new_replication;
-    // }
+    tensor.aggregated = Some(format!("{}:{}", name, index));
+    tensor.replicated = Some(Box::new(move |id| format!("{}/aux_identity_{}_{}", name, index, id)));
+}
 
 fn attr(v: AttrValue_oneof_value) -> AttrValue {
     let mut a = AttrValue::new();

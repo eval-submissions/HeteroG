@@ -157,6 +157,14 @@ impl Tensor {
         }
     }
 
+    pub fn original_name(&self) -> String {
+        if self.index == 0 {
+            self.node().raw_node.name.clone()
+        } else {
+            format!("{}:{}", self.node().raw_node.name, self.index)
+        }
+    }
+
     pub fn node(&self) -> &Node {
         unsafe { &*self.node }
     }
