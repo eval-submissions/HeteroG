@@ -110,6 +110,7 @@ impl Node {
             for (device_id, name) in self.replicas.iter() {
                 let mut node = self.raw_node.clone();
                 node.name = name.clone();
+                node.device = target.devices[*device_id].clone();
                 node.input = self.inputs.iter().map(|(node_id, index)| {
                     let input = &self.graph().nodes[*node_id];
                     input.get_output(*index).get_replicated(*device_id)
