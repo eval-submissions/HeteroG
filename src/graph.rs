@@ -88,6 +88,14 @@ impl Node {
         &mut mutable.outputs[index]
     }
 
+    pub fn replicated(&self) -> Option<bool> {
+        match self.replicas.len() {
+            0 => None,
+            1 => Some(false),
+            _ => Some(true)
+        }
+    }
+
     /// recursively compile ancestor tree
     fn compile(&mut self, target: &mut Target) {
         if self.compiled {

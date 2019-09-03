@@ -1,3 +1,5 @@
+use std::convert::TryInto;
+
 use crate::graph::*;
 use crate::proto::types::DataType;
 use crate::proto::attr_value::{AttrValue, AttrValue_oneof_value};
@@ -31,6 +33,7 @@ pub struct DataParallelOneForAll;
 
 impl Strategy for DataParallelOneForAll {
     fn plan(&mut self, graph: &mut Graph, target: &mut Target) {
+        // first pass: set special logic for sepcial ops
         for node in graph.nodes.iter_mut() {
             match &node.raw_node.name[..] {
                 "VariableV2" => {
@@ -41,8 +44,28 @@ impl Strategy for DataParallelOneForAll {
                     node.replicas.push((0, node.raw_node.name.clone()));
                     replicate_split(node.get_output(0), target);
                 }
+                "ApplyGradientDescent" => {
+                    node.replicas.push((0, node.raw_node.name.clone()));
+                    let (id, index) = node.inputs[2]; // the gradient
+                    aggregate_sum(node.graph().nodes[id].get_output(index), target);
+                }
                 _ => {
                     replicate_per_device(node, target);
+                }
+            }
+        }
+
+        // second pass: add default logic for remaining ops
+        for node in graph.nodes.iter_mut() {
+            for (node_id, index) in node.inputs.iter() {
+                let tensor = node.graph().nodes[*node_id].get_output(*index);
+                if tensor.replicated.is_none() && tensor.node().replicated().unwrap() {
+                    let replicas = tensor.node().replicas.clone();
+                    let index = tensor.index;
+                    tensor.replicated = Some(Box::new(move |id| format!("{}:{}", replicas[id].1, index))) // TODO: find the replica in the device rather than assuming it is the i-th one.
+                }
+                if tensor.aggregated.is_none() && !tensor.node().replicated().unwrap() {
+                    tensor.aggregated = Some(tensor.original_name())
                 }
             }
         }
@@ -56,7 +79,7 @@ fn replicate_per_device(node: &mut Node, target: &mut Target) {
 }
 
 fn replicate_split(tensor: &mut Tensor, target: &mut Target) {
-    assert!(tensor.node().replicas.len() == 1);
+    assert!(!tensor.node().replicated().unwrap());
 
     let name = tensor.node().raw_node.name.clone();
     let index = tensor.index; // clone here because we will move it later
@@ -65,37 +88,35 @@ fn replicate_split(tensor: &mut Tensor, target: &mut Target) {
     dim.name = format!("{}/aux_split_{}/split_dim", name, index);
     dim.op = "Const".into();
     dim.device = target.devices[tensor.node().replicas[0].0].clone();
-    dim.input.push(tensor.original_name());
     dim.attr.insert("dtype".into(),
         attr(AttrValue_oneof_value::field_type(DataType::DT_FLOAT))); // TODO: get from raw_node
-    let value = TensorProto::new();
+    let mut value = TensorProto::new();
     let shape = crate::proto::tensor_shape::TensorShapeProto::new();
-    let scalar = crate::proto::tensor_shape::TensorShapeProto_Dim::new();
-    shape.dim.push(scalar);
-
     value.dtype = DataType::DT_FLOAT; // TODO: get from raw_node
     value.tensor_shape = protobuf::SingularPtrField::some(shape);
     value.int_val.push(0);
     dim.attr.insert("value".into(),
-        attr(AttrValue_oneof_value::tensor(TensorProto::new())));
+        attr(AttrValue_oneof_value::tensor(value)));
+    target.pb.node.push(dim);
 
-    // create_raw_node(target, 'Const', '',
-    //     "{}/{}".format(self.node.raw_node.name, "aux_split_{}/split_dim".format(self.index)),
-    //     dtype = { 'type': DT_INT32 },
-    //     value = { 'tensor': { 'dtype': DT_INT32, 'tensor_shape': {}, 'int_val': [0] } }
-    // )
-    // create_raw_node(target, 'Split', '',
-    //     "{}/{}".format(self.node.raw_node.name, "aux_split_{}".format(self.index)),
-    //     "{}/{}".format(self.node.raw_node.name, "aux_split_{}/split_dim".format(self.index)),
-    //     "{}:{}".format(self.node.replicas[0].name, self.index),
-    //     T = { 'type': DT_FLOAT },
-    //     num_split = { 'i': len(self.node.graph.devices) }
-    // )
+    let mut split = NodeDef::new();
+    split.name = format!("{}/aux_split_{}", name, index);
+    split.op = "Split".into();
+    split.device = target.devices[tensor.node().replicas[0].0].clone();
+    split.input.push(format!("{}/aux_split_{}/split_dim", name, index));
+    split.input.push(tensor.original_name());
+    split.attr.insert("T".into(),
+        attr(AttrValue_oneof_value::field_type(DataType::DT_FLOAT))); // TODO: get from raw_node
+    split.attr.insert("num_split".into(),
+        attr(AttrValue_oneof_value::i(target.devices.len().try_into().unwrap())));
+    target.pb.node.push(split);
+
+    tensor.replicated = Some(Box::new(move |id| format!("{}/aux_split_{}:{}", name, index, id)))
 }
 
 /// direct identity node: no topology and routing considered
 fn replicate_cache(tensor: &mut Tensor, target: &mut Target) {
-    assert!(tensor.node().replicas.len() == 1);
+    assert!(!tensor.node().replicated().unwrap());
 
     let name = tensor.node().raw_node.name.clone();
     let index = tensor.index; // clone here because we will move it later
@@ -117,6 +138,32 @@ fn replicate_cache(tensor: &mut Tensor, target: &mut Target) {
     tensor.aggregated = Some(format!("{}:{}", name, index));
     tensor.replicated = Some(Box::new(move |id| format!("{}/aux_identity_{}_{}", name, index, id)));
 }
+
+fn aggregate_sum(tensor: &mut Tensor, target: &mut Target) {
+    assert!(tensor.node().replicated().unwrap());
+
+    let name = tensor.node().raw_node.name.clone();
+    let index = tensor.index; // clone here because we will move it later
+
+    let mut addn = NodeDef::new();
+    addn.name = format!("{}/aux_sum_{}", name, index);
+    addn.op = "AddN".into();
+    addn.device = target.devices[tensor.node().replicas[0].0].clone();
+    addn.attr.insert("N".into(),
+        attr(AttrValue_oneof_value::i(tensor.node().replicas.len().try_into().unwrap())));
+    addn.attr.insert("T".into(),
+        attr(AttrValue_oneof_value::field_type(DataType::DT_FLOAT))); // TODO: get from raw_node
+    target.pb.node.push(addn);
+
+    tensor.aggregated = Some(format!("{}/aux_sum_{}", name, index));
+}
+
+// create_raw_node(target, 'AddN', device,
+//                 "{}/{}".format(self.node.raw_node.name, "aux_sum_{}".format(self.index)),
+//                 *[ "{}:{}".format(replica.name, self.index) for replica in self.node.replicas ],
+//                 N = { 'i': len(self.node.replicas) },
+//                 T = { 'type': DT_FLOAT }
+//             )
 
 fn attr(v: AttrValue_oneof_value) -> AttrValue {
     let mut a = AttrValue::new();
