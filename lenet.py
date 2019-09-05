@@ -1,10 +1,16 @@
 def model_fn():
-    x = tf.placeholder(tf.float32, shape=(None, 1024))
-    y = tf.placeholder(tf.float32, shape=(None, 10,))
-    hidden = tf.contrib.slim.fully_connected(x, 256, activation_fn=tf.nn.softmax)
-    output = tf.contrib.slim.fully_connected(hidden, 10, activation_fn=tf.nn.softmax)
-    loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
-    optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
+    slim = tf.contrib.slim
+    x = tf.placeholder(tf.float32, shape=(None, 32, 32, 3))
+    y = tf.placeholder(tf.float32, shape=(None, 10))
+    net = slim.conv2d(x, 32, [5, 5])
+    net = slim.max_pool2d(net, [2, 2], 2)
+    net = slim.conv2d(net, 64, [5, 5])
+    net = slim.max_pool2d(net, [2, 2], 2)
+    net = slim.flatten(net)
+    net = slim.fully_connected(net, 1024, activation_fn=tf.nn.sigmoid)
+    net = slim.fully_connected(net, 10)
+    loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=net)
+    optimizer = tf.train.GradientDescentOptimizer(0.0001).minimize(tf.reduce_sum(loss))
     return optimizer
 
 import time
@@ -33,6 +39,7 @@ toc1 = time.perf_counter()
 
 g = tf.Graph().as_graph_def()
 g.ParseFromString(bytes)
+tf.reset_default_graph()
 tf.import_graph_def(g)
 graph = tf.get_default_graph()
 
@@ -41,7 +48,7 @@ y = graph.get_tensor_by_name("import/Placeholder_1:0")
 opt = graph.get_operation_by_name("import/GradientDescent")
 init = graph.get_operation_by_name("import/init")
 
-# dag = tf.graph_util.extract_sub_graph(dag, [op.name, init.name])
+loss = tf.reduce_sum(graph.get_tensor_by_name("import/logistic_loss/replica_0:0")) + tf.reduce_sum(graph.get_tensor_by_name("import/logistic_loss/replica_1:0"))
 
 write_tensorboard(opt.graph)
 
@@ -52,9 +59,22 @@ server = tf.distribute.Server(tf.train.ClusterSpec({
 sess = tf.Session(server.target, config=tf.ConfigProto(log_device_placement=True))
 sess.run(init)
 
+def onehot(x):
+    max = x.max() + 1
+    return np.eye(max)[x]
+
+(x_train, y_train), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
+y_train = onehot(y_train.reshape(-1))
+y_test = onehot(y_test.reshape(-1))
+batch_size = 50
+
 tic2 = time.perf_counter()
-for i in range(100):
-    sess.run(opt, { x: np.random.uniform(size=(120, 1024)), y: np.random.uniform(size=(120, 10)) })
+for i in range(1000):
+    sess.run(opt, { x: x_train[batch_size*i:batch_size*(i+1)], y: y_train[batch_size*i:batch_size*(i+1)] })
+    if i % 10 == 0:
+        l = sess.run(loss, { x: x_test, y: y_test })
+        print("loss: ", l)
+
 toc2 = time.perf_counter()
 
 import sys

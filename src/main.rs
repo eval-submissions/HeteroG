@@ -34,3 +34,4 @@ fn main() {
 //    - since Assign and ApplyGradients are not replicated, they works as expected for now.
 // 2. try topology-aware reduce and broadcasting under the assumption that devices with the same task_id has neglectable communication cost
 // 3. compare naive dp placement with DEFT
+// 4. currently it panics if only one device is passed. Not a big problem though
