@@ -16,7 +16,7 @@ from utils import write_tensorboard
 
 opt = model_fn()
 init = tf.global_variables_initializer()
-gdef = tf.get_default_graph().as_graph_def()
+gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
 bytes = gdef.SerializeToString()
 
 devices = (
