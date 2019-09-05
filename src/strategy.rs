@@ -177,6 +177,27 @@ fn aggregate_sum(tensor: &mut Tensor, target: &mut Target) {
     tensor.aggregated = Some(format!("{}/aux_sum_{}", name, index));
 }
 
+// def get_aggregated_split(self, id): # TODO: what if two ops on different devices want the same tensor?
+//     if not hasattr(self, 'merged'):
+//         target = self.node.graph.target
+//         device = self.node.devices[id]
+//         create_raw_node(target, 'Const', device,
+//             "{}/{}".format(self.node.raw_node.name, "aux_concat_{}/axis".format(self.index)),
+//             dtype = { 'type': DT_INT32 },
+//             value = { 'tensor': { 'dtype': DT_INT32, 'tensor_shape': {}, 'int_val': [0] } }
+//         )
+//         create_raw_node(target, 'ConcatV2', device,
+//             "{}/{}".format(self.node.raw_node.name, "aux_concat_{}".format(self.index)),
+//             *[ "{}:{}".format(replica.name, self.index) for replica in self.node.replicas ],
+//             "{}/{}".format(self.node.raw_node.name, "aux_concat_{}/axis".format(self.index)),
+//             N = { 'i': len(self.node.replicas) },
+//             T = { 'type': DT_FLOAT },
+//             Tidx = { 'type': DT_INT32 }
+//         )
+//         self.merged = "{}/{}".format(self.node.raw_node.name, "aux_concat_{}".format(self.index))
+
+//     return self.merged
+
 fn attr(v: AttrValue_oneof_value) -> AttrValue {
     let mut a = AttrValue::new();
     a.value = Some(v);

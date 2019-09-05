@@ -139,10 +139,6 @@ impl Node {
     }
 }
 
-// replicability: deducted from inputs ability
-// requirement: requested by the output
-// state: by the statue of the node
-// resolve: choose the merge/split/all-reduce implementation using the above condition and strategy
 pub struct Tensor {
     pub node: *const Node,
     pub index: usize,
@@ -193,8 +189,8 @@ pub struct Target {
 }
 
 impl Target {
-    pub fn new(pb: GraphDef, devices: &[&str]) -> Self {
-        Target { pb, devices: devices.iter().map(|x| (*x).to_owned()).collect::<Vec<_>>().into_boxed_slice() }
+    pub fn new(pb: GraphDef, devices: Box<[String]>) -> Self {
+        Target { pb, devices }
     }
 }
 

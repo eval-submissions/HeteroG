@@ -1,5 +1,3 @@
-import tensorflow as tf
-
 def model_fn():
     x = tf.placeholder(tf.float32, shape=(None, 1024))
     y = tf.placeholder(tf.float32, shape=(None, 10,))
@@ -7,5 +5,53 @@ def model_fn():
     output = tf.contrib.slim.fully_connected(hidden, 10, activation_fn=tf.nn.softmax)
     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
-
     return optimizer
+
+import subprocess as sb
+import numpy as np
+import tensorflow as tf
+
+from utils import write_tensorboard
+
+opt = model_fn()
+init = tf.global_variables_initializer()
+gdef = tf.get_default_graph().as_graph_def()
+bytes = gdef.SerializeToString()
+
+devices = (
+    "/job:tge/replica:0/task:0/device:GPU:0",
+    "/job:tge/replica:0/task:0/device:GPU:1",
+    "/job:tge/replica:0/task:1/device:GPU:0",
+    "/job:tge/replica:0/task:1/device:GPU:1"
+)
+
+p = sb.Popen(["./tge", *devices], stdin=sb.PIPE, stdout=sb.PIPE)
+bytes, _ = p.communicate(bytes)
+
+g = tf.Graph().as_graph_def()
+g.ParseFromString(bytes)
+tf.import_graph_def(g)
+graph = tf.get_default_graph()
+
+x = graph.get_tensor_by_name("import/Placeholder:0")
+y = graph.get_tensor_by_name("import/Placeholder_1:0")
+opt = graph.get_operation_by_name("import/GradientDescent")
+init = graph.get_operation_by_name("import/init")
+
+# dag = tf.graph_util.extract_sub_graph(dag, [op.name, init.name])
+
+write_tensorboard(opt.graph)
+
+server = tf.distribute.Server(tf.train.ClusterSpec({
+    "tge": ["net-g10:3901", "net-g11:3901"]
+}), job_name='tge', task_index=1)
+
+sess = tf.Session(server.target, config=tf.ConfigProto(log_device_placement=True))
+sess.run(init)
+
+tic = time.perf_counter()
+for i in range(100):
+    sess.run(opt, { x: np.random.uniform(size=(120, 1024)), y: np.random.uniform(size=(120, 10)) })
+toc = time.perf_counter()
+print("elapsed time: {}", tic - toc)
+

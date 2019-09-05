@@ -4,6 +4,7 @@
 #![deny(bare_trait_objects)]
 
 use protobuf::{Message, parse_from_bytes};
+use oh_my_rust::*;
 
 mod proto;
 mod graph;
@@ -11,17 +12,12 @@ mod strategy;
 mod polishing;
 
 fn main() {
-    let raw_bytes = std::fs::read("g.pb").unwrap();
+    let raw_bytes = std::io::stdin().read_to_end_alloc().unwrap();
     let g: proto::graph::GraphDef = parse_from_bytes(&raw_bytes).unwrap();
 
-    let devices = [
-        "/job:tge/replica:0/task:0/device:GPU:0",
-        "/job:tge/replica:0/task:0/device:GPU:1",
-        "/job:tge/replica:0/task:1/device:GPU:0",
-        "/job:tge/replica:0/task:1/device:GPU:1",
-    ];
+    let devices: Vec<_> = std::env::args().skip(1).collect();
     let mut strategy = strategy::DataParallelOneForAll;
-    let mut target = graph::Target::new(proto::graph::GraphDef::new(), &devices);
+    let mut target = graph::Target::new(proto::graph::GraphDef::new(), devices.into_boxed_slice());
     let mut graph = graph::Graph::new(g.node.iter());
 
     strategy::Strategy::plan(&mut strategy, &mut graph, &mut target);
@@ -29,9 +25,12 @@ fn main() {
 
     polishing::remove_colocation_hint(&mut target);
 
-    let mut fout = std::fs::File::create("gout.pb").unwrap();
-    target.pb.write_to_writer(&mut fout).unwrap();
+    target.pb.write_to_writer(&mut std::io::stdout()).unwrap();
 }
 
-// TODO: control dependency of GradientDescent and init are broken and should be special cased
-//       we can first do not replicate them, then fix the control dependencies specially after the compiling done
+// TODO list
+// 0. get VGG+cifar run and record time and accuracy
+// 1. control dependency of GradientDescent and init should be special cased
+//    - since Assign and ApplyGradients are not replicated, they works as expected for now.
+// 2. try topology-aware reduce and broadcasting under the assumption that devices with the same task_id has neglectable communication cost
+// 3. compare naive dp placement with DEFT

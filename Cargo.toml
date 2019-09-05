@@ -6,3 +6,4 @@ edition = "2018"
 
 [dependencies]
 protobuf = "2.8"
+oh-my-rust = { git = "https://github.com/ylxdzsw/oh-my-rust" }
