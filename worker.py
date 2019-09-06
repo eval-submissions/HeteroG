@@ -19,7 +19,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             [_, timestamp, cmd, *args] = self.path.split('/')
         except:
-            return print(self.path)
+            return print("wrong path")
 
         if int(timestamp) < int(time.time()):
             return print("expired request")

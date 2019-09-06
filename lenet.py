@@ -20,7 +20,7 @@ import numpy as np
 import tensorflow as tf
 import google.protobuf.text_format as pbtf
 
-from utils import write_tensorboard
+from utils import write_tensorboard, restart_workers
 
 opt = model_fn()
 init = tf.global_variables_initializer()
@@ -54,9 +54,11 @@ acc = 10 * (graph.get_tensor_by_name("import/Mean/replica_0:0") + graph.get_tens
 
 write_tensorboard(opt.graph)
 
+workers = ["net-g11:3901", "net-g10:3901"]
+restart_workers(workers)
 server = tf.distribute.Server(tf.train.ClusterSpec({
-    "tge": ["net-g10:3901", "net-g11:3901"]
-}), job_name='tge', task_index=1)
+    "tge": workers
+}), job_name='tge', task_index=0)
 
 profiler = tf.profiler.Profiler(graph)
 
