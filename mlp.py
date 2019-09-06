@@ -20,8 +20,8 @@ gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
 bytes = gdef.SerializeToString()
 
 devices = (
-    # "/job:tge/replica:0/task:0/device:GPU:0",
-    # "/job:tge/replica:0/task:0/device:GPU:1",
+    "/job:tge/replica:0/task:0/device:GPU:0",
+    "/job:tge/replica:0/task:0/device:GPU:1",
     "/job:tge/replica:0/task:1/device:GPU:0",
     "/job:tge/replica:0/task:1/device:GPU:1"
 )

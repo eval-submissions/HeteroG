@@ -18,6 +18,7 @@ import time
 import subprocess as sb
 import numpy as np
 import tensorflow as tf
+import google.protobuf.text_format as pbtf
 
 from utils import write_tensorboard
 
@@ -27,8 +28,8 @@ gdef = tf.get_default_graph().as_graph_def() # add_shapes=True? then we must kee
 bytes = gdef.SerializeToString()
 
 devices = (
-    # "/job:tge/replica:0/task:0/device:GPU:0",
-    # "/job:tge/replica:0/task:0/device:GPU:1",
+    "/job:tge/replica:0/task:0/device:GPU:0",
+    "/job:tge/replica:0/task:0/device:GPU:1",
     "/job:tge/replica:0/task:1/device:GPU:0",
     "/job:tge/replica:0/task:1/device:GPU:1"
 )
@@ -57,6 +58,8 @@ server = tf.distribute.Server(tf.train.ClusterSpec({
     "tge": ["net-g10:3901", "net-g11:3901"]
 }), job_name='tge', task_index=1)
 
+profiler = tf.profiler.Profiler(graph)
+
 sess = tf.Session(server.target, config=tf.ConfigProto(log_device_placement=True))
 sess.run(init)
 
@@ -69,20 +72,31 @@ x_train = x_train / 255
 x_test = x_test / 255
 y_train = onehot(y_train.reshape(-1))
 y_test = onehot(y_test.reshape(-1))
-batch_size = 50
+batch_size = 40
 
 tpi = []
 tic2 = time.perf_counter()
 for batch_id in range(2000):
-    i = batch_id % 1000
+    i = batch_id % 1250
+    run_meta = tf.compat.v1.RunMetadata()
     tic = time.perf_counter()
-    sess.run(opt, { x: x_train[batch_size*i:batch_size*(i+1)], y: y_train[batch_size*i:batch_size*(i+1)] })
+    sess.run(opt,
+        { x: x_train[batch_size*i:batch_size*(i+1)], y: y_train[batch_size*i:batch_size*(i+1)] },
+        options=tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
+        run_metadata=run_meta
+    )
     toc = time.perf_counter()
     tpi.append(toc - tic)
-    if i % 100 == 0:
+    profiler.add_step(batch_id, run_meta)
+    profiler_option = tf.profiler
+    r = profiler.profile_operations(options=tf.profiler.ProfileOptionBuilder.time_and_memory())
+    with open("p_{}".format(batch_id), "w") as fo:
+        fo.write(pbtf.MessageToString(r))
+
+    if i % 50 == 0:
         a = sess.run(acc, { x: x_test, y: y_test })
         print("acc: ", a)
-        print("tpi: ", sum(tpi[-50:-1]) / 50)
+        print("tpi: ", sum(tpi[-50:-1]) / batch_size)
 
 toc2 = time.perf_counter()
 
