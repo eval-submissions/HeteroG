@@ -14,7 +14,6 @@ def model_fn():
     optimizer = tf.train.GradientDescentOptimizer(0.001).minimize(tf.reduce_sum(loss))
     return optimizer
 
-import time
 import subprocess as sb
 import numpy as np
 import tensorflow as tf
@@ -34,10 +33,8 @@ devices = (
     "/job:tge/replica:0/task:1/device:GPU:1"
 )
 
-tic1 = time.perf_counter()
 p = sb.Popen(["./tge", *devices], stdin=sb.PIPE, stdout=sb.PIPE)
 bytes, _ = p.communicate(bytes)
-toc1 = time.perf_counter()
 
 g = tf.Graph().as_graph_def()
 g.ParseFromString(bytes)
@@ -60,8 +57,6 @@ server = tf.distribute.Server(tf.train.ClusterSpec({
     "tge": workers
 }), job_name='tge', task_index=0)
 
-profiler = tf.profiler.Profiler(graph)
-
 sess = tf.Session(server.target, config=tf.ConfigProto(log_device_placement=True))
 sess.run(init)
 
@@ -76,11 +71,29 @@ y_train = onehot(y_train.reshape(-1))
 y_test = onehot(y_test.reshape(-1))
 batch_size = 40
 
+profiler = tf.profiler.Profiler(graph)
+for i in range(4):
+    run_meta = tf.compat.v1.RunMetadata()
+    sess.run(opt,
+        { x: x_train[batch_size*i:batch_size*(i+1)], y: y_train[batch_size*i:batch_size*(i+1)] },
+        options=tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
+        run_metadata=run_meta
+    )
+    profiler.add_step(i, run_meta)
+
+    r = profiler.profile_operations(options=tf.profiler.ProfileOptionBuilder.time_and_memory())
+    with open("p_{}".format(i), "w") as fo:
+        fo.write(pbtf.MessageToString(r))
+
+profiler.profile_graph(options=
+    tf.profiler.ProfileOptionBuilder(tf.profiler.ProfileOptionBuilder.time_and_memory())
+        .with_timeline_output("t").build())
+
 tpi = []
-tic2 = time.perf_counter()
 for batch_id in range(2000):
     i = batch_id % 1250
     run_meta = tf.compat.v1.RunMetadata()
+
     tic = time.perf_counter()
     sess.run(opt,
         { x: x_train[batch_size*i:batch_size*(i+1)], y: y_train[batch_size*i:batch_size*(i+1)] },
@@ -88,32 +101,9 @@ for batch_id in range(2000):
         run_metadata=run_meta
     )
     toc = time.perf_counter()
-    tpi.append(toc - tic)
-    profiler.add_step(batch_id, run_meta)
-    profiler_option = tf.profiler
-    r = profiler.profile_operations(options=tf.profiler.ProfileOptionBuilder.time_and_memory())
-    with open("p_{}".format(batch_id), "w") as fo:
-        fo.write(pbtf.MessageToString(r))
+    tpi.push(toc - tic)
 
     if i % 50 == 0:
         a = sess.run(acc, { x: x_test, y: y_test })
         print("acc: ", a)
-        print("tpi: ", sum(tpi[-50:-1]) / batch_size)
-
-toc2 = time.perf_counter()
-
-import sys
-sys.stderr.write("""
-
-================
-
-planning time: {plan_time}s
-trainning time: {train_time}s
-time per iter: {tpi}s
-
-""".format(
-    plan_time = toc1 - tic1,
-    train_time = toc2 - tic2,
-    tpi = sum(tpi) / len(tpi)
-))
-
+        print("tpi: ", sum(tpi[-50:-1]) / 50)
