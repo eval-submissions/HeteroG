@@ -51,7 +51,7 @@ acc = 10 * (graph.get_tensor_by_name("import/Mean/replica_0:0") + graph.get_tens
 
 write_tensorboard(opt.graph)
 
-workers = ["net-g11:3901", "net-g10:3901"]
+workers = ["10.28.1.26:3901", "10.28.1.25:3901"]
 restart_workers(workers)
 server = tf.distribute.Server(tf.train.ClusterSpec({
     "tge": workers

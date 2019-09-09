@@ -37,20 +37,20 @@ impl Strategy for DataParallelOneForAll {
         for node in graph.nodes.iter_mut() {
             match &node.raw_node.op[..] {
                 "VariableV2" => {
-                    put_on_CPU0(node, target);
+                    put_on_cpu0(node, target);
                     replicate_cache(node.get_output(0), target);
                 }
                 "Placeholder" => {
-                    put_on_CPU0(node, target);
+                    put_on_cpu0(node, target);
                     replicate_split(node.get_output(0), target);
                 }
                 "ApplyGradientDescent" => {
-                    put_on_CPU0(node, target);
+                    put_on_cpu0(node, target);
                     let (id, index) = node.inputs[2]; // the gradient
                     aggregate_sum(node.graph().nodes[id].get_output(index), target);
                 }
                 "Assign" | "RandomUniform" => { // TODO: the whole init tree should not be replicated, and be placed alongside the Variable
-                    put_on_CPU0(node, target);
+                    put_on_cpu0(node, target);
                 }
                 "NoOp" if node.raw_node.name == "GradientDescent" || node.raw_node.name == "init" => {
                     node.replicas.push((0, node.raw_node.name.clone()));
@@ -88,7 +88,67 @@ impl Strategy for DataParallelOneForAll {
     }
 }
 
-fn put_on_CPU0(node: &mut Node, target: &mut Target) {
+/// aggressively replicate all nodes for data-parallel and use NCCL for all-reduce
+pub struct DataParallelNccl;
+
+impl Strategy for DataParallelNccl {
+    fn plan(&mut self, graph: &mut Graph, target: &mut Target) {
+        // first pass: set special logic for sepcial ops
+        for node in graph.nodes.iter_mut() {
+            match &node.raw_node.op[..] {
+                "VariableV2" => {
+                    put_on_cpu0(node, target);
+                    replicate_cache(node.get_output(0), target);
+                }
+                "Placeholder" => {
+                    put_on_cpu0(node, target);
+                    replicate_split(node.get_output(0), target);
+                }
+                "ApplyGradientDescent" => {
+                    put_on_cpu0(node, target);
+                    let (id, index) = node.inputs[2]; // the gradient
+                    aggregate_sum(node.graph().nodes[id].get_output(index), target);
+                }
+                "Assign" | "RandomUniform" => { // TODO: the whole init tree should not be replicated, and be placed alongside the Variable
+                    put_on_cpu0(node, target);
+                }
+                "NoOp" if node.raw_node.name == "GradientDescent" || node.raw_node.name == "init" => {
+                    node.replicas.push((0, node.raw_node.name.clone()));
+                }
+                _ => {
+                    replicate_per_device(node, target);
+                }
+            }
+        }
+
+        // second pass: add default logic for remaining ops
+        for node in graph.nodes.iter_mut() {
+            for (node_id, index) in node.inputs.iter() {
+                let tensor = node.graph().nodes[*node_id].get_output(*index);
+                if tensor.replicated.is_none() && tensor.node().replicated().unwrap() {
+                    let replicas = tensor.node().replicas.clone();
+                    let index = tensor.index;
+                    tensor.replicated = Some(Box::new(move |id| format!("{}:{}", replicas[id].1, index))) // TODO: find the replica in the device rather than assuming it is the i-th one.
+                }
+                if tensor.aggregated.is_none() && !tensor.node().replicated().unwrap() {
+                    tensor.aggregated = Some(tensor.original_name())
+                }
+
+                // these rule should not exist, just use them before we get replicability inference right
+                if tensor.replicated.is_none() && !tensor.node().replicated().unwrap() {
+                    let name = tensor.original_name();
+                    tensor.replicated = Some(Box::new(move |_id| name.clone()))
+                }
+                if tensor.aggregated.is_none() && tensor.node().replicated().unwrap() {
+                    tensor.aggregated = Some(format!("{}:{}", tensor.node().replicas[0].1, tensor.index))
+                }
+
+            }
+        }
+    }
+}
+
+fn put_on_cpu0(node: &mut Node, target: &mut Target) {
     if node.replicated().is_none() {
         node.replicas.push((0, node.raw_node.name.clone()));
     }
@@ -175,6 +235,21 @@ fn aggregate_sum(tensor: &mut Tensor, target: &mut Target) {
 
     target.pb.node.push(addn);
     tensor.aggregated = Some(format!("{}/aux_sum_{}", name, index));
+}
+
+fn aggregate_sum_nccl(tensor: &mut Tensor, target: &mut Target) {
+    assert!(tensor.node().replicated().unwrap());
+
+    let name = tensor.node().raw_node.name.clone();
+    let index = tensor.index;
+
+    let mut nccl = NodeDef::new();
+    nccl.name = format!("{}/aux_all_reduce_{}", name, index);
+    nccl.op = "NcclAllReduce".into();
+    nccl.device = target.devices[tensor.node().replicas[0].0].clone();
+    // nccl.attr.insert("reduction", attr(AttrValue_oneof_value::s(b"sum".into())))
+
+    unimplemented!()
 }
 
 // def get_aggregated_split(self, id): # TODO: what if two ops on different devices want the same tensor?

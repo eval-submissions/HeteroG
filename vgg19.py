@@ -1,8 +1,8 @@
 def model_fn():
     from tensorflow.contrib.slim.nets import vgg
     x = tf.placeholder(tf.float32, shape=(None, 224, 224, 3))
-    y = tf.placeholder(tf.float32, shape=(None, 1000))
-    output, _ = vgg.vgg_19(x)
+    y = tf.placeholder(tf.float32, shape=(None, 10))
+    output, _ = vgg.vgg_19(x, 10)
     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
     return optimizer
@@ -12,6 +12,7 @@ import subprocess as sb
 import numpy as np
 import tensorflow as tf
 import google.protobuf.text_format as pbtf
+from tensorflow.python.client import timeline
 
 from utils import write_tensorboard, restart_workers
 
@@ -42,13 +43,13 @@ y = graph.get_tensor_by_name("import/Placeholder_1:0")
 opt = graph.get_operation_by_name("import/GradientDescent")
 init = graph.get_operation_by_name("import/init")
 
-data = { x: np.random.uniform(size=(48, 224, 224, 3)), y: np.random.uniform(size=(48, 1000)) }
+data = { x: np.random.uniform(size=(32, 224, 224, 3)), y: np.random.uniform(size=(32, 10)) }
 
 # dag = tf.graph_util.extract_sub_graph(dag, [op.name, init.name])
 
 write_tensorboard(opt.graph)
 
-workers = ["net-g11:3901", "net-g10:3901"]
+workers = ["10.28.1.26:3901", "10.28.1.25:3901"]
 restart_workers(workers)
 server = tf.distribute.Server(tf.train.ClusterSpec({
     "tge": workers
@@ -58,22 +59,20 @@ sess = tf.Session(server.target, config=tf.ConfigProto(log_device_placement=True
 sess.run(init)
 sess.run(opt, data) # heat up
 
-profiler = tf.profiler.Profiler(graph)
 for i in range(4):
     run_meta = tf.compat.v1.RunMetadata()
+    run_opt = tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE, output_partition_graphs=True)
     sess.run(opt, data,
-        options=tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
+        options=run_opt,
         run_metadata=run_meta
     )
-    profiler.add_step(i, run_meta)
 
-    r = profiler.profile_operations(options=tf.profiler.ProfileOptionBuilder.time_and_memory())
-    with open("p_{}".format(i), "w") as fo:
-        fo.write(pbtf.MessageToString(r))
+    with open("meta_{}".format(i), "w") as fo:
+        fo.write(pbtf.MessageToString(run_meta))
 
-profiler.profile_graph(options=
-    tf.profiler.ProfileOptionBuilder(tf.profiler.ProfileOptionBuilder.time_and_memory())
-        .with_timeline_output("t").build())
+    tl = timeline.Timeline(run_meta.step_stats)
+    with open("t_{}".format(i), "w") as fo:
+        fo.write(tl.generate_chrome_trace_format())
 
 tic2 = time.perf_counter()
 for i in range(10):

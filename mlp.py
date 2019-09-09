@@ -45,7 +45,7 @@ init = graph.get_operation_by_name("import/init")
 
 write_tensorboard(opt.graph)
 
-workers = ["net-g11:3901", "net-g10:3901"]
+workers = ["10.28.1.26:3901", "10.28.1.25:3901"]
 restart_workers(workers)
 server = tf.distribute.Server(tf.train.ClusterSpec({
     "tge": workers
