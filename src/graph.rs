@@ -34,8 +34,6 @@ impl Graph {
     }
 }
 
-pub enum ReplicationMethod { undefined, copy, cache, split, sum }
-
 pub struct Node {
     pub graph: *const Graph,
     pub raw_node: NodeDef,
@@ -116,7 +114,12 @@ impl Node {
                     input.get_output(*index).get_replicated(*device_id)
                 }).collect();
                 for node_id in self.controls.iter() {
-                    let dependency = &self.graph().nodes[*node_id].replicas[*device_id].1;
+                    let dep_node = &self.graph().nodes[*node_id];
+                    let dependency = if dep_node.replicated().unwrap() {
+                        &dep_node.replicas[*device_id].1
+                    } else {
+                        &dep_node.replicas[0].1
+                    };
                     node.input.push(format!("^{}", dependency))
                 }
                 target.pb.node.push(node)
@@ -129,8 +132,9 @@ impl Node {
                 input.get_output(*index).get_aggregated()
             }).collect();
             for node_id in self.controls.iter() {
-                let dependency = &self.graph().nodes[*node_id].replicas[0].1; // TODO: this is wrong
-                node.input.push(format!("^{}", dependency))
+                for (_, replica) in &self.graph().nodes[*node_id].replicas {
+                    node.input.push(format!("^{}", replica))
+                }
             }
             target.pb.node.push(node)
         }
@@ -143,10 +147,6 @@ pub struct Tensor {
     pub node: *const Node,
     pub index: usize,
 
-    pub replicability: Vec<ReplicationMethod>, // how it can be replicated when needed
-    pub required: ReplicationMethod, // how the child want it to be
-    pub provided: ReplicationMethod, // how it currently is
-
     pub replicated: Option<Box<dyn Fn(usize) -> String>>, // should be provided by strategy
     pub aggregated: Option<String> // should be provided by strategy
 }
@@ -154,9 +154,6 @@ pub struct Tensor {
 impl Tensor {
     pub fn new(node: &Node, index: usize) -> Self {
         Tensor { node, index,
-            replicability: vec![],
-            required: ReplicationMethod::undefined,
-            provided: ReplicationMethod::undefined,
             replicated: None,
             aggregated: None
         }

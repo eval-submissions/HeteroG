@@ -1,8 +1,8 @@
 def model_fn():
     from tensorflow.contrib.slim.nets import vgg
     x = tf.placeholder(tf.float32, shape=(None, 224, 224, 3))
-    y = tf.placeholder(tf.float32, shape=(None, 10))
-    output, _ = vgg.vgg_19(x, 10)
+    y = tf.placeholder(tf.float32, shape=(None, 1000))
+    output, _ = vgg.vgg_19(x, 1000)
     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
     return optimizer
@@ -23,9 +23,9 @@ bytes = gdef.SerializeToString()
 
 devices = (
     "/job:tge/replica:0/task:0/device:GPU:0",
-    "/job:tge/replica:0/task:0/device:GPU:1",
+    # "/job:tge/replica:0/task:0/device:GPU:1",
     "/job:tge/replica:0/task:1/device:GPU:0",
-    "/job:tge/replica:0/task:1/device:GPU:1"
+    # "/job:tge/replica:0/task:1/device:GPU:1"
 )
 
 tic1 = time.perf_counter()
@@ -43,7 +43,7 @@ y = graph.get_tensor_by_name("import/Placeholder_1:0")
 opt = graph.get_operation_by_name("import/GradientDescent")
 init = graph.get_operation_by_name("import/init")
 
-data = { x: np.random.uniform(size=(32, 224, 224, 3)), y: np.random.uniform(size=(32, 10)) }
+data = { x: np.random.uniform(size=(64, 224, 224, 3)), y: np.random.uniform(size=(64, 1000)) }
 
 # dag = tf.graph_util.extract_sub_graph(dag, [op.name, init.name])
 

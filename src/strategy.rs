@@ -96,24 +96,20 @@ impl Strategy for DataParallelNccl {
         // first pass: set special logic for sepcial ops
         for node in graph.nodes.iter_mut() {
             match &node.raw_node.op[..] {
-                "VariableV2" => {
-                    put_on_cpu0(node, target);
-                    replicate_cache(node.get_output(0), target);
-                }
                 "Placeholder" => {
                     put_on_cpu0(node, target);
                     replicate_split(node.get_output(0), target);
                 }
                 "ApplyGradientDescent" => {
-                    put_on_cpu0(node, target);
+                    replicate_per_device(node, target);
                     let (id, index) = node.inputs[2]; // the gradient
-                    aggregate_sum(node.graph().nodes[id].get_output(index), target);
+                    all_reduce_sum_nccl(node.graph().nodes[id].get_output(index), target);
                 }
-                "Assign" | "RandomUniform" => { // TODO: the whole init tree should not be replicated, and be placed alongside the Variable
+                "RandomUniform" => {
                     put_on_cpu0(node, target);
                 }
                 "NoOp" if node.raw_node.name == "GradientDescent" || node.raw_node.name == "init" => {
-                    node.replicas.push((0, node.raw_node.name.clone()));
+                    put_on_cpu0(node, target);
                 }
                 _ => {
                     replicate_per_device(node, target);
@@ -134,7 +130,7 @@ impl Strategy for DataParallelNccl {
                     tensor.aggregated = Some(tensor.original_name())
                 }
 
-                // these rule should not exist, just use them before we get replicability inference right
+                // these rules should not exist, just use them before we get replicability inference right
                 if tensor.replicated.is_none() && !tensor.node().replicated().unwrap() {
                     let name = tensor.original_name();
                     tensor.replicated = Some(Box::new(move |_id| name.clone()))
@@ -237,19 +233,32 @@ fn aggregate_sum(tensor: &mut Tensor, target: &mut Target) {
     tensor.aggregated = Some(format!("{}/aux_sum_{}", name, index));
 }
 
-fn aggregate_sum_nccl(tensor: &mut Tensor, target: &mut Target) {
+fn all_reduce_sum_nccl(tensor: &mut Tensor, target: &mut Target) {
+    // to all_sum n tensors (can be on the same devie), one should have n NcclAllReduce nodes with the same shared_name attr
+    // each node have only *one* input, and should be on the same device of the input. The output of these nodes will be the same
+
     assert!(tensor.node().replicated().unwrap());
 
     let name = tensor.node().raw_node.name.clone();
-    let index = tensor.index;
+    let index = tensor.index; // clone here because we will move it later
 
-    let mut nccl = NodeDef::new();
-    nccl.name = format!("{}/aux_all_reduce_{}", name, index);
-    nccl.op = "NcclAllReduce".into();
-    nccl.device = target.devices[tensor.node().replicas[0].0].clone();
-    // nccl.attr.insert("reduction", attr(AttrValue_oneof_value::s(b"sum".into())))
+    for (id, replica) in tensor.node().replicas.iter() {
+        let device = &target.devices[*id];
+        let mut nccl = NodeDef::new();
 
-    unimplemented!()
+        nccl.name = format!("{}/aux_nccl_{}_{}", name, index, id);
+        nccl.op = "NcclAllReduce".into();
+        nccl.device = device.clone();
+        nccl.attr.insert("reduction".into(), attr(AttrValue_oneof_value::s(b"sum".to_vec())));
+        nccl.attr.insert("T".into(), get_dtype(&tensor.node().raw_node));
+        nccl.attr.insert("num_devices".into(), attr(AttrValue_oneof_value::i(tensor.node().replicas.len().try_into().unwrap())));
+        nccl.attr.insert("shared_name".into(), attr(AttrValue_oneof_value::s(tensor.original_name().into_bytes())));
+        nccl.input.push(format!("{}:{}", replica, index));
+
+        target.pb.node.push(nccl)
+    }
+
+    tensor.replicated = Some(Box::new(move |id| format!("{}/aux_nccl_{}_{}", name, index, id)));
 }
 
 // def get_aggregated_split(self, id): # TODO: what if two ops on different devices want the same tensor?
