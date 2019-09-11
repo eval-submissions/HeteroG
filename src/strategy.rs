@@ -261,6 +261,89 @@ fn all_reduce_sum_nccl(tensor: &mut Tensor, target: &mut Target) {
     tensor.replicated = Some(Box::new(move |id| format!("{}/aux_nccl_{}_{}", name, index, id)));
 }
 
+/// performing chunked ring all reduce for a list of (device_id, tensor_name), returning the name of summed results on each device
+/// basename should be unique!
+fn all_reduce_sum_ring_chunked(tensor: &Tensor, list: &[(usize, String)], target: &mut Target) -> Vec<String> {
+    let n = list.len();
+    let basename = tensor.node().raw_node.name.clone();
+    let devices: Vec<_> = list.iter().map(|(id, _)| target.devices[*id].clone()).collect();
+    let dtype = get_dtype(&tensor.node().raw_node);
+
+    // 1. chunking
+    let mut chunks: Vec<Vec<String>> = (0..n).map(|i| {
+        let device = &devices[i];
+        let name = &list[i].1;
+
+        let mut dim = NodeDef::new();
+        dim.name = format!("{}/ring_{}/aux_split_{}/split_dim", basename, tensor.index, i);
+        dim.op = "Const".into();
+        dim.device = device.into();
+        dim.attr.insert("dtype".into(),
+            attr(AttrValue_oneof_value::field_type(DataType::DT_INT32)));
+        let mut value = TensorProto::new();
+        let shape = crate::proto::tensor_shape::TensorShapeProto::new();
+        value.dtype = DataType::DT_INT32;
+        value.tensor_shape = protobuf::SingularPtrField::some(shape);
+        value.int_val.push(0);
+        dim.attr.insert("value".into(),
+            attr(AttrValue_oneof_value::tensor(value)));
+        target.pb.node.push(dim);
+
+        let mut split = NodeDef::new();
+        split.name = format!("{}/ring_{}/aux_split_{}", basename, tensor.index, i);
+        split.op = "Split".into();
+        split.device = device.clone();
+        split.input.push(format!("{}/ring_{}/aux_split_{}/split_dim", basename, tensor.index, i));
+        split.input.push(name.clone());
+        split.attr.insert("T".into(), dtype.clone());
+        split.attr.insert("num_split".into(),
+            attr(AttrValue_oneof_value::i(n.try_into().unwrap())));
+        target.pb.node.push(split);
+
+        (0..n).map(|j| {
+            format!("{}/ring_{}/aux_split_{}:{}", basename, tensor.index, i, j)
+        }).collect()
+    }).collect();
+
+    // 2. n-1 rounds of reducing. the last modified chunks (i+n-2) have the full content
+    for round in 0..n-1 {
+        // at the r round, the r+i chunk on i node is replaced by the sum of r+i and r+i+1
+        for i in 0..n {
+            let mut add = NodeDef::new();
+            add.name = format!("{}/ring_{}/aux_add_{}_{}", basename, tensor.index, i, round);
+            add.op = "Add".into();
+            add.device = devices[i].clone();
+            add.input.push(chunks[i][(round+i) % n].clone());
+            add.input.push(chunks[(i+1) % n][(round+i) % n].clone());
+            add.attr.insert("T".into(), dtype.clone());
+            chunks[i][(round+i) % n] = add.name.clone();
+            target.pb.node.push(add);
+        }
+    }
+
+    // 3. n-1 rounds of gathering
+    for round in 0..n-1 {
+        for i in 0..n {
+            let mut identity = NodeDef::new();
+
+            identity.name = format!("{}/ring_{}/aux_identity_{}_{}", basename, tensor.index, i, round);
+            identity.op = "Identity".into();
+            identity.device = devices[i].clone();
+            identity.attr.insert("T".into(), dtype.clone());
+            identity.input.push(chunks[(i+1) % n][i+round+n-1].clone());
+            chunks[i][i+round+n-1] = identity.name.clone();
+            target.pb.node.push(identity);
+        }
+    }
+
+    // 4. concating
+    for i in 0..n {
+
+    }
+
+    unimplemented!()
+}
+
 // def get_aggregated_split(self, id): # TODO: what if two ops on different devices want the same tensor?
 //     if not hasattr(self, 'merged'):
 //         target = self.node.graph.target
