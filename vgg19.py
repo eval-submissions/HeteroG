@@ -23,9 +23,9 @@ bytes = gdef.SerializeToString()
 
 devices = (
     "/job:tge/replica:0/task:0/device:GPU:0",
-    # "/job:tge/replica:0/task:0/device:GPU:1",
+    "/job:tge/replica:0/task:0/device:GPU:1",
     "/job:tge/replica:0/task:1/device:GPU:0",
-    # "/job:tge/replica:0/task:1/device:GPU:1"
+    "/job:tge/replica:0/task:1/device:GPU:1"
 )
 
 tic1 = time.perf_counter()
@@ -35,8 +35,10 @@ toc1 = time.perf_counter()
 
 g = tf.Graph().as_graph_def()
 g.ParseFromString(bytes)
+tf.reset_default_graph()
 tf.import_graph_def(g)
 graph = tf.get_default_graph()
+write_tensorboard(graph)
 
 x = graph.get_tensor_by_name("import/Placeholder:0")
 y = graph.get_tensor_by_name("import/Placeholder_1:0")
@@ -46,8 +48,6 @@ init = graph.get_operation_by_name("import/init")
 data = { x: np.random.uniform(size=(64, 224, 224, 3)), y: np.random.uniform(size=(64, 1000)) }
 
 # dag = tf.graph_util.extract_sub_graph(dag, [op.name, init.name])
-
-write_tensorboard(opt.graph)
 
 workers = ["10.28.1.26:3901", "10.28.1.25:3901"]
 restart_workers(workers)
