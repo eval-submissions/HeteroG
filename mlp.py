@@ -21,9 +21,9 @@ bytes = gdef.SerializeToString()
 
 devices = (
     "/job:tge/replica:0/task:0/device:GPU:0",
-    "/job:tge/replica:0/task:0/device:GPU:1",
+    # "/job:tge/replica:0/task:0/device:GPU:1",
     "/job:tge/replica:0/task:1/device:GPU:0",
-    "/job:tge/replica:0/task:1/device:GPU:1"
+    # "/job:tge/replica:0/task:1/device:GPU:1"
 )
 
 tic1 = time.perf_counter()
@@ -33,6 +33,7 @@ toc1 = time.perf_counter()
 
 g = tf.Graph().as_graph_def()
 g.ParseFromString(bytes)
+tf.reset_default_graph()
 tf.import_graph_def(g)
 graph = tf.get_default_graph()
 

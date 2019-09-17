@@ -24,6 +24,7 @@ fn main() {
     graph.compile(&mut target);
 
     polishing::remove_colocation_hint(&mut target);
+    polishing::destructify_names(&mut target);
 
     target.pb.write_to_writer(&mut std::io::stdout()).unwrap();
 }

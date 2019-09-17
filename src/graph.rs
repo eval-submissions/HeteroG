@@ -14,7 +14,7 @@ impl Graph {
         let mut g = Box::new(Graph { nodes: Vec::new(), name_dict: BTreeMap::new() });
 
         for node_def in iter {
-            let mut node = Node::new(&g, node_def.clone(), "".into());
+            let node = Node::new(&g, node_def.clone(), "".into());
             g.name_dict.insert(node.raw_node.name.clone(), g.nodes.len());
             g.nodes.push(node);
         }

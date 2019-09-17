@@ -15,7 +15,7 @@ pub trait Strategy {
 pub struct NotAtAll;
 
 impl Strategy for NotAtAll {
-    fn plan(&mut self, graph: &mut Graph, target: &mut Target) {
+    fn plan(&mut self, graph: &mut Graph, _target: &mut Target) {
         for node in graph.nodes.iter() {
             let replicas = &mut unsafe { &mut *(node as *const Node as *mut Node) }.replicas; // it sucks
             replicas.push((0, node.raw_node.name.clone()));
@@ -200,7 +200,7 @@ impl Strategy for DataParallelRing {
     }
 }
 
-fn put_on_cpu0(node: &mut Node, target: &mut Target) {
+fn put_on_cpu0(node: &mut Node, _target: &mut Target) {
     if node.replicated().is_none() {
         node.replicas.push((0, node.raw_node.name.clone()));
     }

@@ -11,11 +11,20 @@ pub fn remove_colocation_hint(target: &mut Target) {
     }
 }
 
-pub fn remove_dangling_nodes(target: &mut Target) {
+pub fn remove_dangling_nodes(_target: &mut Target) {
     unimplemented!()
 }
 
-pub fn fix_special_controllers(target: &mut Target) {
+pub fn fix_special_controllers(_target: &mut Target) {
     // fix the GradientDescent and init controler
     unimplemented!()
+}
+
+pub fn destructify_names(target: &mut Target) {
+    for node in target.pb.node.iter_mut() {
+        node.name = node.name.replace('/', "__");
+        for input in node.input.iter_mut() {
+            *input = input.replace('/', "__");
+        }
+    }
 }
