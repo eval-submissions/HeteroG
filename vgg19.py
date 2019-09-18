@@ -28,13 +28,27 @@ devices = (
     "/job:tge/replica:0/task:1/device:GPU:1"
 )
 
+# tic1 = time.perf_counter()
+# p = sb.Popen(["./tge", *devices], stdin=sb.PIPE, stdout=sb.PIPE)
+# bytes, _ = p.communicate(bytes)
+# toc1 = time.perf_counter()
+# g = tf.Graph().as_graph_def()
+# g.ParseFromString(bytes)
+
+
+import tge
+
 tic1 = time.perf_counter()
-p = sb.Popen(["./tge", *devices], stdin=sb.PIPE, stdout=sb.PIPE)
-bytes, _ = p.communicate(bytes)
+g = (tge.TGE()
+    .set_graph_def(gdef)
+    .set_devices(devices)
+    .data_parallel('ring')
+    .compile()
+    .get_graph_def()
+)
 toc1 = time.perf_counter()
 
-g = tf.Graph().as_graph_def()
-g.ParseFromString(bytes)
+
 tf.reset_default_graph()
 tf.import_graph_def(g)
 graph = tf.get_default_graph()

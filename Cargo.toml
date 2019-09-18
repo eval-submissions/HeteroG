@@ -4,6 +4,10 @@ version = "0.1.0"
 authors = ["Shiwei Zhang <ylxdzsw@gmail.com>"]
 edition = "2018"
 
+[lib]
+name = "tge"
+crate-type = ["cdylib"]
+
 [dependencies]
 protobuf = "2.8"
 oh-my-rust = { git = "https://github.com/ylxdzsw/oh-my-rust" }
