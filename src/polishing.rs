@@ -11,6 +11,12 @@ pub fn remove_colocation_hint(target: &mut Target) {
     }
 }
 
+pub fn remove_shape_hint(target: &mut Target) {
+    for node in target.pb.node.iter_mut() {
+        node.attr.remove("_output_shapes".into());
+    }
+}
+
 pub fn remove_dangling_nodes(_target: &mut Target) {
     unimplemented!()
 }

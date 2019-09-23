@@ -48,7 +48,6 @@ g = (tge.TGE()
 )
 toc1 = time.perf_counter()
 
-
 tf.reset_default_graph()
 tf.import_graph_def(g)
 graph = tf.get_default_graph()

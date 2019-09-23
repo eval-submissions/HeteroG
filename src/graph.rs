@@ -4,12 +4,12 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 use crate::strategy::Strategy;
 
-pub struct Graph {
-    pub nodes: Vec<Node>,
+pub struct Graph<NEX: Default, TEX: Default> {
+    pub nodes: Vec<Node<NEX, TEX>>,
     pub name_dict: std::collections::BTreeMap<String, usize>
 }
 
-impl Graph {
+impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
     pub fn new<'a, T: IntoIterator<Item=&'a NodeDef>>(iter: T) -> Box<Self> {
         let mut g = Box::new(Graph { nodes: Vec::new(), name_dict: BTreeMap::new() });
 
@@ -34,33 +34,36 @@ impl Graph {
     }
 }
 
-pub struct Node {
-    pub graph: *const Graph,
+pub struct Node<NEX: Default, TEX: Default> {
+    pub graph: *const Graph<NEX, TEX>,
     pub raw_node: NodeDef,
     pub device: String,
     pub controls: Vec<usize>, // TODO: more consideration for control dependencies that added aux nodes
     pub inputs: Vec<(usize, usize)>, // nodeid, index
-    pub outputs: Vec<Tensor>,
+    pub outputs: Vec<Tensor<NEX, TEX>>,
 
     pub replicas: Vec<(usize, String)>, // deviceid, name. no element: not determined; single element: just place; multiple elements: currently there must be exactly one replica each device
-    pub compiled: bool
+    pub compiled: bool,
+
+    pub extra: NEX
 }
 
-impl Node {
-    pub fn new(graph: &Graph, raw_node: NodeDef, device: String) -> Self {
-        Node {
+impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
+    pub fn new(graph: &Graph<NEX, TEX>, raw_node: NodeDef, device: String) -> Self {
+        Self {
             graph, raw_node, device,
             controls: vec![],
             inputs: vec![],
             outputs: vec![],
             replicas: vec![],
-            compiled: false
+            compiled: false,
+            extra: Default::default()
         }
     }
 
     // TODO: use RC to get this right
-    pub fn graph(&self) -> &mut Graph {
-        unsafe { &mut *(self.graph as *mut Graph) }
+    pub fn graph(&self) -> &mut Graph<NEX, TEX> {
+        unsafe { &mut *(self.graph as *mut Graph<NEX, TEX>) }
     }
 
     pub fn link_inputs(&mut self) {
@@ -75,9 +78,9 @@ impl Node {
         }
     }
 
-    pub fn get_output(&self, index: usize) -> &mut Tensor {
+    pub fn get_output(&self, index: usize) -> &mut Tensor<NEX, TEX> {
         // TODO: use Interior mutable for outputs?
-        let mutable = unsafe { &mut *(self as *const Node as *mut Node) };
+        let mutable = unsafe { &mut *(self as *const Node<NEX, TEX> as *mut Node<NEX, TEX>) };
 
         while mutable.outputs.len() <= index {
             mutable.outputs.push(Tensor::new(mutable, mutable.outputs.len()))
@@ -143,19 +146,22 @@ impl Node {
     }
 }
 
-pub struct Tensor {
-    pub node: *const Node,
+pub struct Tensor<NEX: Default, TEX: Default> {
+    pub node: *const Node<NEX, TEX>,
     pub index: usize,
 
     pub replicated: Option<Box<dyn Fn(usize) -> String>>, // should be provided by strategy
-    pub aggregated: Option<String> // should be provided by strategy
+    pub aggregated: Option<String>, // should be provided by strategy
+
+    pub extra: TEX,
 }
 
-impl Tensor {
-    pub fn new(node: &Node, index: usize) -> Self {
+impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
+    pub fn new(node: &Node<NEX, TEX>, index: usize) -> Self {
         Tensor { node, index,
             replicated: None,
-            aggregated: None
+            aggregated: None,
+            extra: Default::default()
         }
     }
 
@@ -167,7 +173,7 @@ impl Tensor {
         }
     }
 
-    pub fn node(&self) -> &Node {
+    pub fn node(&self) -> &Node<NEX, TEX> {
         unsafe { &*self.node }
     }
 
@@ -177,6 +183,10 @@ impl Tensor {
 
     pub fn get_aggregated(&self) -> String {
         self.aggregated.clone().unwrap()
+    }
+
+    pub fn get_shape(&self) -> Vec<usize> {
+        unimplemented!()
     }
 }
 

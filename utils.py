@@ -3,6 +3,7 @@ def get_device_list():
     return [x.name for x in device_lib.list_local_devices()]
 
 def write_tensorboard(graph):
+    import tensorflow as tf
     writer = tf.summary.FileWriter('.')
     writer.add_graph(graph)
     writer.flush()
