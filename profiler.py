@@ -62,7 +62,7 @@ def _prepare_graph(node_def, graph_def):
     for i in range(len(node_def.input)):
         profilee.input[i] = 'input_{}'.format(i)
 
-    return gdef
+    return graph_def
 
 def profile(node_def_raw, target):
     if node_def_raw in cache:
@@ -85,8 +85,14 @@ def profile(node_def_raw, target):
     sess.run(tf.get_default_graph().get_operation_by_name('import/profilee'),
         options=run_opt, run_metadata=run_meta)
 
-    return run_meta
+    for dev in run_meta.step_stats.dev_stats:
+        for node in dev.node_stats:
+            if node.node_name == 'import/profilee':
+                time = node.op_end_rel_nanos - node.op_start_rel_nanos
+                # TODO: will there be duplications? A single operation runs on multiple devices (require both host and accelerator)?
+                # print(node.op_end_rel_nanos - node.op_start_rel_nanos)
 
+    return time
 
 # whether this script should be run in an independent process is not decided
 # independent: they are natually decoupled, the result can be used for to several runs
