@@ -17,10 +17,15 @@ def _mkinput(node, dtype, size):
         if not ts.is_integer and not ts.is_floating: # complex, string, or other unhandleable fancy things
             raise Exception("not implemented")
 
+        shape = tfpb.tensor_shape_pb2.TensorShapeProto()
+        for s in size:
+            x = shape.dim.add()
+            x.size = s
+
         node.op = 'Const'
         node.attr['dtype'].CopyFrom(tfpb.attr_value_pb2.AttrValue(type=dtype))
         node.attr['value'].CopyFrom(tfpb.attr_value_pb2.AttrValue(tensor={
-            'dtype': dtype, 'tensor_shape': { 'dim': size }, 'tensor_content': [0] * reduce(operator.mul, size, ts.size)
+            'dtype': dtype, 'tensor_shape': shape, 'tensor_content': b'\0' * reduce(operator.mul, size, ts.size)
         }))
     else:
         node.op = 'VariableV2'
@@ -34,7 +39,7 @@ def _prepare_graph(node_def, graph_def):
         if input_arg.type:
             t = input_arg.type
         elif input_arg.type_attr:
-            t = node_def.attr[input_arg.type_attr]
+            t = node_def.attr[input_arg.type_attr].type
 
         for i in range(node_def.attr.get(input_arg.number_attr, 1)):
             type_list.append(t)
@@ -44,7 +49,7 @@ def _prepare_graph(node_def, graph_def):
         size = [int(x) for x in size.split(',') if x] # split gives an empty element if size is empty
         if t >= 100: # need Variable, skip them for now
             print(node_def.op, t)
-            return 0
+            return None
 
         node = graph_def.node.add()
         node.name = 'input_{}'.format(i)
@@ -53,7 +58,9 @@ def _prepare_graph(node_def, graph_def):
 
     profilee = graph_def.node.add()
     profilee.CopyFrom(node_def)
-    profilee.input = ['input_{}'.format(i) for i in range(node_def.input)]
+
+    for i in range(len(node_def.input)):
+        profilee.input[i] = 'input_{}'.format(i)
 
     return gdef
 
@@ -67,7 +74,9 @@ def profile(node_def_raw, target):
     tf.reset_default_graph()
     gdef = tf.get_default_graph().as_graph_def()
 
-    _prepare_graph(gdef)
+    x = _prepare_graph(node_def, gdef)
+    if x == None:
+        return 0
     tf.import_graph_def(gdef)
 
     sess = tf.Session(target)
@@ -76,7 +85,7 @@ def profile(node_def_raw, target):
     sess.run(tf.get_default_graph().get_operation_by_name('import/profilee'),
         options=run_opt, run_metadata=run_meta)
 
-
+    return run_meta
 
 
 # whether this script should be run in an independent process is not decided
