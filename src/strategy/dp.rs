@@ -482,5 +482,5 @@ fn attr(v: AttrValue_oneof_value) -> AttrValue {
 }
 
 fn get_dtype(x: &NodeDef) -> AttrValue {
-    x.attr.get("dtype".into()).or(x.attr.get("T".into())).unwrap().clone()
+    x.attr.get("dtype").or_else(|| x.attr.get("T")).unwrap().clone() // TODO: not really correct. Need to parse ops.pbtxt and follow type or type_attr.
 }

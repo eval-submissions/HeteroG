@@ -2,6 +2,7 @@
 #![allow(dead_code, unused_imports)]
 #![allow(non_camel_case_types)]
 #![deny(bare_trait_objects)]
+#![warn(clippy::all)]
 
 use oh_my_rust::*;
 use protobuf::{Message, parse_from_bytes};

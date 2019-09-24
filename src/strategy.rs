@@ -18,3 +18,6 @@ pub use trival::NotAtAll;
 
 mod dp;
 pub use dp::{DataParallelOneForAll, DataParallelNccl, DataParallelRing};
+
+mod heft;
+pub use heft::NaiveEarliestFinishTime;

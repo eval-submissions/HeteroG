@@ -11,6 +11,7 @@ impl Strategy for NotAtAll {
     type NEX = ();
     type TEX = ();
 
+    #[allow(clippy::cast_ref_to_mut)]
     fn plan(&mut self, graph: &mut Graph, _target: &mut Target) {
         for node in graph.nodes.iter() {
             let replicas = &mut unsafe { &mut *(node as *const Node as *mut Node) }.replicas; // it sucks
