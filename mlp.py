@@ -12,7 +12,7 @@ import subprocess as sb
 import numpy as np
 import tensorflow as tf
 
-from utils import write_tensorboard, restart_workers
+from utils import write_tensorboard, setup_workers
 
 opt = model_fn()
 init = tf.global_variables_initializer()
@@ -26,13 +26,15 @@ devices = (
     # "/job:tge/replica:0/task:1/device:GPU:1"
 )
 
-tic1 = time.perf_counter()
-p = sb.Popen(["./tge", *devices], stdin=sb.PIPE, stdout=sb.PIPE)
-bytes, _ = p.communicate(bytes)
-toc1 = time.perf_counter()
+import tge
+g = (tge.TGE()
+    .set_graph_def(gdef)
+    .set_devices(devices)
+    .data_parallel('ps0')
+    .compile()
+    .get_graph_def()
+)
 
-g = tf.Graph().as_graph_def()
-g.ParseFromString(bytes)
 tf.reset_default_graph()
 tf.import_graph_def(g)
 graph = tf.get_default_graph()
@@ -47,10 +49,7 @@ init = graph.get_operation_by_name("import/init")
 write_tensorboard(opt.graph)
 
 workers = ["10.28.1.26:3901", "10.28.1.25:3901"]
-restart_workers(workers)
-server = tf.distribute.Server(tf.train.ClusterSpec({
-    "tge": workers
-}), job_name='tge', task_index=0)
+server = setup_workers(workers)
 
 sess = tf.Session(server.target, config=tf.ConfigProto(log_device_placement=True))
 sess.run(init)

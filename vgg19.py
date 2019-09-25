@@ -14,7 +14,7 @@ import tensorflow as tf
 import google.protobuf.text_format as pbtf
 from tensorflow.python.client import timeline
 
-from utils import write_tensorboard, restart_workers
+from utils import write_tensorboard, setup_workers
 
 opt = model_fn()
 init = tf.global_variables_initializer()
@@ -63,10 +63,7 @@ data = { x: np.random.uniform(size=(64, 224, 224, 3)), y: np.random.uniform(size
 # dag = tf.graph_util.extract_sub_graph(dag, [op.name, init.name])
 
 workers = ["10.28.1.26:3901", "10.28.1.25:3901"]
-restart_workers(workers)
-server = tf.distribute.Server(tf.train.ClusterSpec({
-    "tge": workers
-}), job_name='tge', task_index=0)
+server = setup_workers(workers, "grpc+verbs")
 
 sess = tf.Session(server.target, config=tf.ConfigProto(log_device_placement=True))
 sess.run(init)

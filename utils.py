@@ -8,18 +8,21 @@ def write_tensorboard(graph):
     writer.add_graph(graph)
     writer.flush()
 
-def restart_workers(workers):
+def setup_workers(workers, protocol="grpc"):
     import tensorflow as tf
     import urllib.request
     import time
 
     param = '/'.join(server.replace(':', '%3A') for server in workers)
     for task_id, server in enumerate(workers):
-        if task_id == 0:
-            continue
-        url = "http://{}:3905/{}/restart/{}/{}".format(server.split(':')[0], int(time.time()) + 10, task_id, param)
+        if task_id == 0: continue
+        url = "http://{}:3905/{}/restart/{}/{}/{}".format(server.split(':')[0], int(time.time()) + 10, protocol, task_id, param)
         assert urllib.request.urlopen(url).read() == b'ok'
     time.sleep(1)
+
+    return tf.distribute.Server(tf.train.ClusterSpec({
+        "tge": workers
+    }), job_name='tge', task_index=0, protocol=protocol)
 
 def op_def_dict():
     import tensorflow.core.framework as tfpb

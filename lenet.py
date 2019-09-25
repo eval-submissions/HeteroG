@@ -19,7 +19,7 @@ import numpy as np
 import tensorflow as tf
 import google.protobuf.text_format as pbtf
 
-from utils import write_tensorboard, restart_workers
+from utils import write_tensorboard, setup_workers
 
 opt = model_fn()
 init = tf.global_variables_initializer()
@@ -33,11 +33,15 @@ devices = (
     "/job:tge/replica:0/task:1/device:GPU:1"
 )
 
-p = sb.Popen(["./tge", *devices], stdin=sb.PIPE, stdout=sb.PIPE)
-bytes, _ = p.communicate(bytes)
+import tge
+g = (tge.TGE()
+    .set_graph_def(gdef)
+    .set_devices(devices)
+    .data_parallel('ps0')
+    .compile()
+    .get_graph_def()
+)
 
-g = tf.Graph().as_graph_def()
-g.ParseFromString(bytes)
 tf.reset_default_graph()
 tf.import_graph_def(g)
 graph = tf.get_default_graph()
@@ -52,10 +56,7 @@ acc = 10 * (graph.get_tensor_by_name("import/Mean/replica_0:0") + graph.get_tens
 write_tensorboard(opt.graph)
 
 workers = ["10.28.1.26:3901", "10.28.1.25:3901"]
-restart_workers(workers)
-server = tf.distribute.Server(tf.train.ClusterSpec({
-    "tge": workers
-}), job_name='tge', task_index=0)
+server = setup_workers(workers)
 
 sess = tf.Session(server.target, config=tf.ConfigProto(log_device_placement=True))
 sess.run(init)

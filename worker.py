@@ -2,12 +2,12 @@ import os
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-def serve_tf(list, index):
+def serve_tf(list, index, protocol):
     import tensorflow as tf
 
     tf.distribute.Server(tf.train.ClusterSpec({
         "tge": list
-    }), job_name='tge', task_index=index).join()
+    }), job_name='tge', task_index=index, protocol=protocol).join()
 
 pid = 0
 
@@ -32,10 +32,10 @@ class Handler(BaseHTTPRequestHandler):
 
         pid = os.fork()
         if pid == 0:
-            [index, *list] = args
+            [protocol, index, *list] = args
             index = int(index)
             list = [x.replace('%3A', ':') for x in list]
-            serve_tf(list, index)
+            serve_tf(list, index, protocol)
         else:
             self.send_response(200)
             self.end_headers()

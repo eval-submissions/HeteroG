@@ -14,6 +14,7 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
     pub fn new<'a, T: IntoIterator<Item=&'a NodeDef>>(iter: T) -> Box<Self> {
         let mut g = Box::new(Graph { nodes: Vec::new(), name_dict: BTreeMap::new() });
 
+        // no always optimal, but good enough since the input is actually mostly ordered
         let mut queue: std::collections::VecDeque<_> = iter.into_iter().collect();
         'outer: while let Some(node_def) = queue.pop_front() {
             for input in node_def.input.iter() {
