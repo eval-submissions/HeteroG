@@ -14,7 +14,6 @@ def model_fn():
     optimizer = tf.train.GradientDescentOptimizer(0.001).minimize(tf.reduce_sum(loss))
     return optimizer
 
-import subprocess as sb
 import numpy as np
 import tensorflow as tf
 import google.protobuf.text_format as pbtf

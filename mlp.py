@@ -8,7 +8,6 @@ def model_fn():
     return optimizer
 
 import time
-import subprocess as sb
 import numpy as np
 import tensorflow as tf
 
@@ -43,8 +42,6 @@ x = graph.get_tensor_by_name("import/Placeholder:0")
 y = graph.get_tensor_by_name("import/Placeholder_1:0")
 opt = graph.get_operation_by_name("import/GradientDescent")
 init = graph.get_operation_by_name("import/init")
-
-# dag = tf.graph_util.extract_sub_graph(dag, [op.name, init.name])
 
 write_tensorboard(opt.graph)
 
