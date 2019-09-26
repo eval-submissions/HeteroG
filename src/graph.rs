@@ -187,8 +187,9 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
 
     pub fn get_shape(&self) -> Vec<usize> {
         if let Some(attr_value::AttrValue_oneof_value::list(list)) = &self.node().raw_node.attr["_output_shapes"].value {
-            let dims = &list.shape[self.index].dim;
-            dims.iter().map(|x| x.size.try_into().unwrap()).collect()
+            // sucks: the output shape of BroadcastGradientArgs is always unknown even if inputs are fixed
+            // and ops like `Sum` (requires the dimension to sum along with) and `Fill` operates differenct with different input
+            list.shape[self.index].dim.iter().map(|x| x.size.try_into().ok()).collect::<Option<_>>().unwrap_or_else(Vec::new)
         } else {
             panic!("no shape information")
         }

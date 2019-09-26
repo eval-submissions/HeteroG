@@ -82,6 +82,12 @@ extern fn data_parallel(inner: CommunicationMethod, outer: CommunicationMethod) 
 }
 
 #[no_mangle]
+extern fn heft() -> *mut Bundle {
+    let bundle = TheBundle::new(strategy::NaiveEarliestFinishTime {});
+    Box::leak(Box::new(Bundle::from(Box::new(bundle))))
+}
+
+#[no_mangle]
 unsafe extern fn compile(ctx: *mut Context) -> u32 {
     let Context(bundle, target) = &mut *ctx;
     bundle.plan_and_compile(target);

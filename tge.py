@@ -11,6 +11,9 @@ libtge.not_at_all.restype = ctypes.c_void_p
 libtge.data_parallel.argtypes = [ctypes.c_byte, ctypes.c_byte]
 libtge.data_parallel.restype = ctypes.c_void_p
 
+libtge.heft.argtypes = []
+libtge.heft.restype = ctypes.c_void_p
+
 libtge.compile.argtypes = [ctypes.c_void_p]
 libtge.compile.restype = ctypes.c_uint32
 
@@ -60,6 +63,10 @@ class TGE:
 
         inner = methods_dict[method.lower()]
         self.strategy = libtge.data_parallel(inner, 0)
+
+    @chain
+    def heft(self):
+        self.strategy = libtge.heft()
 
     @chain
     def not_at_all(self):
