@@ -82,8 +82,8 @@ extern fn data_parallel(inner: CommunicationMethod, outer: CommunicationMethod) 
 }
 
 #[no_mangle]
-extern fn heft() -> *mut Bundle {
-    let bundle = TheBundle::new(strategy::NaiveEarliestFinishTime {});
+unsafe extern fn heft(profiler: extern fn(*const u8, i32) -> u64) -> *mut Bundle {
+    let bundle = TheBundle::new(strategy::NaiveEarliestFinishTime { profiler });
     Box::leak(Box::new(Bundle::from(Box::new(bundle))))
 }
 

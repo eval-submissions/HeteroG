@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 use std::fmt::Write;
+use protobuf::Message;
 use crate::strategy::Strategy;
 use crate::graph::Target;
 use crate::proto::types::DataType;
@@ -18,7 +19,7 @@ type Tensor = crate::graph::Tensor<NEX, ()>;
 
 // put each node by it's earliest finish time in random order
 pub struct NaiveEarliestFinishTime {
-
+    pub profiler: extern fn(*const u8, i32) -> u64
 }
 
 impl Strategy for NaiveEarliestFinishTime {
@@ -38,9 +39,9 @@ impl Strategy for NaiveEarliestFinishTime {
         }
 
         // main pass: place each node accroding to their earlest finish time
-        let mut finish_time: Vec<usize> = target.devices.iter().map(|_| 0).collect(); // the finish time of each device
+        let mut finish_time: Vec<u64> = target.devices.iter().map(|_| 0).collect(); // the finish time of each device
         for node in graph.nodes.iter_mut() {
-            place(node, &mut finish_time, target)
+            self.place(node, &mut finish_time, target)
         }
 
         // third pass: add default logic for remaining ops
@@ -76,14 +77,73 @@ enum Placement {
     Spread
 }
 
-// TODO: profile a Node, rather than a NodeDef. Stub the input and wait for output (both aggregated and replicated)
-fn profile_computation(node_def: &NodeDef) -> Result<usize, ()> {
+impl NaiveEarliestFinishTime {
+    // TODO: profile a Node, rather than a NodeDef? Stub the input and wait for output (both aggregated and replicated)
+    fn profile_computation(&self, node_def: &NodeDef) -> u64 {
+        let mut node_def_raw = vec![];
+        node_def.write_to_writer(&mut node_def_raw).unwrap();
+        (self.profiler)(node_def_raw.as_ptr(), node_def_raw.len().try_into().unwrap())
+    }
 
-    Err(())
-}
+    fn profile_transfering(&self, tensor: &Tensor, dest: usize, target: &Target) -> usize {
+        0
+    }
 
-fn profile_transfering(tensor: &Tensor, dest: usize, target: &Target) -> usize {
-    0
+    fn place_spread(&self, node: &mut Node, finish_time: &[u64], target: &Target) -> (Vec<u64>, u64) {
+        let mut updated_time = finish_time.to_vec();
+        let n = updated_time.len();
+
+        let profilee_proto = prepare_profilee(node, n);
+        for (time, device) in updated_time.iter_mut().zip(target.devices.iter()) {
+            let mut profilee = profilee_proto.clone();
+            profilee.device = device.clone();
+            *time += self.profile_computation(&profilee);
+        }
+
+        let eft = updated_time.iter().cloned().fold(0, std::cmp::max);
+        (updated_time, eft)
+    }
+
+    fn place_single(&self, device_id: usize, node: &mut Node, finish_time: &[u64], target: &Target) -> (Vec<u64>, u64) {
+        let mut updated_time = finish_time.to_vec();
+        let mut profilee = prepare_profilee(node, 1);
+        profilee.device = target.devices[device_id].clone();
+        let time = self.profile_computation(&profilee);
+        updated_time[device_id] += time;
+
+        (updated_time, time)
+    }
+
+    fn place_cluster(&self, device_id: usize, node: &mut Node, finish_time: &[u64], target: &Target) -> (Vec<u64>, u64) {
+        let mut updated_time = finish_time.to_vec();
+        let mut profilee = prepare_profilee(node, finish_time.len());
+        profilee.device = target.devices[device_id].clone();
+        let time = self.profile_computation(&profilee);
+        updated_time[device_id] += time;
+
+        (updated_time, time)
+    }
+
+    fn place(&self, node: &mut Node, finish_time: &mut Vec<u64>, target: &mut Target) {
+        let mut best = (Placement::Spread, self.place_spread(node, finish_time, target));
+
+        // for single and pipe
+        for device_id in 0..finish_time.len() {
+            let (updated_time, eft) = self.place_single(device_id, node, finish_time, target);
+            if eft < best.1 .1 {
+                best = (Placement::Single(device_id), (updated_time, eft))
+            }
+
+            let (updated_time, eft) = self.place_cluster(device_id, node, finish_time, target);
+            if eft < best.1 .1 {
+                best = (Placement::Cluster(device_id), (updated_time, eft))
+            }
+        }
+
+        println!("{:?} {}", best.0, node.raw_node.name);
+        actual_place(node, best.0, target);
+        finish_time.copy_from_slice(&best.1 .0);
+    }
 }
 
 fn prepare_profilee(node: &Node, n: usize) -> NodeDef {
@@ -105,70 +165,6 @@ fn prepare_profilee(node: &Node, n: usize) -> NodeDef {
     }
 
     x
-}
-
-fn place_spread(node: &mut Node, finish_time: &[usize], target: &Target) -> (Vec<usize>, usize) {
-    let mut updated_time = finish_time.to_vec();
-    let n = updated_time.len();
-
-    let mut profilee_proto = prepare_profilee(node, n);
-    for (time, device) in updated_time.iter_mut().zip(target.devices.iter()) {
-        let mut profilee = profilee_proto.clone();
-        profilee.device = device.clone();
-        *time += profile_computation(&profilee).unwrap_or(0);
-    }
-
-    let eft = updated_time.iter().cloned().fold(0, std::cmp::max);
-    (updated_time, eft)
-}
-
-fn place_single(device_id: usize, node: &mut Node, finish_time: &[usize], target: &Target) -> (Vec<usize>, usize) {
-    let mut updated_time = finish_time.to_vec();
-    let mut profilee = prepare_profilee(node, 1);
-    profilee.device = target.devices[device_id].clone();
-    let time = profile_computation(&profilee).unwrap_or(0);
-    updated_time[device_id] += time;
-
-    (updated_time, time)
-}
-
-fn place_cluster(device_id: usize, node: &mut Node, finish_time: &[usize], target: &Target) -> (Vec<usize>, usize) {
-    let mut updated_time = finish_time.to_vec();
-    let mut profilee = prepare_profilee(node, finish_time.len());
-    profilee.device = target.devices[device_id].clone();
-    let time = profile_computation(&profilee).unwrap_or(0);
-    updated_time[device_id] += time;
-
-    (updated_time, time)
-}
-
-fn place(node: &mut Node, finish_time: &mut Vec<usize>, target: &mut Target) {
-    if node.replicated().is_some() {
-        return
-    }
-
-    for (id, _) in &node.inputs {
-        place(&mut node.graph().nodes[*id], finish_time, target)
-    }
-
-    let mut best = (Placement::Spread, place_spread(node, finish_time, target));
-
-    // for single and pipe
-    for device_id in 0..finish_time.len() {
-        let (updated_time, eft) = place_single(device_id, node, finish_time, target);
-        if eft < best.1 .1 {
-            best = (Placement::Single(device_id), (updated_time, eft))
-        }
-
-        let (updated_time, eft) = place_cluster(device_id, node, finish_time, target);
-        if eft < best.1 .1 {
-            best = (Placement::Cluster(device_id), (updated_time, eft))
-        }
-    }
-
-    println!("{:?} {}", best.0, node.raw_node.name);
-    actual_place(node, best.0, target);
-    finish_time.copy_from_slice(&best.1 .0);
 }
 
 fn actual_place(node: &mut Node, placement: Placement, target: &mut Target) {

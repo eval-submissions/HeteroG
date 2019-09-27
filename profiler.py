@@ -64,7 +64,7 @@ def _prepare_graph(node_def, graph_def):
 
     return graph_def
 
-def profile(node_def_raw, target):
+def _profile(node_def_raw, target):
     if node_def_raw in cache:
         return cache[node_def_raw]
 
@@ -92,7 +92,17 @@ def profile(node_def_raw, target):
                 # TODO: will there be duplications? A single operation runs on multiple devices (require both host and accelerator)?
                 # print(node.op_end_rel_nanos - node.op_start_rel_nanos)
 
+    print("{}: {}".format(node_def.op, time))
     return time
+
+def profiler_factory(target):
+    def inner(pointer, size):
+        node_def_raw = pointer[:size]
+        try:
+            return _profile(node_def_raw, target)
+        except:
+            return 0
+    return inner
 
 # whether this script should be run in an independent process is not decided
 # independent: they are natually decoupled, the result can be used for to several runs

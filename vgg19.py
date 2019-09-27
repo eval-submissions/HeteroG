@@ -27,14 +27,18 @@ devices = (
     "/job:tge/replica:0/task:1/device:GPU:1"
 )
 
+workers = ["10.28.1.26:3901", "10.28.1.25:3901"]
+server = setup_workers(workers, "grpc+verbs")
+
 import tge
+from profiler import profiler_factory
 
 tic1 = time.perf_counter()
 g = (tge.TGE()
     .set_graph_def(gdef)
     .set_devices(devices)
     # .data_parallel('ring')
-    .heft()
+    .heft(profiler_factory(server.target))
     .compile()
     .get_graph_def()
 )
@@ -53,9 +57,6 @@ opt = graph.get_operation_by_name("import/GradientDescent")
 init = graph.get_operation_by_name("import/init")
 
 data = { x: np.random.uniform(size=(64, 224, 224, 3)), y: np.random.uniform(size=(64, 1000)) }
-
-workers = ["10.28.1.26:3901", "10.28.1.25:3901"]
-server = setup_workers(workers, "grpc+verbs")
 
 sess = tf.Session(server.target, config=tf.ConfigProto(log_device_placement=True))
 sess.run(init)

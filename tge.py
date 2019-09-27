@@ -1,5 +1,7 @@
 import ctypes
 
+PROFILER_T = ctypes.CFUNCTYPE(ctypes.c_uint64, ctypes.POINTER(ctypes.c_char), ctypes.c_int32)
+
 libtge = ctypes.cdll.LoadLibrary("./libtge.so")
 
 libtge.tge.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int32, ctypes.c_char_p, ctypes.c_int32]
@@ -11,7 +13,7 @@ libtge.not_at_all.restype = ctypes.c_void_p
 libtge.data_parallel.argtypes = [ctypes.c_byte, ctypes.c_byte]
 libtge.data_parallel.restype = ctypes.c_void_p
 
-libtge.heft.argtypes = []
+libtge.heft.argtypes = [PROFILER_T]
 libtge.heft.restype = ctypes.c_void_p
 
 libtge.compile.argtypes = [ctypes.c_void_p]
@@ -65,8 +67,9 @@ class TGE:
         self.strategy = libtge.data_parallel(inner, 0)
 
     @chain
-    def heft(self):
-        self.strategy = libtge.heft()
+    def heft(self, profiler):
+        self._profiler = PROFILER_T(profiler) # hold the reference to prevent it from being recycled
+        self.strategy = libtge.heft(self._profiler)
 
     @chain
     def not_at_all(self):
