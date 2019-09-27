@@ -16,7 +16,7 @@ libtge.data_parallel.restype = ctypes.c_void_p
 libtge.heft.argtypes = [PROFILER_T]
 libtge.heft.restype = ctypes.c_void_p
 
-libtge.compile.argtypes = [ctypes.c_void_p]
+libtge.compile.argtypes = [ctypes.c_void_p, ctypes.c_ubyte]
 libtge.compile.restype = ctypes.c_uint32
 
 libtge.read_and_destroy.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
@@ -29,30 +29,28 @@ def chain(func):
     return chained
 
 class TGE:
-    def __init__(self):
-        self.ctx = None
-
-    @chain
-    def set_graph_def(self, graph_def):
+    def __init__(self, graph_def, device_list):
         self.graph_def = graph_def
+        self.devices = device_list
+        self.flag = 0x03
 
-    def get_graph_def(self):
+    def get_result(self):
         return self.graph_def
-
-    @chain
-    def set_devices(self, devices):
-        self.devices = devices
 
     @chain
     def compile(self):
         graph_raw = self.graph_def.SerializeToString()
         device_raw = ' '.join(self.devices).encode('ascii')
         tge = libtge.tge(self.strategy, graph_raw, len(graph_raw), device_raw, len(device_raw))
-        size = libtge.compile(tge)
+        size = libtge.compile(tge, self.flag)
         buf = ctypes.create_string_buffer(size)
         libtge.read_and_destroy(tge, buf)
         self.graph_def.Clear() # I'm not sure if this line is needed
         self.graph_def.ParseFromString(buf.raw)
+
+    @chain
+    def destructify_names(self):
+        self.flag = self.flag | 0x04
 
     @chain
     def data_parallel(self, method):

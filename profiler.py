@@ -12,7 +12,7 @@ import utils
 op_def_dict = utils.op_def_dict()
 
 def _mkinput(node, dtype, size):
-    if dtype < 100:
+    if dtype < 100: # _ref types are 100 + the corresponding type
         ts = tf.DType(dtype)
         if not ts.is_integer and not ts.is_floating: # complex, string, or other unhandleable fancy things
             raise Exception("not implemented")
@@ -91,7 +91,6 @@ def _profile(node_def_raw, target):
             if node.node_name == 'import/profilee':
                 time = node.op_end_rel_nanos - node.op_start_rel_nanos
                 # TODO: will there be duplications? A single operation runs on multiple devices (require both host and accelerator)?
-                # print(node.op_end_rel_nanos - node.op_start_rel_nanos)
 
     print("{}: {}".format(node_def.op, time))
     return time

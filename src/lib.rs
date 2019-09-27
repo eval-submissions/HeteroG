@@ -88,12 +88,12 @@ unsafe extern fn heft(profiler: extern fn(*const u8, u32) -> u64) -> *mut Bundle
 }
 
 #[no_mangle]
-unsafe extern fn compile(ctx: *mut Context) -> u32 {
+unsafe extern fn compile(ctx: *mut Context, pflag: u8) -> u32 {
     let Context(bundle, target) = &mut *ctx;
     bundle.plan_and_compile(target);
-    polishing::remove_colocation_hint(target);
-    polishing::remove_shape_hint(target);
-    // polishing::destructify_names(target);
+    if pflag & 0x01 != 0 { polishing::remove_colocation_hint(target); }
+    if pflag & 0x02 != 0 { polishing::remove_shape_hint(target); }
+    if pflag & 0x04 != 0 { polishing::destructify_names(target); }
     target.pb.compute_size()
 }
 

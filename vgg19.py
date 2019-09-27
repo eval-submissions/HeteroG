@@ -34,13 +34,11 @@ import tge
 from profiler import profiler_factory
 
 tic1 = time.perf_counter()
-g = (tge.TGE()
-    .set_graph_def(gdef)
-    .set_devices(devices)
+g = (tge.TGE(gdef, devices)
     # .data_parallel('ring')
     .heft(profiler_factory(server.target))
     .compile()
-    .get_graph_def()
+    .get_result()
 )
 toc1 = time.perf_counter()
 
