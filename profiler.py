@@ -102,28 +102,9 @@ def profiler_factory(target):
         try:
             return _profile(node_def_raw, target)
         except:
+            print("failed")
             return 0
     return inner
-
-# whether this script should be run in an independent process is not decided
-# independent: they are natually decoupled, the result can be used for to several runs
-# not independent: they share the same tf session which is nice
-
-
-# class Handler(BaseHTTPRequestHandler):
-#     def do_POST(self):
-#         buf = self.rfile.read() # the name field should always be called "profilee" so we can match the cache by bytes
-
-#         node_def = tfpb.node_def_pb2.NodeDef()
-#         node_def.ParseFromString(buf)
-
-#         profile
-
-# try:
-#     # parse commandline to get device information
-#     HTTPServer(('0.0.0.0', 3907), Handler).serve_forever()
-# except KeyboardInterrupt:
-#     print("bye~")
 
 # TODO: concurrent profiling if the devices do not overlap? I don't know if tf sessions are thread-safe
 # TODO: transfering profiling. currently we just accept a bandwidth matrix (can be generagted using funciton in util) along with the topology

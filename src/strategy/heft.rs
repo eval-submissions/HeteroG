@@ -152,8 +152,7 @@ impl NaiveEarliestFinishTime {
 fn prepare_profilee(node: &Node, n: usize) -> NodeDef {
     let mut x = node.raw_node.clone();
     x.name = "profilee".to_string();
-
-    for (i, (id, index)) in node.inputs.iter().enumerate() {
+    x.input = node.inputs.iter().map(|(id, index)| {
         let parent = &node.graph().nodes[*id];
         let mut shape = parent.get_output(*index).get_shape();
         if n > 1 && parent.replicated().unwrap() && parent.extra.batch_splitable && !shape.is_empty() && shape[0] % n == 0 {
@@ -164,8 +163,8 @@ fn prepare_profilee(node: &Node, n: usize) -> NodeDef {
         for s in shape {
             write!(&mut buf, "{},", s).unwrap()
         }
-        x.input[i] = buf
-    }
+        buf
+    }).collect();
 
     x
 }
