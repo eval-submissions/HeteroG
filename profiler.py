@@ -79,6 +79,7 @@ def _profile(node_def_raw, target):
         return 0
     tf.import_graph_def(gdef)
 
+    # TODO: creating ad-hoc sessions introduces a big overhead.
     sess = tf.Session(target)
     run_meta = tf.compat.v1.RunMetadata()
     run_opt = tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE, output_partition_graphs=True)

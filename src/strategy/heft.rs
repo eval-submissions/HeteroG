@@ -19,7 +19,7 @@ type Tensor = crate::graph::Tensor<NEX, ()>;
 
 // put each node by it's earliest finish time in random order
 pub struct NaiveEarliestFinishTime {
-    pub profiler: extern fn(*const u8, i32) -> u64
+    pub profiler: extern fn(*const u8, u32) -> u64
 }
 
 impl Strategy for NaiveEarliestFinishTime {
@@ -80,6 +80,9 @@ enum Placement {
 impl NaiveEarliestFinishTime {
     // TODO: profile a Node, rather than a NodeDef? Stub the input and wait for output (both aggregated and replicated)
     fn profile_computation(&self, node_def: &NodeDef) -> u64 {
+        if !HEAVY_OPS.contains(&&node_def.op[..]) {
+            return 0
+        }
         let mut node_def_raw = vec![];
         node_def.write_to_writer(&mut node_def_raw).unwrap();
         (self.profiler)(node_def_raw.as_ptr(), node_def_raw.len().try_into().unwrap())

@@ -46,7 +46,7 @@ type Bundle = Box<dyn AbstractBundle>;
 struct Context(Bundle, graph::Target);
 
 #[no_mangle]
-unsafe extern fn tge(bundle: *mut Bundle, pb: *const u8, pb_len: i32, devices: *const u8, devices_len: i32) -> *mut Context {
+unsafe extern fn tge(bundle: *mut Bundle, pb: *const u8, pb_len: u32, devices: *const u8, devices_len: u32) -> *mut Context {
     let pb = std::slice::from_raw_parts(pb, pb_len.try_into().unwrap());
     let g: proto::graph::GraphDef = parse_from_bytes(pb).unwrap();
     (&mut *bundle).build_graph(g.node.into_vec());
@@ -82,7 +82,7 @@ extern fn data_parallel(inner: CommunicationMethod, outer: CommunicationMethod) 
 }
 
 #[no_mangle]
-unsafe extern fn heft(profiler: extern fn(*const u8, i32) -> u64) -> *mut Bundle {
+unsafe extern fn heft(profiler: extern fn(*const u8, u32) -> u64) -> *mut Bundle {
     let bundle = TheBundle::new(strategy::NaiveEarliestFinishTime { profiler });
     Box::leak(Box::new(Bundle::from(Box::new(bundle))))
 }

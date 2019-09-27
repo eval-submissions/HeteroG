@@ -1,10 +1,10 @@
 import ctypes
 
-PROFILER_T = ctypes.CFUNCTYPE(ctypes.c_uint64, ctypes.POINTER(ctypes.c_char), ctypes.c_int32)
+PROFILER_T = ctypes.CFUNCTYPE(ctypes.c_uint64, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32)
 
 libtge = ctypes.cdll.LoadLibrary("./libtge.so")
 
-libtge.tge.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int32, ctypes.c_char_p, ctypes.c_int32]
+libtge.tge.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32]
 libtge.tge.restype = ctypes.c_void_p
 
 libtge.not_at_all.argtypes = []
@@ -49,7 +49,6 @@ class TGE:
         device_raw = ' '.join(self.devices).encode('ascii')
         tge = libtge.tge(self.strategy, graph_raw, len(graph_raw), device_raw, len(device_raw))
         size = libtge.compile(tge)
-        print(size)
         buf = ctypes.create_string_buffer(size)
         libtge.read_and_destroy(tge, buf)
         self.graph_def.Clear() # I'm not sure if this line is needed
