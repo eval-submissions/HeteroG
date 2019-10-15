@@ -22,5 +22,5 @@ pub use dp::{DataParallelOneForAll, DataParallelNccl, DataParallelRing};
 mod heft; // earliest finish time
 pub use heft::NaiveGreedyEarliestFinishTime;
 
-mod dp2; // dynamic programming
-pub use dp2::DynamicProgrammingEarliestFinishTime;
+// mod dp2; // dynamic programming
+// pub use dp2::DynamicProgrammingEarliestFinishTime;

@@ -16,9 +16,6 @@ libtge.data_parallel.restype = ctypes.c_void_p
 libtge.heft.argtypes = [PROFILER_T]
 libtge.heft.restype = ctypes.c_void_p
 
-libtge.dynamic_programming.argtypes = [PROFILER_T]
-libtge.dynamic_programming.restype = ctypes.c_void_p
-
 libtge.compile.argtypes = [ctypes.c_void_p, ctypes.c_ubyte]
 libtge.compile.restype = ctypes.c_uint32
 
@@ -72,11 +69,6 @@ class TGE:
     def heft(self, profiler):
         self._profiler = PROFILER_T(profiler) # hold the reference to prevent it from being recycled
         self.strategy = libtge.heft(self._profiler)
-
-    @chain
-    def heft(self, profiler):
-        self._profiler = PROFILER_T(profiler) # hold the reference to prevent it from being recycled
-        self.strategy = libtge.dynamic_programming(self._profiler)
 
     @chain
     def not_at_all(self):

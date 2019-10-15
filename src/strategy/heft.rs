@@ -88,7 +88,7 @@ impl NaiveGreedyEarliestFinishTime {
         (self.profiler)(node_def_raw.as_ptr(), node_def_raw.len().try_into().unwrap())
     }
 
-    fn profile_transfering(&self, tensor: &Tensor, dest: usize, target: &Target) -> usize {
+    fn profile_transfering(&self, _tensor: &Tensor, _dest: usize, _target: &Target) -> usize {
         0
     }
 
@@ -171,8 +171,8 @@ fn prepare_profilee(node: &Node, n: usize) -> NodeDef {
 
 fn actual_place(node: &mut Node, placement: Placement, target: &mut Target) {
     match placement {
-        Placement::Single(n) => put_on_cpu0(node, target),
-        Placement::Cluster(n) => put_on_cpu0(node, target),
+        Placement::Single(_n) => put_on_cpu0(node, target),
+        Placement::Cluster(_n) => put_on_cpu0(node, target),
         Placement::Spread => put_on_cpu0(node, target),
     }
 }

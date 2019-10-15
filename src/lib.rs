@@ -83,16 +83,16 @@ extern fn data_parallel(inner: CommunicationMethod, outer: CommunicationMethod) 
 
 #[no_mangle]
 unsafe extern fn heft(profiler: extern fn(*const u8, u32) -> u64) -> *mut Bundle {
-    let bundle = TheBundle::new(strategy::NaiveEarliestFinishTime { profiler });
+    let bundle = TheBundle::new(strategy::NaiveGreedyEarliestFinishTime { profiler });
     Box::leak(Box::new(Bundle::from(Box::new(bundle))))
 }
 
-#[no_mangle]
-unsafe extern fn dynamic_programming(profiler: extern fn(*const u8, u32) -> u64) -> *mut Bundle {
-    let strategy = strategy::DynamicProgrammingEarliestFinishTime::new(profiler);
-    let bundle = TheBundle::new(strategy);
-    Box::leak(Box::new(Bundle::from(Box::new(bundle))))
-}
+// #[no_mangle]
+// unsafe extern fn dynamic_programming(profiler: extern fn(*const u8, u32) -> u64) -> *mut Bundle {
+//     let strategy = strategy::DynamicProgrammingEarliestFinishTime::new(profiler);
+//     let bundle = TheBundle::new(strategy);
+//     Box::leak(Box::new(Bundle::from(Box::new(bundle))))
+// }
 
 #[no_mangle]
 unsafe extern fn compile(ctx: *mut Context, pflag: u8) -> u32 {
