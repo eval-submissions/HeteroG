@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 use std::fmt::Write;
+use std::rc::Rc;
 use protobuf::Message;
 use crate::strategy::Strategy;
 use crate::graph::Target;
@@ -8,26 +9,39 @@ use crate::proto::attr_value::{AttrValue, AttrValue_oneof_value};
 use crate::proto::node_def::NodeDef;
 use crate::proto::tensor::TensorProto;
 
+trait ID {
+    fn id(&self) -> *const Self { self }
+}
+
+impl ID for Node {}
+impl ID for Tensor {}
+
 #[derive(Default, Clone)]
 pub struct NEX {
     batch_splitable: bool, // indicating if this node can be splited by the batch dimension. Currently any descendant of input are considered as splitable
 }
 
-type Graph = crate::graph::Graph<NEX, ()>;
-type Node = crate::graph::Node<NEX, ()>;
-type Tensor = crate::graph::Tensor<NEX, ()>;
+#[derive(Default, Clone)]
+pub struct TEX {
+    users: Vec<*const Node>, // back pointer to children
+}
 
-// put each node by it's earliest finish time in random order
-pub struct NaiveGreedyEarliestFinishTime {
+type Graph = crate::graph::Graph<NEX, TEX>;
+type Node = crate::graph::Node<NEX, TEX>;
+type Tensor = crate::graph::Tensor<NEX, TEX>;
+
+pub struct DynamicProgrammingEarliestFinishTime {
     pub profiler: extern fn(*const u8, u32) -> u64
 }
 
-impl Strategy for NaiveGreedyEarliestFinishTime {
+impl Strategy for DynamicProgrammingEarliestFinishTime {
     type NEX = NEX;
-    type TEX = ();
+    type TEX = TEX;
 
     fn plan(&mut self, graph: &mut Graph, target: &mut Target) {
-        // first pass: mark batchiness
+        unimplemented!();
+
+        // first pass: make auxiliary markers
         for node in graph.nodes.iter_mut() {
             if node.raw_node.op == "Placeholder" {
                 node.extra.batch_splitable = true
@@ -36,13 +50,22 @@ impl Strategy for NaiveGreedyEarliestFinishTime {
                     node.graph().nodes[*id].extra.batch_splitable
                 })
             }
+
+            for (id, index) in node.inputs.iter() {
+                node.graph().nodes[*id].get_output(*index).extra.users.push(node.id())
+            }
         }
 
-        // main pass: place each node accroding to their earlest finish time
-        let mut finish_time: Vec<u64> = target.devices.iter().map(|_| 0).collect(); // the finish time of each device
-        for node in graph.nodes.iter_mut() {
-            self.place(node, &mut finish_time, target)
+        // main pass: dynamic programming
+        let mut current_states: Vec<Rc<State>> = vec![];
+        for i in 0..=graph.nodes.len() {
+            let mut next_states: Vec<Rc<State>> = vec![];
+
+
+
+            current_states = next_states;
         }
+
 
         // third pass: add default logic for remaining ops
         for node in graph.nodes.iter_mut() {
@@ -70,14 +93,34 @@ impl Strategy for NaiveGreedyEarliestFinishTime {
     }
 }
 
-#[derive(Debug)]
-enum Placement {
-    Single(usize),
-    Cluster(usize),
-    Spread
+type Placement = Vec<bool>;
+
+enum Action {
+    MoveTo(*const Tensor, usize),
+    Place(*const Node, Placement)
 }
 
-impl NaiveGreedyEarliestFinishTime {
+// no pipeline since we use eft, so we can skip puting multiple replications on the same device
+struct State {
+    placement: std::collections::BTreeMap<*const Tensor, Placement>, // the "frontier"
+    parent: Option<Rc<State>>
+}
+
+impl DynamicProgrammingEarliestFinishTime {
+    pub fn new(profiler: extern fn(*const u8, u32) -> u64) -> Self {
+        DynamicProgrammingEarliestFinishTime { profiler }
+    }
+
+    fn step(&mut self) {
+
+    }
+
+    fn eft(&mut self, node: &Node) -> u64 {
+        unimplemented!()
+    }
+
+
+
     // TODO: profile a Node, rather than a NodeDef? Stub the input and wait for output (both aggregated and replicated)
     fn profile_computation(&self, node_def: &NodeDef) -> u64 {
         if !HEAVY_OPS.contains(&&node_def.op[..]) {
@@ -127,26 +170,26 @@ impl NaiveGreedyEarliestFinishTime {
         (updated_time, time)
     }
 
-    fn place(&self, node: &mut Node, finish_time: &mut Vec<u64>, target: &mut Target) {
-        let mut best = (Placement::Spread, self.place_spread(node, finish_time, target));
+    // fn place(&self, node: &mut Node, finish_time: &mut Vec<u64>, target: &mut Target) {
+    //     let mut best = (Placement::Spread, self.place_spread(node, finish_time, target));
 
-        // for single and pipe
-        for device_id in 0..finish_time.len() {
-            let (updated_time, eft) = self.place_single(device_id, node, finish_time, target);
-            if eft < best.1 .1 {
-                best = (Placement::Single(device_id), (updated_time, eft))
-            }
+    //     // for single and pipe
+    //     for device_id in 0..finish_time.len() {
+    //         let (updated_time, eft) = self.place_single(device_id, node, finish_time, target);
+    //         if eft < best.1 .1 {
+    //             best = (Placement::Single(device_id), (updated_time, eft))
+    //         }
 
-            let (updated_time, eft) = self.place_cluster(device_id, node, finish_time, target);
-            if eft < best.1 .1 {
-                best = (Placement::Cluster(device_id), (updated_time, eft))
-            }
-        }
+    //         let (updated_time, eft) = self.place_cluster(device_id, node, finish_time, target);
+    //         if eft < best.1 .1 {
+    //             best = (Placement::Cluster(device_id), (updated_time, eft))
+    //         }
+    //     }
 
-        println!("{:?} {}", best.0, node.raw_node.name);
-        actual_place(node, best.0, target);
-        finish_time.copy_from_slice(&best.1 .0);
-    }
+    //     println!("{:?} {}", best.0, node.raw_node.name);
+    //     actual_place(node, best.0, target);
+    //     finish_time.copy_from_slice(&best.1 .0);
+    // }
 }
 
 fn prepare_profilee(node: &Node, n: usize) -> NodeDef {
@@ -167,20 +210,6 @@ fn prepare_profilee(node: &Node, n: usize) -> NodeDef {
     }).collect();
 
     x
-}
-
-fn actual_place(node: &mut Node, placement: Placement, target: &mut Target) {
-    match placement {
-        Placement::Single(n) => put_on_cpu0(node, target),
-        Placement::Cluster(n) => put_on_cpu0(node, target),
-        Placement::Spread => put_on_cpu0(node, target),
-    }
-}
-
-fn put_on_cpu0(node: &mut Node, _target: &mut Target) {
-    if node.replicated().is_none() {
-        node.replicas.push((0, node.raw_node.name.clone()));
-    }
 }
 
 const HEAVY_OPS: &[&str] = &[

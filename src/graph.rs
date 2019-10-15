@@ -99,6 +99,13 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
         &mut mutable.outputs[index]
     }
 
+    // pub fn input_tensors(&self) -> impl Iterator<Item=&mut Tensor<NEX, TEX>> {
+    //     let nodes = &self.graph().nodes;
+    //     self.inputs.iter().map(move |(id, index)| {
+    //         nodes[*id].get_output(*index)
+    //     })
+    // }
+
     pub fn replicated(&self) -> Option<bool> {
         match self.replicas.len() {
             0 => None,
