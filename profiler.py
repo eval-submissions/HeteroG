@@ -89,7 +89,7 @@ def _profile(node_def_raw, target):
     for dev in run_meta.step_stats.dev_stats:
         for node in dev.node_stats:
             if node.node_name == 'import/profilee':
-                time = node.op_end_rel_nanos - node.op_start_rel_nanos
+                time = node.op_end_rel_micros - node.op_start_rel_micros
                 # TODO: will there be duplications? A single operation runs on multiple devices (require both host and accelerator)?
 
     print("{}: {}".format(node_def.op, time))
