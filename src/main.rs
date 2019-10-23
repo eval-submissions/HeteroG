@@ -18,7 +18,7 @@ fn main() {
     let devices: Vec<_> = std::env::args().skip(1).collect();
     let mut strategy = strategy::DataParallelRing;
     let mut target = graph::Target::new(proto::graph::GraphDef::new(), devices.into_boxed_slice());
-    let mut graph = graph::Graph::new(g.node.iter());
+    let mut graph = graph::Graph::new(&g.node);
 
     strategy::Strategy::plan(&mut strategy, &mut graph, &mut target);
     graph.compile(&mut target);

@@ -6,17 +6,17 @@
 
 use oh_my_rust::*;
 use protobuf::{Message, parse_from_bytes};
-use std::convert::TryInto;
 
 mod proto;
 mod graph;
 mod strategy;
 mod polishing;
+mod scheduler;
 
 // reason for this additional abstraction layer: trait object still requires specifying associate types. a Bundle groups a strategy and the graph together to remove the need.
 trait AbstractBundle {
     fn plan_and_compile(&mut self, target: &mut graph::Target);
-    fn build_graph(&mut self, iter: Vec<crate::proto::node_def::NodeDef>); // template function cannot be made into trait objects, so we directly use vec
+    fn build_graph(&mut self, iter: &[crate::proto::node_def::NodeDef]);
 }
 
 struct TheBundle<NEX: Default, TEX: Default, S: strategy::Strategy<NEX=NEX, TEX=TEX>> {
@@ -36,8 +36,8 @@ impl<NEX: Default, TEX: Default, S: strategy::Strategy<NEX=NEX, TEX=TEX>> Abstra
         self.graph.as_mut().unwrap().compile(target)
     }
 
-    fn build_graph(&mut self, nodes: Vec<crate::proto::node_def::NodeDef>) {
-        self.graph = Some(graph::Graph::<NEX, TEX>::new(nodes.iter()))
+    fn build_graph(&mut self, nodes: &[crate::proto::node_def::NodeDef]) {
+        self.graph = Some(graph::Graph::<NEX, TEX>::new(nodes))
     }
 }
 
@@ -47,11 +47,11 @@ struct Context(Bundle, graph::Target);
 
 #[no_mangle]
 unsafe extern fn tge(bundle: *mut Bundle, pb: *const u8, pb_len: u32, devices: *const u8, devices_len: u32) -> *mut Context {
-    let pb = std::slice::from_raw_parts(pb, pb_len.try_into().unwrap());
+    let pb = std::slice::from_raw_parts(pb, pb_len as usize);
     let g: proto::graph::GraphDef = parse_from_bytes(pb).unwrap();
-    (&mut *bundle).build_graph(g.node.into_vec());
+    (&mut *bundle).build_graph(&g.node);
 
-    let devices_str = std::str::from_utf8(std::slice::from_raw_parts(devices, devices_len.try_into().unwrap())).unwrap();
+    let devices_str = std::str::from_utf8(std::slice::from_raw_parts(devices, devices_len as usize)).unwrap();
     let devices: Vec<_> = devices_str.split_ascii_whitespace().map(|x| x.to_owned()).collect();
     let target = graph::Target::new(proto::graph::GraphDef::new(), devices.into_boxed_slice());
 
@@ -102,6 +102,16 @@ unsafe extern fn compile(ctx: *mut Context, pflag: u8) -> u32 {
     if pflag & 0x02 != 0 { polishing::remove_shape_hint(target); }
     if pflag & 0x04 != 0 { polishing::destructify_names(target); }
     target.pb.compute_size()
+}
+
+#[no_mangle]
+unsafe extern fn evaluate(ctx: *mut Context, profile_data: *const u8, len: u32) -> u64 {
+    let profile_str = std::str::from_utf8(std::slice::from_raw_parts(profile_data, len as usize)).unwrap();
+    let profile_dict: std::collections::BTreeMap<String, u64> = profile_str.split_ascii_whitespace().collect::<Vec<_>>()
+        .chunks(2).map(|x| (x[0].to_string(), x[1].parse().unwrap())).collect();
+    let Context(_bundle, target) = &mut *ctx;
+    let mut scheduler = scheduler::TensorFlowLikeScheduler::new(profile_dict);
+    scheduler::Scheduler::evaluate(&mut scheduler, target)
 }
 
 #[no_mangle]
