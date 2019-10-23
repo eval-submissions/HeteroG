@@ -19,6 +19,9 @@ libtge.heft.restype = ctypes.c_void_p
 libtge.compile.argtypes = [ctypes.c_void_p, ctypes.c_ubyte]
 libtge.compile.restype = ctypes.c_uint32
 
+libtge.evaluate.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32]
+libtge.evaluate.restype = ctypes.c_uint64
+
 libtge.read_and_destroy.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
 libtge.read_and_destroy.restype = None
 
@@ -49,6 +52,21 @@ class TGE:
         libtge.read_and_destroy(tge, buf)
         self.graph_def.Clear() # I'm not sure if this line is needed
         self.graph_def.ParseFromString(buf.raw)
+
+    def evaluate(self, profile_dict):
+        graph_raw = self.graph_def.SerializeToString()
+        device_raw = ' '.join(self.devices).encode('ascii')
+        profile_raw = ''
+        for name, time in profile_dict.items():
+            profile_raw += name + ' ' + time + '\n'
+        tge = libtge.tge(self.strategy, graph_raw, len(graph_raw), device_raw, len(device_raw))
+        size = libtge.compile(tge, self.flag)
+        result = libtge.evaluate(tge, profile_raw, len(profile_raw))
+        buf = ctypes.create_string_buffer(size)
+        libtge.read_and_destroy(tge, buf)
+        self.graph_def.Clear()
+        self.graph_def.ParseFromString(buf.raw)
+        return result
 
     @chain
     def destructify_names(self):

@@ -85,7 +85,13 @@ impl Scheduler for TensorFlowLikeScheduler {
             // move a time step forward
             if let Some(Task { id, eft }) = ongoing_tasks.pop() {
                 time = eft;
-                ready_list.extend(&output_list[id]);
+                for output in &output_list[id] {
+                    let list = &mut input_list[*output];
+                    list.retain(|x| *x == id);
+                    if list.is_empty() {
+                        ready_list.push_back(*output)
+                    }
+                }
             } else { // finally done
                 break
             }
