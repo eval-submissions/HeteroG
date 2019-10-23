@@ -37,7 +37,7 @@ struct Task {
 
 impl Ord for Task {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        Ord::cmp(&self.id, &other.id).reverse()
+        Ord::cmp(&self.eft, &other.eft).reverse()
     }
 }
 
@@ -87,7 +87,7 @@ impl Scheduler for TensorFlowLikeScheduler {
                 time = eft;
                 for output in &output_list[id] {
                     let list = &mut input_list[*output];
-                    list.retain(|x| *x == id);
+                    list.retain(|x| *x != id);
                     if list.is_empty() {
                         ready_list.push_back(*output)
                     }
