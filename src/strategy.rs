@@ -16,14 +16,14 @@ pub trait Strategy {
 mod trival;
 pub use trival::NotAtAll;
 
-mod dp; // data parallel
-pub use dp::{DataParallelOneForAll, DataParallelNccl, DataParallelRing};
+// mod dp; // data parallel
+// pub use dp::{DataParallelOneForAll, DataParallelNccl, DataParallelRing};
 
-mod heft; // earliest finish time
-pub use heft::NaiveGreedyEarliestFinishTime;
+// mod heft; // earliest finish time
+// pub use heft::NaiveGreedyEarliestFinishTime;
 
 // mod dp2; // dynamic programming
 // pub use dp2::DynamicProgrammingEarliestFinishTime;
 
-mod custom;
-pub use custom::Custom;
+// mod custom;
+// pub use custom::Custom;

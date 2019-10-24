@@ -69,23 +69,23 @@ enum CommunicationMethod {
     NONE=0, PS0=1, RING=2, NCCL=3
 }
 
-#[no_mangle]
-extern fn data_parallel(inner: CommunicationMethod, outer: CommunicationMethod) -> *mut Bundle {
-    let bundle = match (inner, outer) {
-        (CommunicationMethod::PS0, CommunicationMethod::NONE) => Bundle::from(Box::new(TheBundle::new(strategy::DataParallelOneForAll))),
-        (CommunicationMethod::RING, CommunicationMethod::NONE) => Bundle::from(Box::new(TheBundle::new(strategy::DataParallelRing))),
-        (CommunicationMethod::NCCL, CommunicationMethod::NONE) => Bundle::from(Box::new(TheBundle::new(strategy::DataParallelNccl))),
-        _ => unimplemented!()
-    };
+// #[no_mangle]
+// extern fn data_parallel(inner: CommunicationMethod, outer: CommunicationMethod) -> *mut Bundle {
+//     let bundle = match (inner, outer) {
+//         (CommunicationMethod::PS0, CommunicationMethod::NONE) => Bundle::from(Box::new(TheBundle::new(strategy::DataParallelOneForAll))),
+//         (CommunicationMethod::RING, CommunicationMethod::NONE) => Bundle::from(Box::new(TheBundle::new(strategy::DataParallelRing))),
+//         (CommunicationMethod::NCCL, CommunicationMethod::NONE) => Bundle::from(Box::new(TheBundle::new(strategy::DataParallelNccl))),
+//         _ => unimplemented!()
+//     };
 
-    Box::leak(Box::new(bundle))
-}
+//     Box::leak(Box::new(bundle))
+// }
 
-#[no_mangle]
-unsafe extern fn heft(profiler: extern fn(*const u8, u32) -> u64) -> *mut Bundle {
-    let bundle = TheBundle::new(strategy::NaiveGreedyEarliestFinishTime { profiler });
-    Box::leak(Box::new(Bundle::from(Box::new(bundle))))
-}
+// #[no_mangle]
+// unsafe extern fn heft(profiler: extern fn(*const u8, u32) -> u64) -> *mut Bundle {
+//     let bundle = TheBundle::new(strategy::NaiveGreedyEarliestFinishTime { profiler });
+//     Box::leak(Box::new(Bundle::from(Box::new(bundle))))
+// }
 
 // #[no_mangle]
 // unsafe extern fn dynamic_programming(profiler: extern fn(*const u8, u32) -> u64) -> *mut Bundle {

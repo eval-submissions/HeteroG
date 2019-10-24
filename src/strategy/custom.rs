@@ -73,7 +73,7 @@ impl Strategy for Custom {
                             let s = self.strategy_map.get(&node.raw_node.name).copied();
                         }
                         _ => {
-                            let name = node.replicas[id].1.clone();
+                            let name = node.replicas[*id].1.clone();
                             tensor.replicated = Some(Box::new(move |id| format!("{}:{}", name, index)))
                         }
                     }

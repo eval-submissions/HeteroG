@@ -29,7 +29,7 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
                 }
             }
 
-            let node = Node::new(&g, node_def.clone(), "".to_string());
+            let node = Node::new(&g, node_def.clone());
             g.name_dict.insert(node.raw_node.name.clone(), g.nodes.len());
             g.nodes.push(node);
         }
@@ -38,6 +38,7 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
     }
 
     /// setup the replicas and links. Note that auxiliary nodes are already there by strategies.
+    /// The only required fields is `replicas`. All other decisions are optional.
     pub fn compile(&mut self, target: &mut Target) {
         for node in self.nodes.iter_mut() {
             node.compile(target)
@@ -45,20 +46,24 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum ReplicationType { Cache, Split }
+
 pub struct Node<NEX: Default, TEX: Default> {
     pub graph: *const Graph<NEX, TEX>,
     pub raw_node: NodeDef,
-    pub device: String,
     pub controls: Vec<usize>, // TODO: more consideration for control dependencies that added aux nodes
     pub inputs: Vec<(usize, usize)>, // nodeid, index
     pub outputs: Vec<Tensor<NEX, TEX>>,
-    pub replicas: Vec<(usize, String)>, // deviceid, name. no element: not determined; single element: just place; multiple elements: currently there must be exactly one replica each device
+
+    pub replicas: Vec<(usize, String)>, // deviceid, name. This should be filled by strategies.
+    pub input_replication_types: Vec<ReplicationType>, // the replication type of each input. This should be filled by strategies.
 
     pub extra: NEX
 }
 
 impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
-    pub fn new(graph: &Graph<NEX, TEX>, raw_node: NodeDef, device: String) -> Self {
+    pub fn new(graph: &Graph<NEX, TEX>, raw_node: NodeDef) -> Self {
         let mut inputs = vec![];
         let mut controls = vec![];
 
@@ -73,10 +78,9 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
         }
 
         Self {
-            graph, raw_node, device,
-            controls, inputs,
-            outputs: vec![],
-            replicas: vec![],
+            graph, raw_node, controls, inputs,
+            outputs: vec![], replicas: vec![],
+            input_replication_types: vec![],
             extra: Default::default()
         }
     }
@@ -99,13 +103,6 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
         &mut mutable.outputs[index]
     }
 
-    // pub fn input_tensors(&self) -> impl Iterator<Item=&mut Tensor<NEX, TEX>> {
-    //     let nodes = &self.graph().nodes;
-    //     self.inputs.iter().map(move |(id, index)| {
-    //         nodes[*id].get_output(*index)
-    //     })
-    // }
-
     pub fn replicated(&self) -> Option<bool> {
         match self.replicas.len() {
             0 => None,
@@ -114,48 +111,61 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
         }
     }
 
+    // if any of the inputs are splitted.
+    pub fn is_splitted(&self) -> bool {
+        self.input_replication_types.iter().any(|x| x == &ReplicationType::Split)
+    }
+
     /// add an edited node into the target. Requires all inputs to be compiled first
     fn compile(&mut self, target: &mut Target) {
-        if self.replicas.len() > 1 {
-            for (device_id, name) in self.replicas.iter() {
-                let mut node = self.raw_node.clone();
-                node.name = name.clone();
-                node.device = target.devices[*device_id].clone();
-                node.input = self.inputs.iter().map(|(node_id, index)| {
-                    let input = &self.graph().nodes[*node_id];
-                    input.get_output(*index).get_replicated(*device_id)
-                }).collect();
-                let mut attr = attr_value::AttrValue::new();
-                attr.value = Some(attr_value::AttrValue_oneof_value::s(self.raw_node.name.as_bytes().to_vec()));
-                node.attr.insert("_tge_origin".into(), attr);
-                for node_id in self.controls.iter() {
-                    let dep_node = &self.graph().nodes[*node_id];
-                    let dependency = if dep_node.replicated().unwrap() {
-                        &dep_node.replicas[*device_id].1
-                    } else {
-                        &dep_node.replicas[0].1
-                    };
-                    node.input.push(format!("^{}", dependency))
-                }
-                target.pb.node.push(node)
-            }
-        } else {
+        for (device_id, name) in self.replicas.iter() {
+            // 1. setup basic node info
             let mut node = self.raw_node.clone();
-            node.device = target.devices[self.replicas[0].0].clone();
-            node.input = self.inputs.iter().map(|(node_id, index)| {
-                let input = &self.graph().nodes[*node_id];
-                input.get_output(*index).get_aggregated()
-            }).collect();
+            node.name = name.clone();
+            node.device = target.devices[*device_id].clone();
             let mut attr = attr_value::AttrValue::new();
             attr.value = Some(attr_value::AttrValue_oneof_value::s(self.raw_node.name.as_bytes().to_vec()));
             node.attr.insert("_tge_origin".into(), attr);
-            for node_id in self.controls.iter() {
-                for (_, replica) in &self.graph().nodes[*node_id].replicas {
-                    node.input.push(format!("^{}", replica))
+
+            // 2. link inputs
+            node.input = self.inputs.iter().zip(&self.input_replication_types).map(|((node_id, index), reptype)| {
+                let input_tensor = &mut self.graph().nodes[*node_id].get_output(*index);
+                match reptype {
+                    ReplicationType::Cache => input_tensor.get_cache(*device_id, target),
+                    ReplicationType::Split => input_tensor.get_split(*device_id, target)
                 }
+            }).collect();
+            
+            // 3. add control dependencies
+            for node_id in self.controls.iter() {
+                let dep_node = &self.graph().nodes[*node_id];
+                let dependency = if dep_node.replicated().unwrap() {
+                    &dep_node.replicas[*device_id].1
+                } else {
+                    &dep_node.replicas[0].1
+                };
+                node.input.push(format!("^{}", dependency))
             }
+
             target.pb.node.push(node)
         }
+        // } else {
+        //     let mut node = self.raw_node.clone();
+        //     node.device = target.devices[self.replicas[0].0].clone();
+        //     node.input = self.inputs.iter().map(|(node_id, index)| {
+        //         let input = &self.graph().nodes[*node_id];
+        //         input.get_output(*index).get_aggregated()
+        //     }).collect();
+        //     let mut attr = attr_value::AttrValue::new();
+        //     attr.value = Some(attr_value::AttrValue_oneof_value::s(self.raw_node.name.as_bytes().to_vec()));
+        //     node.attr.insert("_tge_origin".into(), attr);
+        //     for node_id in self.controls.iter() {
+        //         for (_, replica) in &self.graph().nodes[*node_id].replicas {
+        //             node.input.push(format!("^{}", replica))
+        //         }
+        //     }
+        //     target.pb.node.push(node)
+        // }
     }
 }
 
@@ -163,19 +173,15 @@ pub struct Tensor<NEX: Default, TEX: Default> {
     pub node: *const Node<NEX, TEX>,
     pub index: usize,
 
-    pub replicated: Option<Box<dyn Fn(usize) -> String>>, // should be provided by strategy
-    pub aggregated: Option<String>, // should be provided by strategy
+    pub cache: Vec<String>, // should be provided by strategy
+    pub split: Vec<String>, // should be provided by strategy
 
     pub extra: TEX,
 }
 
 impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
     pub fn new(node: &Node<NEX, TEX>, index: usize) -> Self {
-        Tensor { node, index,
-            replicated: None,
-            aggregated: None,
-            extra: Default::default()
-        }
+        Tensor { node, index, cache: vec![], split: vec![], extra: TEX::default() }
     }
 
     pub fn original_name(&self) -> String {
@@ -190,14 +196,6 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         unsafe { &*self.node }
     }
 
-    pub fn get_replicated(&self, device_id: usize) -> String {
-        self.replicated.as_ref().unwrap()(device_id)
-    }
-
-    pub fn get_aggregated(&self) -> String {
-        self.aggregated.clone().unwrap()
-    }
-
     pub fn get_shape(&self) -> Vec<usize> {
         if let Some(attr_value::AttrValue_oneof_value::list(list)) = &self.node().raw_node.attr["_output_shapes"].value {
             // sucks: the output shape of BroadcastGradientArgs is always unknown even if inputs are fixed
@@ -207,18 +205,36 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             panic!("no shape information")
         }
     }
+
+    pub fn get_cache(&mut self, device_id: usize, target: &mut Target) -> String {
+        if self.cache.is_empty() {
+            if self.node().replicated().unwrap() {
+                // using PS
+            } else {
+                let name = format!("{}:{}", self.node().replicas[0].1, self.index);
+                self.cache.extend((0..target.devices.len()).map(|_| name.clone()));
+            }
+        }
+
+        self.cache[device_id].clone()
+    }
+
+    pub fn get_split(&mut self, device_id: usize, target: &mut Target) -> String {
+
+        self.split[device_id].clone()
+    }
 }
 
 pub struct Target {
     pub pb: GraphDef,
-    pub devices: Box<[String]>,
-    pub bandwidth_matrix: Box<[f32]> // the i*n+j element is the bandwidth (in 1024 bytes per second) from i to j
+    pub devices: Box<[String]>
+    // TODO: add network topology information
 }
 
 impl Target {
     pub fn new(pb: GraphDef, devices: Box<[String]>) -> Self {
         let n = devices.len();
-        Target { pb, devices, bandwidth_matrix: vec![1.0; n * n].into_boxed_slice() }
+        Target { pb, devices }
     }
 }
 
