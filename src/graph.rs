@@ -57,8 +57,8 @@ pub struct Node<NEX: Default, TEX: Default> {
     pub inputs: Vec<(usize, usize)>, // nodeid, index
     pub outputs: Vec<Tensor<NEX, TEX>>,
 
-    pub replicas: Vec<(usize, String)>, // deviceid, name. This should be filled by strategies.
-    pub input_replication_types: Vec<ReplicationType>, // the replication type of each input. This should be filled by strategies.
+    pub replicas: Vec<(usize, String)>, // deviceid, name. This must be filled by strategies.
+    pub input_replication_types: Vec<ReplicationType>, // the replication type of each input. This must be filled by strategies.
 
     pub extra: NEX
 }
@@ -178,8 +178,8 @@ pub struct Tensor<NEX: Default, TEX: Default> {
     pub node: *const Node<NEX, TEX>,
     pub index: usize,
 
-    pub cache: Vec<String>, // should be provided by strategy
-    pub split: Vec<String>, // should be provided by strategy
+    pub cache: Vec<String>, // may be provided by strategy
+    pub split: Vec<String>, // may be provided by strategy
 
     pub extra: TEX,
 }
