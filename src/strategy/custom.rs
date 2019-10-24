@@ -11,10 +11,6 @@ pub struct NEX {
     batch_splitable: bool, // indicating if this node can be splited by the batch dimension. Currently any descendant of input are considered as splitable
 }
 
-pub struct TEX {
-    aggregate_aux_need_compile: bool,
-}
-
 type Graph = crate::graph::Graph<NEX, ()>;
 type Node = crate::graph::Node<NEX, ()>;
 type Tensor = crate::graph::Tensor<NEX, ()>;
@@ -28,6 +24,8 @@ impl Strategy for Custom {
     type TEX = ();
 
     fn plan(&mut self, graph: &mut Graph, target: &mut Target) {
+        let n = target.devices.len();
+
         // first pass: mark batchiness
         for node in graph.nodes.iter_mut() {
             if node.raw_node.op == "Placeholder" {
@@ -39,107 +37,110 @@ impl Strategy for Custom {
             }
         }
 
-        // second pass: decide whether to replicate and the replication method for special operators
+        // second pass: set replicas (using put_* methods)
         for node in graph.nodes.iter_mut() {
             let s = self.strategy_map.get(&node.raw_node.name).copied();
-            let n = target.devices.len();
 
             match &node.raw_node.op[..] {
-                "VariableV2" => {
-                    if s.unwrap() >= n {
-                        replicate_per_device(node, target);
+                "Placeholder" | "RandomUniform" | "NoOp" => put_on_device(node, 0), // ignore decision and put on device 0
+                "ApplyGradientDescent" | "Assign" => { // ignore decision and put along with the variable
+                    let id = node.inputs[0].0;
+                    if node.graph().nodes[id].replicated().unwrap() {
+                        put_on_all_devices(node, target);
                     } else {
-                        put_on_device(node, 0);
+                        put_on_device(node, node.graph().nodes[id].replicas[0].0);
                     }
                 }
-                "Placeholder" => { // ignore decision and put on device 0
-                    put_on_device(node, 0);
-                    replicate_split(node.get_output(0), target);
-                }
-                "ApplyGradientDescent" => { // ignore decision and put along with variable
-                    let (vid, vindex) = node.inputs[0]; // the variable
-                    let (gid, gindex) = node.inputs[2]; // the gradient
-                    if node.graph().nodes[vid].replicated().unwrap() {
-                        // TODO: check is it ps or all-reduce
-                        replicate_per_device(node, target);
-                        all_reduce_sum_ring_chunked(node.graph().nodes[gid].get_output(gindex), target);
-                    } else {
-                        all_reduce_sum_ring_chunked(node.graph().nodes[gid].get_output(gindex), target);
+                _ => match s {
+                    Some(i) if i < n => {
+                        put_on_device(node, i)
                     }
-                    // put_on_device(node, 0);
-                    // aggregate_sum(node.graph().nodes[id].get_output(index), target);
-                }
-                "Assign" => { // ignore decision and put along with variable
-                    let (id, index) = node.inputs[0];
-                    put_on_device(node, 0);
-                }
-                "RandomUniform" => { // This one just can't be replicated
-                    put_on_device(node, 0);
-                }
-                "NoOp" /*if node.raw_node.name == "GradientDescent" || node.raw_node.name == "init"*/ => {
-                    put_on_device(node, 0);
-                }
-                _ => {
-                    match s {
-                        Some(i) if i < n => put_on_device(node, i),
-                        Some(_) => replicate_per_device(node, target),
-                        None => replicate_per_device(node, target) // replicate by default so initialize-related ops won't complaint
+                    Some(_) | None => { // replicate by default
+                        put_on_all_devices(node, target)
                     }
                 }
             }
         }
 
-        // thrid pass: implement replicate and aggregate logic
-        // TODO: not all sorted. For example, it always insert aggregate_cat even is not used.
+        // thrid pass: set replicate and aggregate logic (using replicate_* and aggregate_* methods)
         for node in graph.nodes.iter_mut() {
-            for (node_id, index) in node.inputs.iter() {
-                let tensor = node.graph().nodes[*node_id].get_output(*index);
-
-                if tensor.replicated.is_none() && tensor.node().replicated().unwrap() {
-                    let replicas = tensor.node().replicas.clone();
-                    let index = tensor.index;
-                    tensor.replicated = Some(Box::new(move |id| format!("{}:{}", replicas[id].1, index))) // TODO: find the replica in the device rather than assuming it is the i-th one.
-                }
-                if tensor.aggregated.is_none() && !tensor.node().replicated().unwrap() {
-                    tensor.aggregated = Some(tensor.original_name())
-                }
-
-                if tensor.replicated.is_none() && !tensor.node().replicated().unwrap() {
-                    if tensor.node().extra.batch_splitable {
-                        replicate_split(tensor, target);
-                    } else {
-                        replicate_cache(tensor, target);
+            for (id, index) in node.inputs.iter() {
+                let input = &mut node.graph().nodes[*id];
+                let tensor = &mut input.get_output(*index);
+                match (node.replicated().unwrap(), input.replicated().unwrap()) {
+                    (true, true) => match &node.raw_node.op[..] {
+                        "ApplyGradientDescent" => {
+                            let s = self.strategy_map.get(&node.raw_node.name).copied();
+                        }
+                        _ => {
+                            let name = node.replicas[id].1.clone();
+                            tensor.replicated = Some(Box::new(move |id| format!("{}:{}", name, index)))
+                        }
                     }
-
-                    let name = tensor.original_name();
-                    tensor.replicated = Some(Box::new(move |_id| name.clone()))
-                }
-                if tensor.aggregated.is_none() && tensor.node().replicated().unwrap() {
-                    if tensor.node().extra.batch_splitable {
-                        aggregate_cat(tensor, target);
-                    } else {
-                        // TODO: this should never happen!
-                        tensor.aggregated = Some(format!("{}:{}", tensor.node().replicas[0].1, tensor.index))
-                    }
+                    (true, false) => unimplemented!(),
+                    (false, true) => unimplemented!(),
+                    (false, false) => unimplemented!(),
                 }
             }
         }
+
+        // // TODO: not all sorted. For example, it always insert aggregate_cat even is not used.
+        // for node in graph.nodes.iter_mut() {
+        //     for (node_id, index) in node.inputs.iter() {
+        //         let tensor = node.graph().nodes[*node_id].get_output(*index);
+
+        //         if tensor.replicated.is_none() && tensor.node().replicated().unwrap() {
+        //             let replicas = tensor.node().replicas.clone();
+        //             let index = tensor.index;
+        //             tensor.replicated = Some(Box::new(move |id| format!("{}:{}", replicas[id].1, index))) // TODO: find the replica in the device rather than assuming it is the i-th one.
+        //         }
+        //         if tensor.aggregated.is_none() && !tensor.node().replicated().unwrap() {
+        //             tensor.aggregated = Some(tensor.original_name())
+        //         }
+
+        //         if tensor.replicated.is_none() && !tensor.node().replicated().unwrap() {
+        //             if tensor.node().extra.batch_splitable {
+        //                 replicate_split(tensor, target);
+        //             } else {
+        //                 replicate_cache(tensor, target);
+        //             }
+
+        //             let name = tensor.original_name();
+        //             tensor.replicated = Some(Box::new(move |_id| name.clone()))
+        //         }
+        //         if tensor.aggregated.is_none() && tensor.node().replicated().unwrap() {
+        //             if tensor.node().extra.batch_splitable {
+        //                 aggregate_cat(tensor, target);
+        //             } else {
+        //                 // TODO: this should never happen!
+        //                 tensor.aggregated = Some(format!("{}:{}", tensor.node().replicas[0].1, tensor.index))
+        //             }
+        //         }
+        //     }
+        // }
     }
+}
+
+fn make_node(origin: &NodeDef, op: String) {
+    let mut node = NodeDef::new();
+    node.op = op;
+    node.name = origin.name.clone();
+    node.device = origin.device.clone();
+    node.attr.insert("_tge_belong_to".into(), attr(AttrValue_oneof_value::s(origin.name.as_bytes().to_vec())));
 }
 
 fn put_on_device(node: &mut Node, device_id: usize) {
-    if node.replicated().is_none() {
-        node.replicas.push((device_id, node.raw_node.name.clone()));
-    } else {
-        panic!("sucks")
-    }
+    assert!(node.replicated().is_none(), "already replicated!");
+    node.replicas.push((device_id, node.raw_node.name.clone()));
 }
 
-fn replicate_per_device(node: &mut Node, target: &mut Target) {
-    for i in 0..target.devices.len() {
-        node.replicas.push((i, format!("{}/replica_{}", node.raw_node.name, i)))
-    }
+fn put_on_all_devices(node: &mut Node, target: &mut Target) {
+    assert!(node.replicated().is_none(), "already replicated!");
+    let name = &node.raw_node.name;
+    node.replicas.extend((0..target.devices.len()).map(|i| (i, format!("{}/replica_{}", name, i))));
 }
+
+// TODO: share the same dim for all splittings (and do the same thing for axis nodes in concating)
 
 fn replicate_split(tensor: &mut Tensor, target: &mut Target) {
     assert!(!tensor.node().replicated().unwrap());
@@ -195,11 +196,10 @@ fn replicate_cache(tensor: &mut Tensor, target: &mut Target) {
         target.pb.node.push(identity)
     }
 
-    tensor.aggregated = Some(tensor.original_name());
     tensor.replicated = Some(Box::new(move |id| format!("{}/aux_identity_{}_{}", name, index, id)));
 }
 
-fn aggregate_sum(tensor: &mut Tensor, target: &mut Target) {
+fn aggregate_sum(tensor: &mut Tensor, dest: usize, target: &mut Target) {
     assert!(tensor.node().replicated().unwrap());
 
     let name = tensor.node().raw_node.name.clone();
@@ -208,7 +208,7 @@ fn aggregate_sum(tensor: &mut Tensor, target: &mut Target) {
     let mut addn = NodeDef::new();
     addn.name = format!("{}/aux_sum_{}", name, index);
     addn.op = "AddN".into();
-    addn.device = target.devices[tensor.node().replicas[0].0].clone();
+    addn.device = target.devices[dest].clone();
     addn.attr.insert("N".into(),
         attr(AttrValue_oneof_value::i(tensor.node().replicas.len().try_into().unwrap())));
     addn.attr.insert("T".into(), get_dtype(&tensor.node().raw_node));
@@ -218,16 +218,17 @@ fn aggregate_sum(tensor: &mut Tensor, target: &mut Target) {
     tensor.aggregated = Some(format!("{}/aux_sum_{}", name, index));
 }
 
-fn aggregate_cat(tensor: &mut Tensor, target: &mut Target) {
+fn aggregate_cat(tensor: &mut Tensor, dest: usize, target: &mut Target) {
     assert!(tensor.node().replicated().unwrap());
 
     let name = tensor.node().raw_node.name.clone();
     let index = tensor.index;
+    let dest = &target.devices[dest];
 
     let mut axis = NodeDef::new();
     axis.name = format!("{}/aux_concat_{}/axis", name, index);
     axis.op = "Const".into();
-    axis.device = target.devices[tensor.node().replicas[0].0].clone();
+    axis.device = dest.clone();
     axis.attr.insert("dtype".into(), attr(AttrValue_oneof_value::field_type(DataType::DT_INT32)));
     let mut value = TensorProto::new();
     let shape = crate::proto::tensor_shape::TensorShapeProto::new();
@@ -240,7 +241,7 @@ fn aggregate_cat(tensor: &mut Tensor, target: &mut Target) {
     let mut concat = NodeDef::new();
     concat.name = format!("{}/aux_concat_{}", name, index);
     concat.op = "ConcatV2".into();
-    concat.device = target.devices[tensor.node().replicas[0].0].clone();
+    concat.device = dest.clone();
     concat.input = tensor.node().replicas.iter().map(|(_, x)| format!("{}:{}", x, index)).collect();
     concat.input.push(format!("{}/aux_concat_{}/axis", name, index));
     concat.attr.insert("N".into(), attr(AttrValue_oneof_value::i(tensor.node().replicas.len().try_into().unwrap())));
@@ -249,6 +250,11 @@ fn aggregate_cat(tensor: &mut Tensor, target: &mut Target) {
 
     target.pb.node.push(concat);
     tensor.aggregated = Some(format!("{}/aux_concat_{}", name, index))
+}
+
+fn aggregate_cache(tensor: &mut Tensor, dest: usize, _target: &mut Target) {
+    assert!(tensor.node().replicated().unwrap());
+    tensor.aggregated = Some(tensor.replicated.as_ref().unwrap()(dest))
 }
 
 fn all_reduce_sum_nccl(tensor: &mut Tensor, target: &mut Target) {

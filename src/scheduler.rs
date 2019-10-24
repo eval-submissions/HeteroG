@@ -24,7 +24,8 @@ impl TensorFlowLikeScheduler {
 
     fn profile(&self, node: &NodeDef, _n_split: u32, _device_id: usize) -> u64 {
         // TODO: the name has been changed!
-        self.profile_dict.get(&node.name).copied().unwrap_or(0)
+        let origin_name = node.attr.get("_tge_origin").unwrap().get_s().to_vec();
+        self.profile_dict.get(&String::from_utf8(origin_name).unwrap()).copied().unwrap_or(0)
     }
 }
 
@@ -73,7 +74,7 @@ impl Scheduler for TensorFlowLikeScheduler {
         let mut gpu_avaliable_time = vec![0; target.devices.len()];
 
         loop {
-            // schedule ready nodes. Note the scheduled nodes may or may note start immediatly depending on the GPU queue. There may be other nodes become ready before some nodes schedualed earlier actually start.
+            // schedule ready nodes. Note the scheduled nodes may or may not start immediatly depending on the GPU queue. There may be other nodes become ready before some nodes schedualed earlier actually start.
             while let Some(id) = ready_list.pop_front() {
                 let device = device_dict[&nodes[id].device];
                 let node = &nodes[id];

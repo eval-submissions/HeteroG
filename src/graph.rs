@@ -125,6 +125,9 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
                     let input = &self.graph().nodes[*node_id];
                     input.get_output(*index).get_replicated(*device_id)
                 }).collect();
+                let mut attr = attr_value::AttrValue::new();
+                attr.value = Some(attr_value::AttrValue_oneof_value::s(self.raw_node.name.as_bytes().to_vec()));
+                node.attr.insert("_tge_origin".into(), attr);
                 for node_id in self.controls.iter() {
                     let dep_node = &self.graph().nodes[*node_id];
                     let dependency = if dep_node.replicated().unwrap() {
@@ -143,6 +146,9 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
                 let input = &self.graph().nodes[*node_id];
                 input.get_output(*index).get_aggregated()
             }).collect();
+            let mut attr = attr_value::AttrValue::new();
+            attr.value = Some(attr_value::AttrValue_oneof_value::s(self.raw_node.name.as_bytes().to_vec()));
+            node.attr.insert("_tge_origin".into(), attr);
             for node_id in self.controls.iter() {
                 for (_, replica) in &self.graph().nodes[*node_id].replicas {
                     node.input.push(format!("^{}", replica))

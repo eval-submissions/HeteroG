@@ -18,6 +18,7 @@ pub fn remove_shape_hint(target: &mut Target) {
 }
 
 pub fn remove_dangling_nodes(_target: &mut Target) {
+    // note: dont forget control dependency
     unimplemented!()
 }
 
