@@ -62,9 +62,10 @@ class TGE:
         profile_raw = ''
         for name, time in profile_dict.items():
             profile_raw += name + ' ' + str(time) + '\n'
+        profile_raw = profile_raw.encode('ascii')
         tge = libtge.tge(self.strategy, graph_raw, len(graph_raw), device_raw, len(device_raw))
         size = libtge.compile(tge, self.flag)
-        result = libtge.evaluate(tge, profile_raw.encode('ascii'), len(profile_raw.encode('ascii')))
+        result = libtge.evaluate(tge, profile_raw, len(profile_raw))
         buf = ctypes.create_string_buffer(size)
         libtge.read_and_destroy(tge, buf)
         self.graph_def.Clear()

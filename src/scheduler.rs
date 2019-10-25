@@ -22,10 +22,10 @@ impl TensorFlowLikeScheduler {
         Self { profile_dict }
     }
 
-    fn profile(&self, node: &NodeDef, _n_split: u32, _device_id: usize) -> u64 {
+    fn profile(&self, node: &NodeDef, _n_split: u32, _device_id: usize) -> Option<u64> {
         // TODO: the name has been changed!
-        let origin_name = node.attr.get("_tge_origin").unwrap().get_s().to_vec();
-        self.profile_dict.get(&String::from_utf8(origin_name).unwrap()).copied().unwrap_or(0)
+        let origin_name = node.attr.get("_tge_origin")?.get_s().to_vec();
+        self.profile_dict.get(&String::from_utf8(origin_name).unwrap()).copied()
     }
 }
 
@@ -62,7 +62,15 @@ impl Scheduler for TensorFlowLikeScheduler {
             output_list.push(Vec::with_capacity(4));
 
             for input in node.input.iter() {
-                let input_id = name_dict[input];
+                let input_name = if input.starts_with('^') {
+                    &input[1..]
+                } else {
+                    match input.find(':') {
+                        Some(i) => &input[..i],
+                        None => input
+                    }
+                };
+                let input_id = name_dict[input_name];
                 input_list[i].push(input_id);
                 output_list[input_id].push(i);
             }
@@ -78,7 +86,7 @@ impl Scheduler for TensorFlowLikeScheduler {
             while let Some(id) = ready_list.pop_front() {
                 let device = device_dict[&nodes[id].device];
                 let node = &nodes[id];
-                let eft = gpu_avaliable_time[device] + self.profile(node, 1, device);
+                let eft = gpu_avaliable_time[device] + self.profile(node, 1, device).unwrap_or(0);
                 gpu_avaliable_time[device] = eft;
                 ongoing_tasks.push(Task { id, eft });
             }

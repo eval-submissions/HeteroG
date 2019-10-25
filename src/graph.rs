@@ -121,6 +121,8 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
 
     /// add an edited node into the target. Requires all inputs to be compiled first
     fn compile(&mut self, target: &mut Target) {
+        eprintln!("  --> compile: {} {:?} {:?}", self.raw_node.name, self.input_replication_types, self.replicas.iter().map(|x| x.0).collect::<Vec<_>>());
+
         for (device_id, name) in self.replicas.iter() {
             // 1. setup basic node info
             let mut node = self.raw_node.clone();
@@ -362,8 +364,14 @@ impl Target {
     }
 }
 
+// TODO: This function is not done. Need to parse ops.pbtxt and follow type or type_attr.
 fn get_dtype(x: &NodeDef) -> AttrValue {
-    x.attr.get("dtype").or_else(|| x.attr.get("T")).unwrap().clone() // TODO: not really correct. Need to parse ops.pbtxt and follow type or type_attr.
+    match &x.op[..] {
+        "Greater" | "GreaterEqual" => AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_BOOL)),
+        "Shape" | "ShapeN" => x.attr.get("out_type").cloned().unwrap_or_else(|| AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_INT32))),
+        "Cast" => x.attr.get("DstT").cloned().unwrap(),
+        _ => x.attr.get("dtype").or_else(|| x.attr.get("T")).unwrap_or_else(|| panic!("cannot determine dtype for {}", x.op)).clone()
+    }
 }
 
 fn parse_input(x: &str) -> (&str, usize) {
