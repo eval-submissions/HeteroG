@@ -86,7 +86,7 @@ impl Scheduler for TensorFlowLikeScheduler {
             while let Some(id) = ready_list.pop_front() {
                 let device = device_dict[&nodes[id].device];
                 let node = &nodes[id];
-                let eft = gpu_avaliable_time[device] + self.profile(node, 1, device).unwrap_or(0);
+                let eft = cmp::max(gpu_avaliable_time[device], time) + self.profile(node, 1, device).unwrap_or(0);
                 gpu_avaliable_time[device] = eft;
                 ongoing_tasks.push(Task { id, eft });
             }
