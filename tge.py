@@ -10,11 +10,14 @@ libtge.tge.restype = ctypes.c_void_p
 libtge.not_at_all.argtypes = []
 libtge.not_at_all.restype = ctypes.c_void_p
 
-libtge.data_parallel.argtypes = [ctypes.c_byte, ctypes.c_byte]
-libtge.data_parallel.restype = ctypes.c_void_p
+# libtge.data_parallel.argtypes = [ctypes.c_byte, ctypes.c_byte]
+# libtge.data_parallel.restype = ctypes.c_void_p
 
-libtge.heft.argtypes = [PROFILER_T]
-libtge.heft.restype = ctypes.c_void_p
+# libtge.heft.argtypes = [PROFILER_T]
+# libtge.heft.restype = ctypes.c_void_p
+
+libtge.custom.argtypes = [ctypes.POINTER(ctypes.c_char), ctypes.c_uint32]
+libtge.custom.restype = ctypes.c_void_p
 
 libtge.compile.argtypes = [ctypes.c_void_p, ctypes.c_ubyte]
 libtge.compile.restype = ctypes.c_uint32
@@ -58,10 +61,10 @@ class TGE:
         device_raw = ' '.join(self.devices).encode('ascii')
         profile_raw = ''
         for name, time in profile_dict.items():
-            profile_raw += name + ' ' + time + '\n'
+            profile_raw += name + ' ' + str(time) + '\n'
         tge = libtge.tge(self.strategy, graph_raw, len(graph_raw), device_raw, len(device_raw))
         size = libtge.compile(tge, self.flag)
-        result = libtge.evaluate(tge, profile_raw, len(profile_raw))
+        result = libtge.evaluate(tge, profile_raw.encode('ascii'), len(profile_raw.encode('ascii')))
         buf = ctypes.create_string_buffer(size)
         libtge.read_and_destroy(tge, buf)
         self.graph_def.Clear()
@@ -82,6 +85,13 @@ class TGE:
 
         inner = methods_dict[method.lower()]
         self.strategy = libtge.data_parallel(inner, 0)
+
+    @chain
+    def custom(self, decisions):
+        decision_raw = ''
+        for name, decision in decisions.items():
+            decision_raw += name + ' ' + str(decision) + '\n'
+        self.strategy = libtge.custom(decision_raw.encode('ascii'), len(decision_raw.encode('ascii')))
 
     @chain
     def heft(self, profiler):

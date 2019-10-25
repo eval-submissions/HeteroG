@@ -16,7 +16,7 @@ type Node = crate::graph::Node<NEX, ()>;
 type Tensor = crate::graph::Tensor<NEX, ()>;
 
 pub struct Custom {
-    strategy_map: std::collections::BTreeMap<String, usize>
+    pub strategy_map: std::collections::BTreeMap<String, usize>
 }
 
 impl Strategy for Custom {
@@ -26,7 +26,6 @@ impl Strategy for Custom {
     fn plan(&mut self, graph: &mut Graph, target: &mut Target) {
         let n = target.devices.len();
 
-        // 1. mark bachiness
         for node in graph.nodes.iter_mut() {
             if node.raw_node.op == "Placeholder" {
                 node.extra.batch_splitable = true
@@ -37,7 +36,6 @@ impl Strategy for Custom {
             }
         }
 
-        // 2. do the replication
         for node in graph.nodes.iter_mut() {
             let s = self.strategy_map.get(&node.raw_node.name).copied();
 

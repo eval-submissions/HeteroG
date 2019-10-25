@@ -310,7 +310,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         split.input.push(dim.name.clone());
         split.input.push(format!("{}:{}", self.node().replicas[0].1, self.index));
         split.attr.insert("T".into(), get_dtype(&self.node().raw_node));
-        split.attr.insert("num_split".into(), AttrValue::new().apply_owned(|x| x.set_i(self.node().replicas.len().try_into().unwrap())));
+        split.attr.insert("num_split".into(), AttrValue::new().apply_owned(|x| x.set_i(target.devices.len().try_into().unwrap())));
 
         self.split.extend((0..target.devices.len()).map(|i| format!("{}:{}", split.name, i)));
         target.pb.node.push(dim);
