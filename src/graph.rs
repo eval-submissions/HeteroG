@@ -47,7 +47,8 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+/// Cache means "full". Split means splitted by the batch size dimension.
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum ReplicationType { Cache, Split }
 
 pub struct Node<NEX: Default, TEX: Default> {
@@ -58,7 +59,7 @@ pub struct Node<NEX: Default, TEX: Default> {
     pub outputs: Vec<Tensor<NEX, TEX>>,
 
     pub replicas: Vec<(usize, String)>, // deviceid, name. This must be filled by strategies.
-    pub input_replication_types: Vec<ReplicationType>, // the replication type of each input. This must be filled by strategies.
+    pub input_replication_types: Box<[ReplicationType]>, // the replication type of each input. This must be filled by strategies.
 
     pub extra: NEX
 }
@@ -78,17 +79,18 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
             }
         }
 
+        let default_replication_type = inputs.iter().map(|_| ReplicationType::Cache).collect();
+
         Self {
             graph, raw_node, controls, inputs,
             outputs: vec![], replicas: vec![],
-            input_replication_types: vec![],
+            input_replication_types: default_replication_type,
             extra: Default::default()
         }
     }
 
-    // TODO: use RC+Cell to get rid of the unsafe? It's an recursive reference so we need a mannual destroy function
     #[allow(clippy::mut_from_ref)]
-    pub fn graph(&self) -> &mut Graph<NEX, TEX> {
+    pub fn graph<'a>(&self) -> &'a mut Graph<NEX, TEX> {
         unsafe { &mut *(self.graph as *mut Graph<NEX, TEX>) }
     }
 
@@ -113,7 +115,7 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
     }
 
     // if any of the inputs are splitted, so if it is replicated, the outputs can be treat as splitted
-    pub fn is_splitted(&self) -> bool {
+    pub fn splitted(&self) -> bool {
         self.input_replication_types.iter().any(|x| x == &ReplicationType::Split)
     }
 
@@ -127,7 +129,7 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
             node.attr.insert("_tge_origin".into(), AttrValue::new().apply_owned(|x| x.set_s(self.raw_node.name.clone().into_bytes())));
 
             // 2. link inputs
-            node.input = self.inputs.iter().zip(&self.input_replication_types).map(|((node_id, index), reptype)| {
+            node.input = self.inputs.iter().zip(self.input_replication_types.iter()).map(|((node_id, index), reptype)| {
                 let input_tensor = &mut self.graph().nodes[*node_id].get_output(*index);
                 match reptype {
                     ReplicationType::Cache => input_tensor.get_cache(*device_id, target),
@@ -197,7 +199,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         }
     }
 
-    pub fn node(&self) -> &Node<NEX, TEX> {
+    pub fn node<'a>(&self) -> &'a Node<NEX, TEX> {
         unsafe { &*self.node }
     }
 
@@ -210,7 +212,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
     pub fn get_cache(&mut self, device_id: usize, target: &mut Target) -> String {
         if self.cache.is_empty() {
             if self.node().replicated().unwrap() {
-                if self.node().is_splitted() {
+                if self.node().splitted() {
                     self.aggregate_cat(device_id, target);
                 } else {
                     self.cache.extend_from_slice(&self.node().replicas.iter().map(|(_, name)| format!("{}:{}", name, self.index)).collect::<Vec<_>>());
@@ -227,7 +229,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
     pub fn get_split(&mut self, device_id: usize, target: &mut Target) -> String {
         if self.split.is_empty() {
             if self.node().replicated().unwrap() {
-                if self.node().is_splitted() {
+                if self.node().splitted() {
                     self.split.extend_from_slice(&self.node().replicas.iter().map(|(_, name)| format!("{}:{}", name, self.index)).collect::<Vec<_>>());
                 } else {
                     unimplemented!();
@@ -245,7 +247,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
     **************************************/
 
     pub fn aggregate_sum(&mut self, server: usize, target: &mut Target) {
-        assert!(self.node().replicated().unwrap() && self.node().is_splitted() && self.cache.is_empty());
+        assert!(self.node().replicated().unwrap() && self.node().splitted() && self.cache.is_empty());
 
         let mut addn = self.node().make_node("AddN".to_string());
         addn.name += &format!("/aux_sum_{}", self.index);
@@ -261,7 +263,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
     // TODO: share the same axis nodes for all concating (and do the same thing for dim nodes in splitting)
 
     pub fn aggregate_cat(&mut self, server: usize, target: &mut Target) {
-        assert!(self.node().replicated().unwrap() && self.node().is_splitted() && self.cache.is_empty());
+        assert!(self.node().replicated().unwrap() && self.node().splitted() && self.cache.is_empty());
 
         let mut axis = self.node().make_node("Const".to_string());
         axis.name += &format!("/aux_concat_{}/axis", self.index);
@@ -315,11 +317,11 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         target.pb.node.push(split);
     }
 
-    fn all_reduce_nccl(&mut self, target: &mut Target) {
+    pub fn all_reduce_nccl(&mut self, target: &mut Target) {
         // to all_sum n tensors (can be on the same devie), one should have n NcclAllReduce nodes with the same shared_name attr
         // each node have only *one* input, and should be on the same device of the input. The output of these nodes will be the same
 
-        assert!(self.node().replicated().unwrap() && self.node().is_splitted() && self.cache.is_empty());
+        assert!(self.node().replicated().unwrap() && self.node().splitted() && self.cache.is_empty());
 
         for (id, replica) in self.node().replicas.iter() {
             let mut nccl = self.node().make_node("NcclAllReduce".to_string());
@@ -337,8 +339,8 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         self.cache.extend_from_slice(&(0..target.devices.len()).map(|i| format!("{}/aux_nccl_{}_{}", self.node().raw_node.name, self.index, i)).collect::<Vec<_>>());
     }
 
-    fn all_reduce_ring(&mut self, target: &mut Target) {
-        assert!(self.node().replicated().unwrap() && self.node().is_splitted() && self.cache.is_empty());
+    pub fn all_reduce_ring(&mut self, target: &mut Target) {
+        assert!(self.node().replicated().unwrap() && self.node().splitted() && self.cache.is_empty());
 
         let list: Vec<_> = self.node().replicas.iter().map(|(id, name)| (*id, format!("{}:{}", name, self.index))).collect();
         let results = _all_reduce_sum_ring_chunked(self, &list, target);

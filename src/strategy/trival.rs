@@ -15,7 +15,6 @@ impl Strategy for NotAtAll {
     fn plan(&mut self, graph: &mut Graph, _target: &mut Target) {
         for node in graph.nodes.iter_mut() {
             node.put_on_device(0);
-            node.input_replication_types.extend(node.inputs.iter().map(|_| ReplicationType::Cache));
         }
     }
 }
