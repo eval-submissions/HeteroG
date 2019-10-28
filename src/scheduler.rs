@@ -105,7 +105,7 @@ impl Scheduler for TensorFlowLikeScheduler {
             }).collect();
 
             let id = Task::create(&mut tasks, TaskType::Computation { id: i, gpu: device_dict[&node.device] }, &wait_for);
-            task_dict[i] = id;
+            task_dict.push(id);
         }
 
         let mut time = 0;

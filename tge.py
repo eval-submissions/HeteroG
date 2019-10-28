@@ -7,7 +7,7 @@ libtge = ctypes.cdll.LoadLibrary("./libtge.so")
 libtge.tge.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32]
 libtge.tge.restype = ctypes.c_void_p
 
-libtge.topology.argtypes = [ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32]
+libtge.topology.argtypes = [ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32]
 libtge.topology.restype = ctypes.c_void_p
 
 libtge.not_at_all.argtypes = []
@@ -87,7 +87,7 @@ class TGE:
         '''
         links_raw = ' '.join(links).encode('ascii')
         paths_raw = '\n'.join((' '.join(path) for path in paths)).encode('ascii')
-        self.topology = libtge.topology(len(self.devices), links_raw, len(links_raw), paths_raw, len(paths_raw))
+        self.topology = libtge.topology(links_raw, len(links_raw), paths_raw, len(paths_raw))
 
     def get_topology(self):
         'default topology use a single shared 100k bytes per micro second bandwidth'
@@ -95,8 +95,9 @@ class TGE:
             return self.topology
 
         links_raw = '1000000'.encode('ascii')
-        paths_raw = '\n'.join('' if i == j else '0' for i in range(len(self.devices)) for j in range(len(self.devices))).encode('ascii')
-        return libtge.topology(len(self.devices), links_raw, len(links_raw), paths_raw, len(paths_raw))
+        paths_raw = '\n'.join('' if i == j else '0' for i in range(len(self.devices)) for j in range(len(self.devices)))
+        paths_raw = (paths_raw + '\n').encode('ascii') # since the last element is '', where will be one line missing
+        return libtge.topology(links_raw, len(links_raw), paths_raw, len(paths_raw))
 
     @chain
     def data_parallel(self, method):

@@ -63,14 +63,12 @@ unsafe extern fn tge(bundle: *mut Bundle, topo: *mut Topology, pb: *const u8, pb
 }
 
 #[no_mangle]
-unsafe extern fn topology(n_devices: u32, links_raw: *const u8, links_len: u32, paths_raw: *const u8, paths_len: u32) -> *mut Topology {
+unsafe extern fn topology(links_raw: *const u8, links_len: u32, paths_raw: *const u8, paths_len: u32) -> *mut Topology {
     let links_str = std::str::from_utf8(std::slice::from_raw_parts(links_raw, links_len as usize)).unwrap();
     let links = links_str.split_ascii_whitespace().map(|x| x.parse().unwrap()).collect();
 
     let paths_str = std::str::from_utf8(std::slice::from_raw_parts(paths_raw, paths_len as usize)).unwrap();
-    let iter = &mut paths_str.lines();
-    let paths = (0..n_devices as usize * n_devices as usize)
-        .map(|_| iter.next().unwrap().split_ascii_whitespace().map(|x| x.parse().unwrap()).collect()).collect();
+    let paths = paths_str.lines().map(|x| x.split_ascii_whitespace().map(|x| x.parse().unwrap()).collect()).collect();
 
     Box::leak(Box::new((links, paths)))
 }
@@ -94,7 +92,7 @@ enum CommunicationMethod {
 //         (CommunicationMethod::NCCL, CommunicationMethod::NONE) => Bundle::from(Box::new(TheBundle::new(strategy::DataParallelNccl))),
 //         _ => unimplemented!()
 //     };
-
+//
 //     Box::leak(Box::new(bundle))
 // }
 
