@@ -217,7 +217,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
 
     pub fn get_shape(&self) -> Vec<usize> {
         // sucks: the output shape of BroadcastGradientArgs is always unknown even if inputs are fixed
-        // and ops like `Sum` (requires the dimension to sum along with) and `Fill` operates differenct with different input
+        // and ops like `Sum` (requires the dimension to sum along with) and `Fill` operates differently with different inputs
         self.node().raw_node.attr["_output_shapes"].get_list().shape[self.index].dim.iter().map(|x| x.size.try_into().ok()).collect::<Option<_>>().unwrap_or_else(Vec::new)
     }
 
@@ -271,6 +271,9 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         addn.attr.insert("N".into(), AttrValue::new().apply_owned(|x| x.set_i(self.node().replicas.len().try_into().unwrap())));
         addn.attr.insert("T".into(), get_dtype(&self.node().raw_node));
         addn.input = self.node().replicas.iter().map(|(_, x)| format!("{}:{}", x, self.index)).collect();
+        for i in 0..self.node().replicas.len() {
+            set_input_size(&mut addn, i, self.get_size() / self.node().replicas.len() as u64)
+        }
 
         self.cache.extend((0..target.devices.len()).map(|_| addn.name.clone()));
         target.pb.node.push(addn);
@@ -300,6 +303,9 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         concat.attr.insert("N".into(), AttrValue::new().apply_owned(|x| x.set_i(self.node().replicas.len().try_into().unwrap())));
         concat.attr.insert("T".into(), get_dtype(&self.node().raw_node));
         concat.attr.insert("Tidx".into(), AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_INT32)));
+        for i in 0..self.node().replicas.len() {
+            set_input_size(&mut concat, i, self.get_size() / self.node().replicas.len() as u64)
+        }
 
         self.cache.extend((0..target.devices.len()).map(|_| concat.name.clone()));
         target.pb.node.push(axis);
@@ -327,6 +333,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         split.input.push(format!("{}:{}", self.node().replicas[0].1, self.index));
         split.attr.insert("T".into(), get_dtype(&self.node().raw_node));
         split.attr.insert("num_split".into(), AttrValue::new().apply_owned(|x| x.set_i(target.devices.len().try_into().unwrap())));
+        set_input_size(&mut split, 1, self.get_size());
 
         self.split.extend((0..target.devices.len()).map(|i| format!("{}:{}", split.name, i)));
         target.pb.node.push(dim);
