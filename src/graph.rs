@@ -13,6 +13,8 @@ pub struct Graph<NEX: Default, TEX: Default> {
 
 impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
     pub fn new(nodes: &[NodeDef]) -> Box<Self> {
+        task!("build graph of {} nodes", nodes.len());
+
         let mut g = Box::new(Graph { nodes: Vec::with_capacity(nodes.len()), name_dict: BTreeMap::new() });
 
         // no always optimal, but good enough since the input is actually mostly ordered
@@ -25,6 +27,7 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
                     parse_input(input).0
                 };
                 if !g.name_dict.contains_key(input) {
+                    debug!("pushing back {}", node_def.name);
                     queue.push_back(node_def);
                     continue 'outer;
                 }
@@ -41,6 +44,7 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
     /// setup the replicas and links. Note that auxiliary nodes are already there by strategies.
     /// The only required fields is `replicas`. All other decisions are optional.
     pub fn compile(&mut self, target: &mut Target) {
+        task!("compile graph of {} nodes", self.nodes.len());
         for node in self.nodes.iter_mut() {
             node.compile(target)
         }
@@ -121,7 +125,7 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
 
     /// add an edited node into the target. Requires all inputs to be compiled first
     fn compile(&mut self, target: &mut Target) {
-        eprintln!("  --> compile: {} {:?} {:?}", self.raw_node.name, self.input_replication_types, self.replicas.iter().map(|x| x.0).collect::<Vec<_>>());
+        debug!("compile: {} {:?} {:?}", self.raw_node.name, self.input_replication_types, self.replicas.iter().map(|x| x.0).collect::<Vec<_>>());
 
         for (device_id, name) in self.replicas.iter() {
             // 1. setup basic node info

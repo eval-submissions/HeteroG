@@ -1,5 +1,6 @@
 // evaluate a given graph by simulate a scheduler with profile data
 
+use oh_my_rust::*;
 use std::convert::TryInto;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, VecDeque};
 use std::cmp;
@@ -50,6 +51,8 @@ impl PartialOrd for Task {
 
 impl Scheduler for TensorFlowLikeScheduler {
     fn evaluate(&mut self, target: &Target) -> u64 {
+        task!("evaluate graph of {} nodes", target.pb.node.len());
+
         let nodes = &target.pb.node;
         let name_dict: BTreeMap<_, _> = nodes.iter().enumerate().map(|(i, x)| (x.name.clone(), i)).collect();
         let device_dict: BTreeMap<_, _> = target.devices.iter().enumerate().map(|(i, x)| (x.clone(), i)).collect();
