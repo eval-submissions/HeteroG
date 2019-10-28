@@ -132,14 +132,20 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
             let mut node = self.raw_node.clone();
             node.name = name.clone();
             node.device = target.devices[*device_id].clone();
-            node.attr.insert("_tge_origin".into(), AttrValue::new().apply_owned(|x| x.set_s(self.raw_node.name.clone().into_bytes())));
+            set_origin(&mut node, &self.raw_node.name);
 
-            // 2. link inputs
-            node.input = self.inputs.iter().zip(self.input_replication_types.iter()).map(|((node_id, index), reptype)| {
+            // 2. link inputs and set size
+            node.input = self.inputs.iter().enumerate().zip(self.input_replication_types.iter()).map(|((i, (node_id, index)), reptype)| {
                 let input_tensor = &mut self.graph().nodes[*node_id].get_output(*index);
                 match reptype {
-                    ReplicationType::Cache => input_tensor.get_cache(*device_id, target),
-                    ReplicationType::Split => input_tensor.get_split(*device_id, target)
+                    ReplicationType::Cache => {
+                        set_input_size(&mut node, i, input_tensor.get_size());
+                        input_tensor.get_cache(*device_id, target)
+                    }
+                    ReplicationType::Split => {
+                        set_input_size(&mut node, i, input_tensor.get_size() / target.devices.len() as u64);
+                        input_tensor.get_split(*device_id, target)
+                    }
                 }
             }).collect();
 
@@ -166,7 +172,7 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
         let mut node = NodeDef::new();
         node.op = op;
         node.name = self.raw_node.name.clone();
-        node.attr.insert("_tge_belong_to".into(), AttrValue::new().apply_owned(|x| x.set_s(self.raw_node.name.clone().into_bytes())));
+        set_belong_to(&mut node, &self.raw_node.name);
         node
     }
 
@@ -213,6 +219,10 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         // sucks: the output shape of BroadcastGradientArgs is always unknown even if inputs are fixed
         // and ops like `Sum` (requires the dimension to sum along with) and `Fill` operates differenct with different input
         self.node().raw_node.attr["_output_shapes"].get_list().shape[self.index].dim.iter().map(|x| x.size.try_into().ok()).collect::<Option<_>>().unwrap_or_else(Vec::new)
+    }
+
+    pub fn get_size(&self) -> u64 {
+        (self.get_shape().iter().fold(0, |x, y| x * y) * 4).try_into().unwrap()
     }
 
     pub fn get_cache(&mut self, device_id: usize, target: &mut Target) -> String {
@@ -367,6 +377,22 @@ impl Target {
     pub fn new(pb: GraphDef, devices: Box<[String]>, links: Box<[u64]>, paths: Box<[Box<[usize]>]>) -> Self {
         Target { pb, devices, links, paths }
     }
+}
+
+fn set_origin(node: &mut NodeDef, origin: &str) {
+    node.attr.insert("_tge_origin".into(), AttrValue::new().apply_owned(|x| x.set_s(origin.as_bytes().to_vec())));
+}
+
+fn set_belong_to(node: &mut NodeDef, belong_to: &str) {
+    node.attr.insert("_tge_belong_to".into(), AttrValue::new().apply_owned(|x| x.set_s(belong_to.as_bytes().to_vec())));
+}
+
+fn set_input_size(node: &mut NodeDef, index: usize, size: u64) {
+    let sizes = &mut node.attr.entry("_tge_input_sizes".to_string()).or_insert_with(AttrValue::new).mut_list().i;
+    if sizes.len() <= index {
+        sizes.resize(index+1, 0)
+    }
+    sizes[index] = size as _;
 }
 
 // TODO: This function is not done. Need to parse ops.pbtxt and follow type or type_attr.

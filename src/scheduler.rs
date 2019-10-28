@@ -15,18 +15,24 @@ pub trait Scheduler {
 }
 
 pub struct TensorFlowLikeScheduler {
+    n: usize,
     profile_dict: BTreeMap<String, u64>
 }
 
 impl TensorFlowLikeScheduler {
-    pub fn new(profile_dict: BTreeMap<String, u64>) -> Self {
-        Self { profile_dict }
+    pub fn new(n: usize, profile_dict: BTreeMap<String, u64>) -> Self {
+        Self { n, profile_dict }
     }
 
-    fn profile(&self, node: &NodeDef, _n_split: u32, _device_id: usize) -> Option<u64> {
-        // TODO: the name has been changed!
-        let origin_name = node.attr.get("_tge_origin")?.get_s().to_vec();
-        self.profile_dict.get(&String::from_utf8(origin_name).unwrap()).copied()
+    fn profile(&self, node: &NodeDef, _device_id: usize) -> Option<u64> {
+        let origin_name = node.attr.get("_tge_origin")?.get_s();
+        let time = self.profile_dict.get(&String::from_utf8(origin_name.to_vec()).unwrap()).copied();
+        // technically we do not need to know whether it is replicated if we use a profiler since it will be reflected by the input size.
+        time.map(|x| if node.name.as_bytes() == origin_name { // not replicated
+            x
+        } else { // replicated
+            x / self.n as u64
+        })
     }
 }
 
@@ -89,7 +95,7 @@ impl Scheduler for TensorFlowLikeScheduler {
             while let Some(id) = ready_list.pop_front() {
                 let device = device_dict[&nodes[id].device];
                 let node = &nodes[id];
-                let eft = cmp::max(gpu_avaliable_time[device], time) + self.profile(node, 1, device).unwrap_or(0);
+                let eft = cmp::max(gpu_avaliable_time[device], time) + self.profile(node, device).unwrap_or(0);
                 gpu_avaliable_time[device] = eft;
                 ongoing_tasks.push(Task { id, eft });
             }
