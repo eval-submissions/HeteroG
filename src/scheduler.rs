@@ -36,20 +36,42 @@ impl TensorFlowLikeScheduler {
     }
 }
 
-// a silly type just to satisfy the BinaryHeap API
-#[derive(Debug, Eq, PartialEq)]
-struct Task {
-    id: usize,
+#[derive(Debug)]
+enum TaskType<'a> {
+    Computation { id: usize, gpu: usize },
+    Transfering { size: u64, path: &'a [usize] }
+}
+
+#[derive(Debug)]
+struct Task<'a> {
+    pub content: TaskType<'a>,
+    pub wait_for: Vec<usize>,
+    pub notify: Vec<usize>,
     pub eft: u64
 }
 
-impl Ord for Task {
+impl<'a> Task<'a> {
+    fn create(list: &mut Vec<Task<'a>>, content: TaskType<'a>, wait_for: &[usize]) -> usize {
+        let task = Task { content, wait_for: wait_for.to_vec(), notify: vec![], eft: 0 };
+        let id = list.len();
+        for i in wait_for {
+            list[*i].notify.push(id);
+        }
+        list.push(task);
+        id
+    }
+}
+
+#[derive(Eq, PartialEq)]
+struct OngoingTask { id: usize, eft: u64 }
+
+impl Ord for OngoingTask {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         Ord::cmp(&self.eft, &other.eft).reverse()
     }
 }
 
-impl PartialOrd for Task {
+impl PartialOrd for OngoingTask {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
@@ -60,54 +82,69 @@ impl Scheduler for TensorFlowLikeScheduler {
         task!("evaluate graph of {} nodes", target.pb.node.len());
 
         let nodes = &target.pb.node;
-        let name_dict: BTreeMap<_, _> = nodes.iter().enumerate().map(|(i, x)| (x.name.clone(), i)).collect();
+        let node_dict: BTreeMap<_, _> = nodes.iter().enumerate().map(|(i, x)| (x.name.clone(), i)).collect();
         let device_dict: BTreeMap<_, _> = target.devices.iter().enumerate().map(|(i, x)| (x.clone(), i)).collect();
 
-        // initialize two aux lists
-        let mut input_list = vec![]; // the i-th element is a list of nodes that i-th node is waiting for
-        let mut output_list = vec![]; // the i-th element is a list of nodes that is waiting for i-th node to complete
+        // build tasks
+        let mut tasks = vec![];
+        let mut task_dict = vec![]; // the i-th element is the computation task of the i-th node
         for (i, node) in nodes.iter().enumerate() {
-            input_list.push(Vec::with_capacity(node.input.len()));
-            output_list.push(Vec::with_capacity(4));
+            let wait_for: Vec<_> = node.input.iter().map(|input| {
+                if input.starts_with('^') {
+                    return task_dict[node_dict[&input[1..]]]
+                }
 
-            for input in node.input.iter() {
-                let input_name = if input.starts_with('^') {
-                    &input[1..]
-                } else {
-                    match input.find(':') {
-                        Some(i) => &input[..i],
-                        None => input
-                    }
-                };
-                let input_id = name_dict[input_name];
-                input_list[i].push(input_id);
-                output_list[input_id].push(i);
-            }
+                let (name, index) = parse_input(&input);
+                let input_id = node_dict[name];
+                let from = device_dict[&nodes[input_id].device];
+                let to = device_dict[&node.device];
+                let size = nodes[input_id].attr.get("_tge_input_sizes").and_then(|x| x.get_list().i.get(index)).copied().unwrap_or(0) as _;
+                Task::create(&mut tasks, TaskType::Transfering {
+                    size, path: &target.paths[from * target.devices.len() + to]
+                }, &[task_dict[input_id]])
+            }).collect();
+
+            let id = Task::create(&mut tasks, TaskType::Computation { id: i, gpu: device_dict[&node.device] }, &wait_for);
+            task_dict[i] = id;
         }
 
         let mut time = 0;
         let mut ongoing_tasks = BinaryHeap::new();
-        let mut ready_list: VecDeque<_> = input_list.iter().enumerate().filter(|(_, x)| x.is_empty()).map(|(i, _)| i).collect(); // TODO: find the nodes that actually need to be runned (can lead to the terminating node), or assume the DAG is already pruned.
+        let mut ready_list: VecDeque<_> = tasks.iter().enumerate().filter(|(_, task)| task.wait_for.is_empty()).map(|(i, _)| i).collect(); // TODO: find the nodes that actually need to be runned (can lead to the terminating node), or assume the DAG is already pruned.
         let mut gpu_avaliable_time = vec![0; target.devices.len()];
+        let mut link_avaliable_time = vec![0; target.links.len()];
 
         loop {
-            // schedule ready nodes. Note the scheduled nodes may or may not start immediatly depending on the GPU queue. There may be other nodes become ready before some nodes schedualed earlier actually start.
-            while let Some(id) = ready_list.pop_front() {
-                let device = device_dict[&nodes[id].device];
-                let node = &nodes[id];
-                let eft = cmp::max(gpu_avaliable_time[device], time) + self.profile(node, device).unwrap_or(0);
-                gpu_avaliable_time[device] = eft;
-                ongoing_tasks.push(Task { id, eft });
+            // schedule ready tasks. Note the scheduled task may or may not start immediatly depending on the GPU/link queue. There may be other tasks become ready before some tasks schedualed earlier actually start.
+            while let Some(task_id) = ready_list.pop_front() {
+                let task = &mut tasks[task_id];
+                match task.content {
+                    TaskType::Computation { id: node_id, gpu } => {
+                        let eft = cmp::max(gpu_avaliable_time[gpu], time) + self.profile(&nodes[node_id], gpu).unwrap_or(0);
+                        gpu_avaliable_time[gpu] = eft;
+                        ongoing_tasks.push(OngoingTask { id: task_id, eft });
+                    }
+                    TaskType::Transfering { size, path } => {
+                        let est = path.iter().fold(time, |max, link| cmp::max(max, link_avaliable_time[*link]));
+                        let bandwidth = path.iter().fold(std::u64::MAX, |min, link| cmp::min(min, target.links[*link]));
+                        let eft = est + size / bandwidth;
+
+                        for link in path {
+                            link_avaliable_time[*link] = eft
+                        }
+                        ongoing_tasks.push(OngoingTask { id: task_id, eft });
+                    }
+                }
             }
 
             // move a time step forward
-            if let Some(Task { id, eft }) = ongoing_tasks.pop() {
+            if let Some(OngoingTask { id, eft }) = ongoing_tasks.pop() {
                 time = eft;
-                for output in &output_list[id] {
-                    let list = &mut input_list[*output];
+                for notify in &tasks[id].notify.clone() { // TODO: the clone sucks
+                    let list = &mut tasks[*notify].wait_for;
                     list.retain(|x| *x != id);
                     if list.is_empty() {
-                        ready_list.push_back(*output)
+                        ready_list.push_back(*notify)
                     }
                 }
             } else { // finally done
@@ -116,5 +153,12 @@ impl Scheduler for TensorFlowLikeScheduler {
         }
 
         time
+    }
+}
+
+fn parse_input(x: &str) -> (&str, usize) {
+    match x.find(':') {
+        Some(i) => (&x[..i], x[i+1..].parse().unwrap()),
+        None => (x, 0)
     }
 }

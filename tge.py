@@ -86,16 +86,16 @@ class TGE:
         paths: an array where the i*n+j element is an array of link indexes that in the path of i->j.
         '''
         links_raw = ' '.join(links).encode('ascii')
-        paths_raw = '\n'.join((' '.join(path) for path in paths))
+        paths_raw = '\n'.join((' '.join(path) for path in paths)).encode('ascii')
         self.topology = libtge.topology(len(self.devices), links_raw, len(links_raw), paths_raw, len(paths_raw))
 
     def get_topology(self):
-        'default topology use a single shared near-infinity bandwidth if not set'
+        'default topology use a single shared 100k bytes per micro second bandwidth'
         if hasattr(self, 'topology'):
             return self.topology
 
-        links_raw = '1000000000'.encode('ascii')
-        paths_raw = '0\n' * (len(self.devices) * len(self.devices))
+        links_raw = '1000000'.encode('ascii')
+        paths_raw = '\n'.join('' if i == j else '0' for i in range(len(self.devices)) for j in range(len(self.devices))).encode('ascii')
         return libtge.topology(len(self.devices), links_raw, len(links_raw), paths_raw, len(paths_raw))
 
     @chain
