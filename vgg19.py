@@ -35,16 +35,15 @@ from profiler import profiler_factory
 
 tic1 = time.perf_counter()
 g = (tge.TGE(gdef, devices)
-    # .data_parallel('ring')
-    # .not_at_all()
-    .custom({ node.name: np.random.randint(0, len(devices) + 2) for node in gdef.node })
-    # .compile()
-    .evaluate({ node.name: np.random.randint(0, 1000) for node in gdef.node })
+    .data_parallel('ring')
+    # .custom({ node.name: np.random.randint(0, len(devices) + 2) for node in gdef.node })
+    .compile()
+    # .evaluate({ node.name: np.random.randint(0, 1000) for node in gdef.node })
 )
-print(g)
+# print(g)
 toc1 = time.perf_counter()
 
-raise SystemExit
+# raise SystemExit
 
 tf.reset_default_graph()
 tf.import_graph_def(g)

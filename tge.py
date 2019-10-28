@@ -4,8 +4,11 @@ PROFILER_T = ctypes.CFUNCTYPE(ctypes.c_uint64, ctypes.POINTER(ctypes.c_char), ct
 
 libtge = ctypes.cdll.LoadLibrary("./libtge.so")
 
-libtge.tge.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32]
+libtge.tge.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32]
 libtge.tge.restype = ctypes.c_void_p
+
+libtge.topology.argtypes = [ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32]
+libtge.topology.restype = ctypes.c_void_p
 
 libtge.not_at_all.argtypes = []
 libtge.not_at_all.restype = ctypes.c_void_p
@@ -49,7 +52,7 @@ class TGE:
     def compile(self):
         graph_raw = self.graph_def.SerializeToString()
         device_raw = ' '.join(self.devices).encode('ascii')
-        tge = libtge.tge(self.strategy, graph_raw, len(graph_raw), device_raw, len(device_raw))
+        tge = libtge.tge(self.strategy, self.get_topology(), graph_raw, len(graph_raw), device_raw, len(device_raw))
         size = libtge.compile(tge, self.flag)
         buf = ctypes.create_string_buffer(size)
         libtge.read_and_destroy(tge, buf)
@@ -63,7 +66,7 @@ class TGE:
         for name, time in profile_dict.items():
             profile_raw += name + ' ' + str(time) + '\n'
         profile_raw = profile_raw.encode('ascii')
-        tge = libtge.tge(self.strategy, graph_raw, len(graph_raw), device_raw, len(device_raw))
+        tge = libtge.tge(self.strategy, self.get_topology(), graph_raw, len(graph_raw), device_raw, len(device_raw))
         size = libtge.compile(tge, self.flag)
         result = libtge.evaluate(tge, profile_raw, len(profile_raw))
         buf = ctypes.create_string_buffer(size)
@@ -75,6 +78,25 @@ class TGE:
     @chain
     def destructify_names(self):
         self.flag = self.flag | 0x04
+
+    @chain
+    def set_topology(self, links, paths):
+        '''
+        links: an array contains the bandwidth of each link. The unit is bytes/time where time is the same unit of profiling
+        paths: an array where the i*n+j element is an array of link indexes that in the path of i->j.
+        '''
+        links_raw = ' '.join(links).encode('ascii')
+        paths_raw = '\n'.join((' '.join(path) for path in paths))
+        self.topology = libtge.topology(len(self.devices), links_raw, len(links_raw), paths_raw, len(paths_raw))
+
+    def get_topology(self):
+        'default topology use a single shared near-infinity bandwidth if not set'
+        if hasattr(self, 'topology'):
+            return self.topology
+
+        links_raw = '1000000000'.encode('ascii')
+        paths_raw = '0\n' * (len(self.devices) * len(self.devices))
+        return libtge.topology(len(self.devices), links_raw, len(links_raw), paths_raw, len(paths_raw))
 
     @chain
     def data_parallel(self, method):

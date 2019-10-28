@@ -354,13 +354,14 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
 
 pub struct Target {
     pub pb: GraphDef,
-    pub devices: Box<[String]>
-    // TODO: add network topology information
+    pub devices: Box<[String]>,
+    pub links: Box<[u64]>, // the bandwidth of each link
+    pub paths: Box<[Box<[usize]>]> // the i*n+j element is the links that i->j uses (currently only one path between each pair)
 }
 
 impl Target {
-    pub fn new(pb: GraphDef, devices: Box<[String]>) -> Self {
-        Target { pb, devices }
+    pub fn new(pb: GraphDef, devices: Box<[String]>, links: Box<[u64]>, paths: Box<[Box<[usize]>]>) -> Self {
+        Target { pb, devices, links, paths }
     }
 }
 

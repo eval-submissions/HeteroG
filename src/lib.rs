@@ -42,20 +42,37 @@ impl<NEX: Default, TEX: Default, S: strategy::Strategy<NEX=NEX, TEX=TEX>> Abstra
 }
 
 type Bundle = Box<dyn AbstractBundle>;
+type Topology = (Box<[u64]>, Box<[Box<[usize]>]>);
 
 struct Context(Bundle, graph::Target);
 
 #[no_mangle]
-unsafe extern fn tge(bundle: *mut Bundle, pb: *const u8, pb_len: u32, devices: *const u8, devices_len: u32) -> *mut Context {
+unsafe extern fn tge(bundle: *mut Bundle, topo: *mut Topology, pb: *const u8, pb_len: u32, devices: *const u8, devices_len: u32) -> *mut Context {
     let pb = std::slice::from_raw_parts(pb, pb_len as usize);
     let g: proto::graph::GraphDef = parse_from_bytes(pb).unwrap();
     (&mut *bundle).build_graph(&g.node);
 
+    let (links, paths) = *Box::from_raw(topo);
+
     let devices_str = std::str::from_utf8(std::slice::from_raw_parts(devices, devices_len as usize)).unwrap();
     let devices: Vec<_> = devices_str.split_ascii_whitespace().map(|x| x.to_owned()).collect();
-    let target = graph::Target::new(proto::graph::GraphDef::new(), devices.into_boxed_slice());
+
+    let target = graph::Target::new(proto::graph::GraphDef::new(), devices.into_boxed_slice(), links, paths);
 
     Box::leak(Box::new(Context(*Box::from_raw(bundle), target)))
+}
+
+#[no_mangle]
+unsafe extern fn topology(n_devices: u32, links_raw: *const u8, links_len: u32, paths_raw: *const u8, paths_len: u32) -> *mut Topology {
+    let links_str = std::str::from_utf8(std::slice::from_raw_parts(links_raw, links_len as usize)).unwrap();
+    let links = links_str.split_ascii_whitespace().map(|x| x.parse().unwrap()).collect();
+
+    let paths_str = std::str::from_utf8(std::slice::from_raw_parts(paths_raw, paths_len as usize)).unwrap();
+    let iter = &mut paths_str.lines();
+    let paths = (0..n_devices as usize * n_devices as usize)
+        .map(|_| iter.next().unwrap().split_ascii_whitespace().map(|x| x.parse().unwrap()).collect()).collect();
+
+    Box::leak(Box::new((links, paths)))
 }
 
 #[no_mangle]
