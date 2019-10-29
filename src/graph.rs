@@ -222,7 +222,8 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
     }
 
     pub fn get_size(&self) -> u64 {
-        (self.get_shape().iter().fold(0, |x, y| x * y) * 4).try_into().unwrap()
+        #[allow(clippy::unnecessary_fold)]
+        (self.get_shape().iter().fold(1, |x, y| x * y) * 4).try_into().unwrap()
     }
 
     pub fn get_cache(&mut self, device_id: usize, target: &mut Target) -> String {
