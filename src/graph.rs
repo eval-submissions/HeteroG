@@ -426,25 +426,24 @@ fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX,
     let basename = tensor.node().raw_node.name.clone();
     let devices: Vec<_> = list.iter().map(|(id, _)| target.devices[*id].clone()).collect();
     let dtype = get_dtype(&tensor.node().raw_node);
+    let psize = tensor.get_size() / tensor.node().replicas.len() as u64;
 
     // 1. recording the shape
     let shapes: Vec<_> = (0..n).map(|i| {
-        let mut shape = NodeDef::new();
-        shape.name = format!("{}/ring_{}/aux_shape_{}", basename, tensor.index, i);
-        shape.op = "Shape".into();
+        let mut shape = tensor.node().make_node("Shape".to_string());
+        shape.name += &format!("/ring_{}/aux_shape_{}", tensor.index, i);
         shape.device = devices[i].clone();
-        // shape.attr.insert("T".into(), attr(AttrValue_oneof_value::field_type(DataType::DT_INT32)));
         shape.attr.insert("T".into(), dtype.clone());
         shape.input.push(list[i].1.clone());
+        set_input_size(&mut shape, 0, psize);
         target.pb.node.push(shape);
         format!("{}/ring_{}/aux_shape_{}", basename, tensor.index, i)
     }).collect();
 
     // 2. flattening
     let flats: Vec<_> = (0..n).map(|i| {
-        let mut shape = NodeDef::new();
-        shape.name = format!("{}/ring_{}/aux_flat_{}/shape", basename, tensor.index, i);
-        shape.op = "Const".into();
+        let mut shape = tensor.node().make_node("Const".to_string());
+        shape.name += &format!("/ring_{}/aux_flat_{}/shape", tensor.index, i);
         shape.device = devices[i].clone();
         shape.attr.insert("dtype".into(), AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_INT32)));
         let mut value = crate::proto::tensor::TensorProto::new();
@@ -458,22 +457,21 @@ fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX,
         shape.attr.insert("value".into(), AttrValue::new().apply_owned(|x| x.set_tensor(value)));
         target.pb.node.push(shape);
 
-        let mut flat = NodeDef::new();
-        flat.name = format!("{}/ring_{}/aux_flat_{}", basename, tensor.index, i);
-        flat.op = "Reshape".into();
+        let mut flat = tensor.node().make_node("Reshape".to_string());
+        flat.name += &format!("/ring_{}/aux_flat_{}", tensor.index, i);
         flat.device = devices[i].clone();
         flat.attr.insert("T".into(), dtype.clone());
         flat.input.push(list[i].1.clone());
         flat.input.push(format!("{}/ring_{}/aux_flat_{}/shape", basename, tensor.index, i));
+        set_input_size(&mut flat, 0, psize);
         target.pb.node.push(flat);
         format!("{}/ring_{}/aux_flat_{}", basename, tensor.index, i)
     }).collect();
 
     // 3. chunking
     let mut chunks: Vec<Vec<String>> = (0..n).map(|i| {
-        let mut dim = NodeDef::new();
-        dim.name = format!("{}/ring_{}/aux_split_{}/split_dim", basename, tensor.index, i);
-        dim.op = "Const".into();
+        let mut dim = tensor.node().make_node("Const".to_string());
+        dim.name += &format!("/ring_{}/aux_split_{}/split_dim", tensor.index, i);
         dim.device = devices[i].clone();
         dim.attr.insert("dtype".into(), AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_INT32)));
         let mut value = crate::proto::tensor::TensorProto::new();
@@ -484,14 +482,14 @@ fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX,
         dim.attr.insert("value".into(), AttrValue::new().apply_owned(|x| x.set_tensor(value)));
         target.pb.node.push(dim);
 
-        let mut split = NodeDef::new();
-        split.name = format!("{}/ring_{}/aux_split_{}", basename, tensor.index, i);
-        split.op = "Split".into();
+        let mut split = tensor.node().make_node("Split".to_string());
+        split.name += &format!("/ring_{}/aux_split_{}", tensor.index, i);
         split.device = devices[i].clone();
         split.input.push(format!("{}/ring_{}/aux_split_{}/split_dim", basename, tensor.index, i));
         split.input.push(flats[i].clone());
         split.attr.insert("T".into(), dtype.clone());
         split.attr.insert("num_split".into(), AttrValue::new().apply_owned(|x| x.set_i(n.try_into().unwrap())));
+        set_input_size(&mut split, 1, psize);
         target.pb.node.push(split);
 
         (0..n).map(|j| {
@@ -503,13 +501,14 @@ fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX,
     for round in 0..n-1 {
         // at the r round, the r+i chunk on i node is replaced by the sum of r+i and r+i+1
         for i in 0..n {
-            let mut add = NodeDef::new();
-            add.name = format!("{}/ring_{}/aux_add_{}_{}", basename, tensor.index, i, round);
-            add.op = "Add".into();
+            let mut add = tensor.node().make_node("Add".to_string());
+            add.name += &format!("/ring_{}/aux_add_{}_{}", tensor.index, i, round);
             add.device = devices[i].clone();
             add.input.push(chunks[i][(round+i) % n].clone());
             add.input.push(chunks[(i+1) % n][(round+i) % n].clone());
             add.attr.insert("T".into(), dtype.clone());
+            set_input_size(&mut add, 0, psize);
+            set_input_size(&mut add, 1, psize);
             chunks[i][(round+i) % n] = add.name.clone();
             target.pb.node.push(add);
         }
@@ -518,12 +517,12 @@ fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX,
     // 5. n-1 rounds of gathering
     for round in 0..n-1 {
         for i in 0..n {
-            let mut identity = NodeDef::new();
-            identity.name = format!("{}/ring_{}/aux_identity_{}_{}", basename, tensor.index, i, round);
-            identity.op = "Identity".into();
+            let mut identity = tensor.node().make_node("Identity".to_string());
+            identity.name += &format!("/ring_{}/aux_identity_{}_{}", tensor.index, i, round);
             identity.device = devices[i].clone();
             identity.attr.insert("T".into(), dtype.clone());
             identity.input.push(chunks[(i+1) % n][(i+round+n-1) % n].clone());
+            set_input_size(&mut identity, 0, psize);
             chunks[i][(i+round+n-1) % n] = identity.name.clone();
             target.pb.node.push(identity);
         }
@@ -531,9 +530,8 @@ fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX,
 
     // 6. concating
     let concated: Vec<_> = chunks.into_iter().enumerate().map(|(i, chunk)| {
-        let mut axis = NodeDef::new();
-        axis.name = format!("{}/ring_{}/aux_concat_{}/axis", basename, tensor.index, i);
-        axis.op = "Const".into();
+        let mut axis = tensor.node().make_node("Const".to_string());
+        axis.name += &format!("/ring_{}/aux_concat_{}/axis", tensor.index, i);
         axis.device = devices[i].clone();
         axis.attr.insert("dtype".into(), AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_INT32)));
         let mut value = crate::proto::tensor::TensorProto::new();
@@ -544,15 +542,18 @@ fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX,
         axis.attr.insert("value".into(), AttrValue::new().apply_owned(|x| x.set_tensor(value)));
         target.pb.node.push(axis);
 
-        let mut concat = NodeDef::new();
-        concat.name = format!("{}/ring_{}/aux_concat_{}", basename, tensor.index, i);
-        concat.op = "ConcatV2".into();
+        let len = chunk.len(); // save it here since we will destruct it later
+        let mut concat = tensor.node().make_node("ConcatV2".to_string());
+        concat.name += &format!("/ring_{}/aux_concat_{}", tensor.index, i);
         concat.device = devices[i].clone();
         concat.input = chunk.into_iter().collect();
         concat.input.push(format!("{}/ring_{}/aux_concat_{}/axis", basename, tensor.index, i));
         concat.attr.insert("N".into(), AttrValue::new().apply_owned(|x| x.set_i(n.try_into().unwrap())));
         concat.attr.insert("T".into(), dtype.clone());
         concat.attr.insert("Tidx".into(), AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_INT32)));
+        for j in 0..len {
+            set_input_size(&mut concat, j, psize);
+        }
         target.pb.node.push(concat);
 
         format!("{}/ring_{}/aux_concat_{}", basename, tensor.index, i)
@@ -560,13 +561,13 @@ fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX,
 
     // 7. restore shapes
     concated.into_iter().zip(shapes).enumerate().map(|(i, (concat, shape))| {
-        let mut reshape = NodeDef::new();
-        reshape.name = format!("{}/ring_{}/aux_reshape_{}", basename, tensor.index, i);
-        reshape.op = "Reshape".into();
+        let mut reshape = tensor.node().make_node("Reshape".to_string());
+        reshape.name += &format!("/ring_{}/aux_reshape_{}", tensor.index, i);
         reshape.device = devices[i].clone();
         reshape.attr.insert("T".into(), dtype.clone());
         reshape.input.push(concat);
         reshape.input.push(shape);
+        set_input_size(&mut reshape, 0, psize);
         target.pb.node.push(reshape);
         format!("{}/ring_{}/aux_reshape_{}", basename, tensor.index, i)
     }).collect()
