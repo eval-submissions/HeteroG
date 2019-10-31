@@ -269,7 +269,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         let mut addn = self.node().make_node("AddN".to_string());
         addn.name += &format!("/aux_sum_{}", self.index);
         addn.device = target.devices[server].clone();
-        addn.attr.insert("N".into(), AttrValue::new().apply_owned(|x| x.set_i(self.node().replicas.len().try_into().unwrap())));
+        addn.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(self.node().replicas.len().try_into().unwrap())));
         addn.attr.insert("T".into(), get_dtype(&self.node().raw_node));
         addn.input = self.node().replicas.iter().map(|(_, x)| format!("{}:{}", x, self.index)).collect();
         for i in 0..self.node().replicas.len() {
@@ -288,22 +288,22 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         let mut axis = self.node().make_node("Const".to_string());
         axis.name += &format!("/aux_concat_{}/axis", self.index);
         axis.device = target.devices[server].clone();
-        axis.attr.insert("dtype".into(), AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_INT32)));
-        let value = crate::proto::tensor::TensorProto::new().apply_owned(|x| {
+        axis.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
+        let value = crate::proto::tensor::TensorProto::new().apply(|x| {
             x.set_dtype(DataType::DT_INT32);
             x.set_tensor_shape(crate::proto::tensor_shape::TensorShapeProto::new());
             x.int_val.push(0);
         });
-        axis.attr.insert("value".into(), AttrValue::new().apply_owned(|x| x.set_tensor(value)));
+        axis.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
 
         let mut concat = self.node().make_node("ConcatV2".to_string());
         concat.name += &format!("/aux_concat_{}", self.index);
         concat.device = target.devices[server].clone();
         concat.input = self.node().replicas.iter().map(|(_, x)| format!("{}:{}", x, self.index)).collect();
         concat.input.push(format!("{}/aux_concat_{}/axis", self.node().raw_node.name, self.index));
-        concat.attr.insert("N".into(), AttrValue::new().apply_owned(|x| x.set_i(self.node().replicas.len().try_into().unwrap())));
+        concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(self.node().replicas.len().try_into().unwrap())));
         concat.attr.insert("T".into(), get_dtype(&self.node().raw_node));
-        concat.attr.insert("Tidx".into(), AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_INT32)));
+        concat.attr.insert("Tidx".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
         for i in 0..self.node().replicas.len() {
             set_input_size(&mut concat, i, self.get_size() / self.node().replicas.len() as u64)
         }
@@ -319,13 +319,13 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         let mut dim = self.node().make_node("Const".to_string());
         dim.name += &format!("/aux_split_{}/split_dim", self.index);
         dim.device = target.devices[self.node().replicas[0].0].clone();
-        dim.attr.insert("dtype".into(), AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_INT32)));
-        let value = crate::proto::tensor::TensorProto::new().apply_owned(|x| {
+        dim.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
+        let value = crate::proto::tensor::TensorProto::new().apply(|x| {
             x.set_dtype(DataType::DT_INT32);
             x.set_tensor_shape(crate::proto::tensor_shape::TensorShapeProto::new());
             x.int_val.push(0);
         });
-        dim.attr.insert("value".into(), AttrValue::new().apply_owned(|x| x.set_tensor(value)));
+        dim.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
 
         let mut split = self.node().make_node("Split".to_string());
         split.name += &format!("/aux_split_{}", self.index);
@@ -333,7 +333,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         split.input.push(dim.name.clone());
         split.input.push(format!("{}:{}", self.node().replicas[0].1, self.index));
         split.attr.insert("T".into(), get_dtype(&self.node().raw_node));
-        split.attr.insert("num_split".into(), AttrValue::new().apply_owned(|x| x.set_i(target.devices.len().try_into().unwrap())));
+        split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(target.devices.len().try_into().unwrap())));
         set_input_size(&mut split, 1, self.get_size());
 
         self.split.extend((0..target.devices.len()).map(|i| format!("{}:{}", split.name, i)));
@@ -351,10 +351,10 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             let mut nccl = self.node().make_node("NcclAllReduce".to_string());
             nccl.name += &format!("/aux_nccl_{}_{}", self.index, id);
             nccl.device = target.devices[*id].clone();
-            nccl.attr.insert("reduction".into(), AttrValue::new().apply_owned(|x| x.set_s(b"sum".to_vec())));
+            nccl.attr.insert("reduction".into(), AttrValue::new().apply(|x| x.set_s(b"sum".to_vec())));
             nccl.attr.insert("T".into(), get_dtype(&self.node().raw_node));
-            nccl.attr.insert("num_devices".into(), AttrValue::new().apply_owned(|x| x.set_i(self.node().replicas.len().try_into().unwrap())));
-            nccl.attr.insert("shared_name".into(), AttrValue::new().apply_owned(|x| x.set_s(self.original_name().into_bytes())));
+            nccl.attr.insert("num_devices".into(), AttrValue::new().apply(|x| x.set_i(self.node().replicas.len().try_into().unwrap())));
+            nccl.attr.insert("shared_name".into(), AttrValue::new().apply(|x| x.set_s(self.original_name().into_bytes())));
             nccl.input.push(format!("{}:{}", replica, self.index));
 
             target.pb.node.push(nccl)
@@ -388,11 +388,11 @@ impl Target {
 }
 
 fn set_origin(node: &mut NodeDef, origin: &str) {
-    node.attr.insert("_tge_origin".into(), AttrValue::new().apply_owned(|x| x.set_s(origin.as_bytes().to_vec())));
+    node.attr.insert("_tge_origin".into(), AttrValue::new().apply(|x| x.set_s(origin.as_bytes().to_vec())));
 }
 
 fn set_belong_to(node: &mut NodeDef, belong_to: &str) {
-    node.attr.insert("_tge_belong_to".into(), AttrValue::new().apply_owned(|x| x.set_s(belong_to.as_bytes().to_vec())));
+    node.attr.insert("_tge_belong_to".into(), AttrValue::new().apply(|x| x.set_s(belong_to.as_bytes().to_vec())));
 }
 
 fn set_input_size(node: &mut NodeDef, index: usize, size: u64) {
@@ -406,8 +406,8 @@ fn set_input_size(node: &mut NodeDef, index: usize, size: u64) {
 // TODO: This function is not done. Need to parse ops.pbtxt and follow type or type_attr.
 fn get_dtype(x: &NodeDef) -> AttrValue {
     match &x.op[..] {
-        "Greater" | "GreaterEqual" => AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_BOOL)),
-        "Shape" | "ShapeN" => x.attr.get("out_type").cloned().unwrap_or_else(|| AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_INT32))),
+        "Greater" | "GreaterEqual" => AttrValue::new().apply(|x| x.set_field_type(DataType::DT_BOOL)),
+        "Shape" | "ShapeN" => x.attr.get("out_type").cloned().unwrap_or_else(|| AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32))),
         "Cast" => x.attr.get("DstT").cloned().unwrap(),
         _ => x.attr.get("dtype").or_else(|| x.attr.get("T")).unwrap_or_else(|| panic!("cannot determine dtype for {}", x.op)).clone()
     }
@@ -445,7 +445,7 @@ fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX,
         let mut shape = tensor.node().make_node("Const".to_string());
         shape.name += &format!("/ring_{}/aux_flat_{}/shape", tensor.index, i);
         shape.device = devices[i].clone();
-        shape.attr.insert("dtype".into(), AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_INT32)));
+        shape.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
         let mut value = crate::proto::tensor::TensorProto::new();
         let mut x = crate::proto::tensor_shape::TensorShapeProto::new();
         let mut dim = crate::proto::tensor_shape::TensorShapeProto_Dim::new();
@@ -454,7 +454,7 @@ fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX,
         value.dtype = DataType::DT_INT32;
         value.tensor_shape = protobuf::SingularPtrField::some(x);
         value.int_val.push(-1);
-        shape.attr.insert("value".into(), AttrValue::new().apply_owned(|x| x.set_tensor(value)));
+        shape.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
         target.pb.node.push(shape);
 
         let mut flat = tensor.node().make_node("Reshape".to_string());
@@ -473,13 +473,13 @@ fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX,
         let mut dim = tensor.node().make_node("Const".to_string());
         dim.name += &format!("/ring_{}/aux_split_{}/split_dim", tensor.index, i);
         dim.device = devices[i].clone();
-        dim.attr.insert("dtype".into(), AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_INT32)));
+        dim.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
         let mut value = crate::proto::tensor::TensorProto::new();
         let shape = crate::proto::tensor_shape::TensorShapeProto::new();
         value.dtype = DataType::DT_INT32;
         value.tensor_shape = protobuf::SingularPtrField::some(shape);
         value.int_val.push(0);
-        dim.attr.insert("value".into(), AttrValue::new().apply_owned(|x| x.set_tensor(value)));
+        dim.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
         target.pb.node.push(dim);
 
         let mut split = tensor.node().make_node("Split".to_string());
@@ -488,7 +488,7 @@ fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX,
         split.input.push(format!("{}/ring_{}/aux_split_{}/split_dim", basename, tensor.index, i));
         split.input.push(flats[i].clone());
         split.attr.insert("T".into(), dtype.clone());
-        split.attr.insert("num_split".into(), AttrValue::new().apply_owned(|x| x.set_i(n.try_into().unwrap())));
+        split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(n.try_into().unwrap())));
         set_input_size(&mut split, 1, psize);
         target.pb.node.push(split);
 
@@ -533,13 +533,13 @@ fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX,
         let mut axis = tensor.node().make_node("Const".to_string());
         axis.name += &format!("/ring_{}/aux_concat_{}/axis", tensor.index, i);
         axis.device = devices[i].clone();
-        axis.attr.insert("dtype".into(), AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_INT32)));
+        axis.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
         let mut value = crate::proto::tensor::TensorProto::new();
         let shape = crate::proto::tensor_shape::TensorShapeProto::new();
         value.dtype = DataType::DT_INT32;
         value.tensor_shape = protobuf::SingularPtrField::some(shape);
         value.int_val.push(0);
-        axis.attr.insert("value".into(), AttrValue::new().apply_owned(|x| x.set_tensor(value)));
+        axis.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
         target.pb.node.push(axis);
 
         let len = chunk.len(); // save it here since we will destruct it later
@@ -548,9 +548,9 @@ fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX,
         concat.device = devices[i].clone();
         concat.input = chunk.into_iter().collect();
         concat.input.push(format!("{}/ring_{}/aux_concat_{}/axis", basename, tensor.index, i));
-        concat.attr.insert("N".into(), AttrValue::new().apply_owned(|x| x.set_i(n.try_into().unwrap())));
+        concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(n.try_into().unwrap())));
         concat.attr.insert("T".into(), dtype.clone());
-        concat.attr.insert("Tidx".into(), AttrValue::new().apply_owned(|x| x.set_field_type(DataType::DT_INT32)));
+        concat.attr.insert("Tidx".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
         for j in 0..len {
             set_input_size(&mut concat, j, psize);
         }

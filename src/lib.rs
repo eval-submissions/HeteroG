@@ -52,14 +52,14 @@ unsafe extern fn tge(bundle: *mut Bundle, topo: *mut Topology, pb: *const u8, pb
     let g: proto::graph::GraphDef = parse_from_bytes(pb).unwrap();
     (&mut *bundle).build_graph(&g.node);
 
-    let (links, paths) = *Box::from_raw(topo);
+    let (links, paths) = *reclaim(topo);
 
     let devices_str = std::str::from_utf8(std::slice::from_raw_parts(devices, devices_len as usize)).unwrap();
     let devices: Vec<_> = devices_str.split_ascii_whitespace().map(|x| x.to_owned()).collect();
 
     let target = graph::Target::new(proto::graph::GraphDef::new(), devices.into_boxed_slice(), links, paths);
 
-    Box::leak(Box::new(Context(*Box::from_raw(bundle), target)))
+    leak(Context(*reclaim(bundle), target))
 }
 
 #[no_mangle]
@@ -70,13 +70,13 @@ unsafe extern fn topology(links_raw: *const u8, links_len: u32, paths_raw: *cons
     let paths_str = std::str::from_utf8(std::slice::from_raw_parts(paths_raw, paths_len as usize)).unwrap();
     let paths = paths_str.lines().map(|x| x.split_ascii_whitespace().map(|x| x.parse().unwrap()).collect()).collect();
 
-    Box::leak(Box::new((links, paths)))
+    leak((links, paths))
 }
 
 #[no_mangle]
 extern fn not_at_all() -> *mut Bundle {
     let bundle = TheBundle::new(strategy::NotAtAll);
-    Box::leak(Box::new(Bundle::from(Box::new(bundle))))
+    leak(Bundle::from(Box::new(bundle)))
 }
 
 #[repr(u8)]
@@ -116,7 +116,7 @@ unsafe extern fn custom(strategy_data: *const u8, len: u32) -> *mut Bundle {
         .chunks(2).map(|x| (x[0].to_string(), x[1].parse().unwrap())).collect();
     let strategy = strategy::Custom { strategy_map: strategy_dict };
     let bundle = TheBundle::new(strategy);
-    Box::leak(Box::new(Bundle::from(Box::new(bundle))))
+    leak(Bundle::from(Box::new(bundle)))
 }
 
 #[no_mangle]
@@ -141,7 +141,7 @@ unsafe extern fn evaluate(ctx: *mut Context, profile_data: *const u8, len: u32) 
 
 #[no_mangle]
 unsafe extern fn read_and_destroy(ctx: *mut Context, dest: *mut u8) {
-    let Context(_, target) = *Box::from_raw(ctx);
+    let Context(_, target) = *reclaim(ctx);
     let mut ptr = std::slice::from_raw_parts_mut(dest, target.pb.get_cached_size() as usize);
     target.pb.write_to_writer(&mut ptr).unwrap();
 }
