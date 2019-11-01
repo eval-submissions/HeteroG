@@ -249,6 +249,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
                 if self.node().splitted() {
                     self.split.extend_from_slice(&self.node().replicas.iter().map(|(_, name)| format!("{}:{}", name, self.index)).collect::<Vec<_>>());
                 } else {
+                    warn!("cannot alter the form of {} node {}", self.node().raw_node.op, self.original_name());
                     unimplemented!();
                 }
             } else {

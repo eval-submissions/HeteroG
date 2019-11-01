@@ -45,15 +45,18 @@ impl Strategy for GroupedCustom {
                 continue
             }
 
-            node.extra.batch_splittable = node.raw_node.op == "Placeholder" || node.inputs.iter().any(|(id, _)| {
-                node.graph().nodes[*id].extra.batch_splittable
+            node.extra.batch_splittable = node.inputs.iter().any(|(id, _)| {
+                let input = &node.graph().nodes[*id];
+                input.extra.batch_splittable || input.raw_node.op == "Placeholder"
             });
 
             match &node.raw_node.op[..] {
                 "Placeholder" => node.get_output(0).extra.batch_splittable = true,
                 "Conv2D" | "MaxPool" | "MatMul" => follow(node, 0, 0),
                 "Identity" | "Sigmoid" | "LeakyRelu" | "Relu" | "Tanh" => follow(node, 0, 0),
-                "BiasAdd" => follow(node, 0, 0),
+                "Cast" | "ZerosLike" |"GreaterEqual" | "Select" | "Mul" | "Add" | "Sub" | "Neg" | "Log1p" | "Exp" => follow(node, 0, 0),
+                "BiasAdd" | "Squeeze" => follow(node, 0, 0),
+                "Conv2DBackpropInput" => follow(node, 0, 0),
                 _ => {}
                 // todo: matmul has an attr that transpose the input on the fly
                 // todo: shape -> fill or shape -> broadcast also gives a splittable tensor
@@ -117,8 +120,9 @@ impl Strategy for GroupedCustom {
         // only split if the whole group is replicated. Otherwise go cache (default).
         let mut visited_groups = std::collections::BTreeSet::new();
         for node in graph.nodes.iter_mut() {
-            if node.extra.group.is_some() && visited_groups.contains(&node.extra.group.as_ref().map(|x| &*x.borrow() as *const _).unwrap()) {
+            if node.extra.group.is_some() && !visited_groups.contains(&node.extra.group.as_ref().map(|x| &*x.borrow() as *const _).unwrap()) {
                 visited_groups.insert(node.extra.group.as_ref().map(|x| &*x.borrow() as *const _).unwrap());
+                info!("{}, {:?}", visited_groups.len(), node.extra.group.as_ref().unwrap().borrow().nodes.iter().map(|x| node.graph().nodes[*x].raw_node.name.clone()).collect::<Vec<_>>());
                 let group = &mut node.extra.group.as_ref().unwrap().borrow_mut().nodes;
                 if group.iter().copied().all(|x| node.graph().nodes[x].replicated().unwrap()) {
                     for member in group.iter_mut() {
