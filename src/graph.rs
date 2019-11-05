@@ -125,7 +125,7 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
 
     /// add an edited node into the target. Requires all inputs to be compiled first
     fn compile(&mut self, target: &mut Target) {
-        info!("compile: {} {:?} {:?}", self.raw_node.name, self.input_replication_types, self.replicas.iter().map(|x| x.0).collect::<Vec<_>>());
+        debug!("compile: {} {:?} {:?}", self.raw_node.name, self.input_replication_types, self.replicas.iter().map(|x| x.0).collect::<Vec<_>>());
 
         for (device_id, name) in self.replicas.iter() {
             // 1. setup basic node info

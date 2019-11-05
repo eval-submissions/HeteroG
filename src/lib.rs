@@ -126,6 +126,7 @@ unsafe extern fn compile(ctx: *mut Context, pflag: u8) -> u32 {
     if pflag & 0x01 != 0 { polishing::remove_colocation_hint(target); }
     if pflag & 0x02 != 0 { polishing::remove_shape_hint(target); }
     if pflag & 0x04 != 0 { polishing::destructify_names(target); }
+    if pflag & 0x08 != 0 { polishing::remove_dangling_nodes(&["GradientDescent"], target); }
     target.pb.compute_size()
 }
 

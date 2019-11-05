@@ -67,7 +67,7 @@ class TGE:
             profile_raw += name + ' ' + str(time) + '\n'
         profile_raw = profile_raw.encode('ascii')
         tge = libtge.tge(self.strategy, self.get_topology(), graph_raw, len(graph_raw), device_raw, len(device_raw))
-        size = libtge.compile(tge, self.flag)
+        size = libtge.compile(tge, self.flag | 0x08)
         result = libtge.evaluate(tge, profile_raw, len(profile_raw))
         buf = ctypes.create_string_buffer(size)
         libtge.read_and_destroy(tge, buf)
