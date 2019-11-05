@@ -5,19 +5,17 @@ use std::cell::RefCell;
 use crate::strategy::Strategy;
 use crate::graph::*;
 
-struct Group {
-    nodes: Vec<usize>
-}
+type Group = Rc<RefCell<Vec<usize>>>;
 
 #[derive(Default, Clone)]
 pub struct NEX {
-    group: Option<Rc<RefCell<Group>>>, // the decision group. The nodes inside a group can either all be cached (but can be replicated or not) or all be splitted AND replicated
-    batch_splittable: bool, // if any of its inputs are Placeholder or batch_splittable
+    group: Option<Group>,
+    is_descendant_of_input: bool
 }
 
 #[derive(Default, Clone)]
 pub struct TEX {
-    batch_splittable: bool, // if this tensor can be freely splitted or concatted. e.g. if it has .cache when the node is replicated as split, or it has .split when the node is not replicated / replicated as cache
+    has_batch_dimension: bool
 }
 
 type Graph = crate::graph::Graph<NEX, TEX>;
@@ -41,48 +39,54 @@ impl Strategy for GroupedCustom {
 
         // mark batch splittablity
         for node in graph.nodes.iter_mut() {
-            if node.raw_node.name.starts_with("gradients/") {
-                continue
-            }
+            // if node.raw_node.name.starts_with("gradients/") {
+            //     continue
+            // }
 
-            node.extra.batch_splittable = node.inputs.iter().any(|(id, _)| {
+            node.extra.is_descendant_of_input = node.inputs.iter().any(|(id, _)| {
                 let input = &node.graph().nodes[*id];
-                input.extra.batch_splittable || input.raw_node.op == "Placeholder"
+                input.extra.is_descendant_of_input || input.raw_node.op == "Placeholder"
             });
 
             match &node.raw_node.op[..] {
-                "Placeholder" => node.get_output(0).extra.batch_splittable = true,
-                "Conv2D" | "MaxPool" | "MatMul" => follow(node, 0, 0),
-                "Identity" | "Sigmoid" | "LeakyRelu" | "Relu" | "Tanh" => follow(node, 0, 0),
-                "Cast" | "ZerosLike" |"GreaterEqual" | "Select" | "Mul" | "Add" | "Sub" | "Neg" | "Log1p" | "Exp" => follow(node, 0, 0),
-                "BiasAdd" | "Squeeze" => follow(node, 0, 0),
-                "Conv2DBackpropInput" => follow(node, 0, 0),
+                "Placeholder" | "Conv2D" | "MaxPool" | "MatMul" | "Conv2DBackpropInput" | "BiasAdd" => node.get_output(0).extra.has_batch_dimension = true,
+                "Cast" | "ZerosLike" |"GreaterEqual" | "Select" | "Mul" | "Add" | "Sub" | "Neg" | "Log1p" | "Exp" |
+                "Squeeze" | "Identity" | "Sigmoid" | "LeakyRelu" | "Relu" | "Tanh" => follow(node, 0, 0),
                 _ => {}
                 // todo: matmul has an attr that transpose the input on the fly
                 // todo: shape -> fill or shape -> broadcast also gives a splittable tensor
             }
         }
 
+        for node in graph.nodes.iter_mut() {
+            if node.raw_node.op == "ApplyGradientDescent" {
+                let (id, index) = &node.inputs[2];
+                let input = &mut node.graph().nodes[*id].get_output(*index);
+                input.extra.has_batch_dimension = false;
+                // setup ring/PS for input
+            }
+        }
+
         // grouping
         for (node_id, node) in graph.nodes.iter_mut().enumerate() {
-            if !node.extra.batch_splittable { // if it is not splittable, then it does not belong to any group
+            if !node.extra.is_descendant_of_input { // if it is not a descendant of input, then it does not belong to any group
                 continue
             }
 
             for (input_id, index) in node.inputs.iter() {
                 let input = &mut node.graph().nodes[*input_id];
-                if input.extra.group.is_some() && !input.get_output(*index).extra.batch_splittable { // should be attached into the same group
-                    let input_group = input.extra.group.as_ref().unwrap();
+                if input.extra.group.is_some() && !input.get_output(*index).extra.has_batch_dimension { // should be attached into the same group
+                    let input_group = input.extra.group.as_ref().cloned().unwrap();
                     match &node.extra.group {
                         None => { // this node is not yet assigned into a group, so we just add it into the group of the input
                             node.extra.group = Some(input_group.clone());
-                            input_group.borrow_mut().nodes.push(node_id);
+                            input_group.borrow_mut().push(node_id);
                         }
                         // this node already belongs to a group that is different from the one of the input. We merge the input group into the current group
-                        Some(group) if &**group as *const _ != &**input_group as *const _ => {
-                            for i in input_group.borrow_mut().nodes.iter() {
+                        Some(group) if &**group as *const _ != &*input_group as *const _ => {
+                            for i in input_group.borrow().iter() {
                                 node.graph().nodes[*i].extra.group = Some(group.clone());
-                                group.borrow_mut().nodes.push(*i);
+                                group.borrow_mut().push(*i);
                             }
                         }
                         Some(_) => {} // this node already has the same group with the input. Nothing to do here.
@@ -91,7 +95,7 @@ impl Strategy for GroupedCustom {
             }
 
             if node.extra.group.is_none() { // no constraint, assign a new group
-                node.extra.group = Some(Rc::new(RefCell::new(Group { nodes: vec![node_id] })));
+                node.extra.group = Some(Rc::new(RefCell::new(vec![node_id])));
             }
         }
 
@@ -100,7 +104,8 @@ impl Strategy for GroupedCustom {
             let s = self.strategy_map.get(&node.raw_node.name).copied();
 
             match &node.raw_node.op[..] {
-                "Placeholder" | "NoOp" | "RandomUniform" => node.put_on_device(0), // ignore decision and put on device 0
+                // TODO: RandomUniform, NoOp
+                "Placeholder" | "NoOp" => node.put_on_device(0), // ignore decision and put on device 0
                 "ApplyGradientDescent" | "Assign" => { // ignore decision and put along with the variable
                     let var = &node.graph().nodes[node.inputs[0].0];
                     if var.replicated().unwrap() {
@@ -122,13 +127,14 @@ impl Strategy for GroupedCustom {
         for node in graph.nodes.iter_mut() {
             if node.extra.group.is_some() && !visited_groups.contains(&node.extra.group.as_ref().map(|x| &*x.borrow() as *const _).unwrap()) {
                 visited_groups.insert(node.extra.group.as_ref().map(|x| &*x.borrow() as *const _).unwrap());
-                info!("{}, {:?}", visited_groups.len(), node.extra.group.as_ref().unwrap().borrow().nodes.iter().map(|x| node.graph().nodes[*x].raw_node.name.clone()).collect::<Vec<_>>());
-                let group = &mut node.extra.group.as_ref().unwrap().borrow_mut().nodes;
+                // info!("{}, {:?}", visited_groups.len(), node.extra.group.as_ref().unwrap().borrow().iter().map(|x| node.graph().nodes[*x].raw_node.name.clone()).collect::<Vec<_>>());
+                let group = &node.extra.group.as_ref().unwrap().borrow();
                 if group.iter().copied().all(|x| node.graph().nodes[x].replicated().unwrap()) {
-                    for member in group.iter_mut() {
+                    for member in group.iter() {
                         let member = &mut node.graph().nodes[*member];
                         for (input, reptype) in member.inputs.iter().zip(member.input_replication_types.iter_mut()) {
-                            if node.graph().nodes[input.0].extra.batch_splittable {
+                            let input = node.graph().nodes[input.0].get_output(input.1);
+                            if input.node().extra.is_descendant_of_input && input.extra.has_batch_dimension {
                                 *reptype = ReplicationType::Split
                             }
                         }
@@ -141,12 +147,7 @@ impl Strategy for GroupedCustom {
             // deal with special ops
             match &node.raw_node.op[..] {
                 "ApplyGradientDescent" | "Assign" => {
-                    assert!(node.extra.group.is_none() || node.extra.group.as_ref().unwrap().borrow().nodes.len() == 1); // it either doesn't in a group, or it is its only member
-
-                    // reset rep type if they are set since the node is in a (standalone) group
-                    for reptype in node.input_replication_types.iter_mut() {
-                        *reptype = ReplicationType::Cache;
-                    }
+                    assert!(node.extra.group.is_none() || node.extra.group.as_ref().unwrap().borrow().len() == 1); // it either doesn't in a group, or it is its only member
 
                     if node.replicated().unwrap() {
                         // deal with the value
@@ -173,5 +174,5 @@ impl Strategy for GroupedCustom {
 
 fn follow(node: &mut Node, input_index: usize, output_index: usize) {
     let (id, index) = node.inputs[input_index];
-    node.get_output(output_index).extra.batch_splittable = node.graph().nodes[id].get_output(index).extra.batch_splittable
+    node.get_output(output_index).extra.has_batch_dimension = node.graph().nodes[id].get_output(index).extra.has_batch_dimension
 }
