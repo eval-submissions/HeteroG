@@ -125,7 +125,7 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
 
     /// add an edited node into the target. Requires all inputs to be compiled first
     fn compile(&mut self, target: &mut Target) {
-        debug!("compile: {} {:?} {:?}", self.raw_node.name, self.input_replication_types, self.replicas.iter().map(|x| x.0).collect::<Vec<_>>());
+        info!("compile: {} {:?} {:?}", self.raw_node.name, self.input_replication_types, self.replicas.iter().map(|x| x.0).collect::<Vec<_>>());
 
         for (device_id, name) in self.replicas.iter() {
             // 1. setup basic node info
@@ -249,7 +249,8 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
                 if self.node().splitted() {
                     self.split.extend_from_slice(&self.node().replicas.iter().map(|(_, name)| format!("{}:{}", name, self.index)).collect::<Vec<_>>());
                 } else {
-                    panic!("cannot alter the form of {} node {}", self.node().raw_node.op, self.original_name());
+                    // panic!("cannot alter the form of {} node {}", self.node().raw_node.op, self.original_name());
+                    self.cache_to_split(target);
                 }
             } else {
                 self.replicate_split(target);
@@ -315,6 +316,35 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
 
     pub fn replicate_split(&mut self, target: &mut Target) {
         assert!(!self.node().replicated().unwrap() && self.split.is_empty());
+
+        let mut dim = self.node().make_node("Const".to_string());
+        dim.name += &format!("/aux_split_{}/split_dim", self.index);
+        dim.device = target.devices[self.node().replicas[0].0].clone();
+        dim.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
+        let value = crate::proto::tensor::TensorProto::new().apply(|x| {
+            x.set_dtype(DataType::DT_INT32);
+            x.set_tensor_shape(crate::proto::tensor_shape::TensorShapeProto::new());
+            x.int_val.push(0);
+        });
+        dim.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
+
+        let mut split = self.node().make_node("Split".to_string());
+        split.name += &format!("/aux_split_{}", self.index);
+        split.device = target.devices[self.node().replicas[0].0].clone();
+        split.input.push(dim.name.clone());
+        split.input.push(format!("{}:{}", self.node().replicas[0].1, self.index));
+        split.attr.insert("T".into(), get_dtype(&self.node().raw_node));
+        split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(target.devices.len().try_into().unwrap())));
+        set_input_size(&mut split, 1, self.get_size());
+
+        self.split.extend((0..target.devices.len()).map(|i| format!("{}:{}", split.name, i)));
+        target.pb.node.push(dim);
+        target.pb.node.push(split);
+    }
+
+    // currently just copy replicate_split; later we should split on every device and retrieve only the part used
+    pub fn cache_to_split(&mut self, target: &mut Target) {
+        assert!(self.node().replicated().unwrap() && self.split.is_empty());
 
         let mut dim = self.node().make_node("Const".to_string());
         dim.name += &format!("/aux_split_{}/split_dim", self.index);

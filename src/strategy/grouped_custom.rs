@@ -39,10 +39,6 @@ impl Strategy for GroupedCustom {
 
         // mark batch splittablity
         for node in graph.nodes.iter_mut() {
-            // if node.raw_node.name.starts_with("gradients/") {
-            //     continue
-            // }
-
             node.extra.is_descendant_of_input = node.inputs.iter().any(|(id, _)| {
                 let input = &node.graph().nodes[*id];
                 input.extra.is_descendant_of_input || input.raw_node.op == "Placeholder"
@@ -63,13 +59,16 @@ impl Strategy for GroupedCustom {
                 let (id, index) = &node.inputs[2];
                 let input = &mut node.graph().nodes[*id].get_output(*index);
                 input.extra.has_batch_dimension = false;
-                // setup ring/PS for input
             }
         }
 
         // grouping
         for (node_id, node) in graph.nodes.iter_mut().enumerate() {
             if !node.extra.is_descendant_of_input { // if it is not a descendant of input, then it does not belong to any group
+                continue
+            }
+
+            if node.raw_node.op == "ApplyGradientDescent" { // never in a group
                 continue
             }
 
@@ -141,32 +140,23 @@ impl Strategy for GroupedCustom {
                     }
                 }
             }
+        }
 
-            let s = self.strategy_map.get(&node.raw_node.name).copied();
-
-            // deal with special ops
-            match &node.raw_node.op[..] {
-                "ApplyGradientDescent" | "Assign" => {
-                    assert!(node.extra.group.is_none() || node.extra.group.as_ref().unwrap().borrow().len() == 1); // it either doesn't in a group, or it is its only member
-
-                    if node.replicated().unwrap() {
-                        // deal with the value
-                        let (id, index) = match &node.raw_node.op[..] {
-                            "ApplyGradientDescent" => &node.inputs[2],
-                            "Assign" => &node.inputs[1],
-                            _ => unreachable!()
-                        };
-                        let value = &mut node.graph().nodes[*id];
-                        if value.replicated().unwrap() && value.splitted() {
-                            if s == Some(n) { // PS
-                                value.get_output(*index).aggregate_sum(node.replicas[0].0, target);
-                            } else { // Ring reduce
-                                value.get_output(*index).all_reduce_ring(target);
-                            }
+        for node in graph.nodes.iter_mut() {
+            if node.raw_node.op == "ApplyGradientDescent" {
+                let (id, index) = &node.inputs[2];
+                assert!(node.extra.group.is_none() || node.extra.group.as_ref().unwrap().borrow().len() == 1); // it either doesn't in a group, or it is its only member
+                if node.replicated().unwrap() {
+                    let s = self.strategy_map.get(&node.raw_node.name).copied();
+                    let value = &mut node.graph().nodes[*id];
+                    if value.replicated().unwrap() && value.splitted() {
+                        if s == Some(n) { // PS
+                            value.get_output(*index).aggregate_sum(node.replicas[0].0, target);
+                        } else { // Ring reduce
+                            value.get_output(*index).all_reduce_ring(target);
                         }
                     }
                 }
-                _ => {}
             }
         }
     }
