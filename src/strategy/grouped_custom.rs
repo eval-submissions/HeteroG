@@ -46,9 +46,11 @@ impl Strategy for GroupedCustom {
 
             match &node.raw_node.op[..] {
                 "Placeholder" | "Conv2D" | "MaxPool" | "MatMul" | "Conv2DBackpropInput" | "BiasAdd" => node.get_output(0).extra.has_batch_dimension = true,
-                "Cast" | "ZerosLike" |"GreaterEqual" | "Select" | "Mul" | "Add" | "Sub" | "Neg" | "Log1p" | "Exp" |
+                "Cast" | "ZerosLike" |"GreaterEqual" | "Neg" | "Log1p" | "Exp" |
                 "Squeeze" | "Identity" | "Sigmoid" | "LeakyRelu" | "Relu" | "Tanh" => follow(node, 0, 0),
+                "Add" | "Sub" | "Mul" => any_of(node, &[0, 1], 0),
                 _ => {}
+                // todo: Select?
                 // todo: matmul has an attr that transpose the input on the fly
                 // todo: shape -> fill or shape -> broadcast also gives a splittable tensor
             }
@@ -165,4 +167,11 @@ impl Strategy for GroupedCustom {
 fn follow(node: &mut Node, input_index: usize, output_index: usize) {
     let (id, index) = node.inputs[input_index];
     node.get_output(output_index).extra.has_batch_dimension = node.graph().nodes[id].get_output(index).extra.has_batch_dimension
+}
+
+fn any_of(node: &mut Node, input_indexes: &[usize], output_index: usize) {
+    node.get_output(output_index).extra.has_batch_dimension = input_indexes.iter().any(|input_index| {
+        let (id, index) = node.inputs[*input_index];
+        node.graph().nodes[id].get_output(index).extra.has_batch_dimension
+    })
 }

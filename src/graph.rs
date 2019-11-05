@@ -152,12 +152,9 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
             // 3. add control dependencies
             for node_id in self.controls.iter() {
                 let dep_node = &self.graph().nodes[*node_id];
-                let dependency = if dep_node.replicated().unwrap() {
-                    &dep_node.replicas[*device_id].1
-                } else {
-                    &dep_node.replicas[0].1
-                };
-                node.input.push(format!("^{}", dependency))
+                for (_, name) in dep_node.replicas.iter() {
+                    node.input.push(format!("^{}", name))
+                }
             }
 
             target.pb.node.push(node)

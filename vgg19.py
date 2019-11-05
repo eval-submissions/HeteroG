@@ -38,14 +38,14 @@ g = (tge.TGE(gdef, devices)
     # .data_parallel('ring')
     .custom({ node.name: np.random.randint(0, len(devices) + 2) for node in gdef.node })
     # .destructify_names()
-    # .compile()
-    # .get_result()
-    .evaluate({ node.name: np.random.randint(0, 1000) for node in gdef.node })
+    .compile()
+    .get_result()
+    # .evaluate({ node.name: np.random.randint(0, 1000) for node in gdef.node })
 )
-print(g)
+# print(g)
 toc1 = time.perf_counter()
 
-raise SystemExit
+# raise SystemExit
 
 tf.reset_default_graph()
 tf.import_graph_def(g)
@@ -59,7 +59,7 @@ init = graph.get_operation_by_name("import/init")
 
 data = { x: np.random.uniform(size=(64, 224, 224, 3)), y: np.random.uniform(size=(64, 1000)) }
 
-sess = tf.Session(server.target, config=tf.ConfigProto(log_device_placement=True))
+sess = tf.Session(server.target, config=tf.ConfigProto(allow_soft_placement=True))#log_device_placement=True))
 sess.run(init)
 sess.run(opt, data) # heat up
 
