@@ -81,7 +81,7 @@ impl Scheduler for TensorFlowLikeScheduler {
     fn evaluate(&mut self, target: &Target) -> u64 {
         task!("evaluate graph of {} nodes", target.pb.node.len());
 
-        let nodes = &target.pb.node;
+        let nodes = sort_nodes(&target.pb.node);
         let node_dict: BTreeMap<_, _> = nodes.iter().enumerate().map(|(i, x)| (x.name.clone(), i)).collect();
         let device_dict: BTreeMap<_, _> = target.devices.iter().enumerate().map(|(i, x)| (x.clone(), i)).collect();
 
@@ -161,4 +161,27 @@ fn parse_input(x: &str) -> (&str, usize) {
         Some(i) => (&x[..i], x[i+1..].parse().unwrap()),
         None => (x, 0)
     }
+}
+
+fn sort_nodes(x: &[NodeDef]) -> Vec<NodeDef> {
+    let mut queue: std::collections::VecDeque::<_> = x.iter().cloned().collect();
+    let mut visited = BTreeSet::new();
+    let mut result = vec![];
+    'outer: while let Some(node) = queue.pop_front() {
+        for input in node.input.iter() {
+            let input = if input.starts_with('^') {
+                &input[1..]
+            } else {
+                parse_input(input).0
+            };
+            if !visited.contains(input) {
+                queue.push_back(node);
+                continue 'outer;
+            }
+        }
+
+        visited.insert(node.name.clone());
+        result.push(node);
+    }
+    result
 }
