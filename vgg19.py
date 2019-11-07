@@ -1,7 +1,7 @@
 def model_fn():
     from tensorflow.contrib.slim.nets import vgg
-    x = tf.placeholder(tf.float32, shape=(None, 224, 224, 3))
-    y = tf.placeholder(tf.float32, shape=(None, 1000))
+    x = tf.placeholder(tf.float32, shape=(64, 224, 224, 3))
+    y = tf.placeholder(tf.float32, shape=(64, 1000))
     output, _ = vgg.vgg_19(x, 1000)
     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
@@ -38,14 +38,14 @@ g = (tge.TGE(gdef, devices)
     # .data_parallel('ring')
     .custom({ node.name: np.random.randint(0, len(devices) + 2) for node in gdef.node })
     # .destructify_names()
-    .compile()
-    .get_result()
-    # .evaluate({ node.name: np.random.randint(0, 1000) for node in gdef.node })
+    # .compile()
+    # .get_result()
+    .evaluate({ node.name: np.random.randint(0, 1000) for node in gdef.node })
 )
-# print(g)
+print(g)
 toc1 = time.perf_counter()
 
-# raise SystemExit
+raise SystemExit
 
 tf.reset_default_graph()
 tf.import_graph_def(g)

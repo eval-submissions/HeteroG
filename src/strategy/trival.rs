@@ -14,7 +14,7 @@ impl Strategy for NotAtAll {
     #[allow(clippy::cast_ref_to_mut)]
     fn plan(&mut self, graph: &mut Graph, _target: &mut Target) {
         for node in graph.nodes.iter_mut() {
-            node.put_on_device(0);
+            node.put_on_devices(&[0]);
         }
     }
 }

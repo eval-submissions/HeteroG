@@ -79,7 +79,7 @@ impl PartialOrd for OngoingTask {
 
 impl Scheduler for TensorFlowLikeScheduler {
     fn evaluate(&mut self, target: &Target) -> u64 {
-        task!("evaluate graph of {} nodes", target.pb.node.len());
+        task!("evaluating graph of {} nodes...", target.pb.node.len());
 
         let nodes = sort_nodes(&target.pb.node);
         let node_dict: BTreeMap<_, _> = nodes.iter().enumerate().map(|(i, x)| (x.name.clone(), i)).collect();

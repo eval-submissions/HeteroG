@@ -27,6 +27,3 @@ pub use trival::NotAtAll;
 
 mod custom;
 pub use custom::Custom;
-
-mod grouped_custom;
-pub use grouped_custom::GroupedCustom;

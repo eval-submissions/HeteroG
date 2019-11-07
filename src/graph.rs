@@ -13,7 +13,7 @@ pub struct Graph<NEX: Default, TEX: Default> {
 
 impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
     pub fn new(nodes: &[NodeDef]) -> Box<Self> {
-        task!("build graph of {} nodes", nodes.len());
+        task!("building graph of {} nodes...", nodes.len());
 
         let mut g = Box::new(Graph { nodes: Vec::with_capacity(nodes.len()), name_dict: BTreeMap::new() });
 
@@ -42,28 +42,40 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
     }
 
     /// setup the replicas and links. Note that auxiliary nodes are already there by strategies.
-    /// The only required fields is `replicas`. All other decisions are optional.
     pub fn compile(&mut self, target: &mut Target) {
-        task!("compile graph of {} nodes", self.nodes.len());
+        task!("compiling graph of {} nodes...", self.nodes.len());
         for node in self.nodes.iter_mut() {
             node.compile(target)
         }
     }
 }
 
-/// Cache means "full". Split means splitted by the batch size dimension.
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
-pub enum ReplicationType { Cache, Split }
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Copy)]
+pub enum FormKind { Full, Part }
+
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub struct Form {
+    pub kind: FormKind,
+    pub devices: Vec<usize> // use Vec before got a fancy bit set. The Vec must be sorted and not empty.
+}
+
+impl Form {
+    pub fn is_full(&self) -> bool {
+        self.kind == FormKind::Full
+    }
+
+    pub fn is_part(&self) -> bool {
+        self.kind == FormKind::Part
+    }
+}
 
 pub struct Node<NEX: Default, TEX: Default> {
     pub graph: *const Graph<NEX, TEX>,
     pub raw_node: NodeDef,
     pub controls: Vec<usize>, // TODO: more consideration for control dependencies that added aux nodes
-    pub inputs: Vec<(usize, usize)>, // nodeid, index
+    pub inputs: Vec<(usize, usize, FormKind)>, // nodeid, index, formkind (defaults to full)
     pub outputs: Vec<Tensor<NEX, TEX>>,
-
-    pub replicas: Vec<(usize, String)>, // deviceid, name. This must be filled by strategies.
-    pub input_replication_types: Box<[ReplicationType]>, // the replication type of each input. This must be filled by strategies.
+    pub form: Form, // the form of the node, which is also a tensor form for all its outputs
 
     pub extra: NEX
 }
@@ -79,16 +91,13 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
             } else {
                 let (name, index) = parse_input(input);
                 let id = graph.name_dict[name];
-                inputs.push((id, index))
+                inputs.push((id, index, FormKind::Full))
             }
         }
 
-        let default_replication_type = inputs.iter().map(|_| ReplicationType::Cache).collect();
-
         Self {
-            graph, raw_node, controls, inputs,
-            outputs: vec![], replicas: vec![],
-            input_replication_types: default_replication_type,
+            graph, raw_node, controls, inputs, outputs: vec![],
+            form: Form { kind: FormKind::Full, devices: vec![] },
             extra: Default::default()
         }
     }
@@ -111,54 +120,49 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
     }
 
     pub fn replicated(&self) -> Option<bool> {
-        match self.replicas.len() {
+        match self.form.devices.len() {
             0 => None,
             1 => Some(false),
             _ => Some(true)
         }
     }
 
-    // if any of the inputs are splitted, so if it is replicated, the outputs can be treat as splitted
-    pub fn splitted(&self) -> bool {
-        self.input_replication_types.iter().any(|x| x == &ReplicationType::Split)
-    }
-
     /// add an edited node into the target. Requires all inputs to be compiled first
     fn compile(&mut self, target: &mut Target) {
-        debug!("compile: {} {:?} {:?}", self.raw_node.name, self.input_replication_types, self.replicas.iter().map(|x| x.0).collect::<Vec<_>>());
+        debug!("compile: {} {:?} {:?}", self.raw_node.name, self.form, self.inputs);
 
-        for (device_id, name) in self.replicas.iter() {
+        for (replica_index, device_id) in self.form.devices.iter().enumerate() {
             // 1. setup basic node info
             let mut node = self.raw_node.clone();
-            node.name = name.clone();
+            node.name = self.replica_name_on_device(*device_id);
             node.device = target.devices[*device_id].clone();
             set_origin(&mut node, &self.raw_node.name);
 
             // 2. link inputs and set size
-            node.input = self.inputs.iter().enumerate().zip(self.input_replication_types.iter()).map(|((i, (node_id, index)), reptype)| {
-                let input_tensor = &mut self.graph().nodes[*node_id].get_output(*index);
-                match reptype {
-                    ReplicationType::Cache => {
-                        set_input_size(&mut node, i, input_tensor.get_size());
-                        input_tensor.get_cache(*device_id, target)
-                    }
-                    ReplicationType::Split => {
-                        set_input_size(&mut node, i, input_tensor.get_size() / target.devices.len() as u64);
-                        input_tensor.get_split(*device_id, target)
-                    }
-                }
+            node.input = self.inputs.iter().copied().enumerate().map(|(i, (node_id, index, kind))| {
+                let input_tensor = &mut self.graph().nodes[node_id].get_output(index);
+                set_input_size(&mut node, i, match self.form.kind {
+                    FormKind::Full => input_tensor.get_size(),
+                    FormKind::Part => input_tensor.get_size() / self.form.devices.len() as u64,
+                });
+                let input_names = input_tensor.as_form(&Form { kind, devices: self.form.devices.clone() });
+                input_names[replica_index].clone()
             }).collect();
 
             // 3. add control dependencies
             for node_id in self.controls.iter() {
                 let dep_node = &self.graph().nodes[*node_id];
-                for (_, name) in dep_node.replicas.iter() {
-                    node.input.push(format!("^{}", name))
+                for device_id in dep_node.form.devices.iter() {
+                    node.input.push(dep_node.replica_name_on_device(*device_id))
                 }
             }
 
             target.pb.node.push(node)
         }
+    }
+
+    fn replica_name_on_device(&self, device_id: usize) -> String { // TODO: should this method exist?
+        format!("{}/replica_{}", self.raw_node.name, device_id)
     }
 
     /**************************************
@@ -173,31 +177,23 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
         node
     }
 
-    pub fn put_on_device(&mut self, device_id: usize) {
-        assert!(self.replicated().is_none(), "already replicated!");
-        self.replicas.push((device_id, self.raw_node.name.clone()));
-    }
-
-    pub fn put_on_all_devices(&mut self, target: &mut Target) {
-        assert!(self.replicated().is_none(), "already replicated!");
-        let name = &self.raw_node.name;
-        self.replicas.extend((0..target.devices.len()).map(|i| (i, format!("{}/replica_{}", name, i))));
+    pub fn put_on_devices(&mut self, devices: &[usize]) {
+        assert!(self.replicated().is_none(), "already set replicas!");
+        self.form.devices.extend_from_slice(devices);
     }
 }
 
 pub struct Tensor<NEX: Default, TEX: Default> {
     pub node: *const Node<NEX, TEX>,
     pub index: usize,
-
-    pub cache: Vec<String>, // may be provided by strategy
-    pub split: Vec<String>, // may be provided by strategy
+    pub forms: BTreeMap<Form, Box<[String]>>,
 
     pub extra: TEX,
 }
 
 impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
     pub fn new(node: &Node<NEX, TEX>, index: usize) -> Self {
-        Tensor { node, index, cache: vec![], split: vec![], extra: TEX::default() }
+        Tensor { node, index, forms: BTreeMap::new(), extra: TEX::default() }
     }
 
     pub fn original_name(&self) -> String {
@@ -223,69 +219,59 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         (self.get_shape().iter().fold(1, |x, y| x * y) * 4).try_into().unwrap()
     }
 
-    pub fn get_cache(&mut self, device_id: usize, target: &mut Target) -> String {
-        if self.cache.is_empty() {
-            if self.node().replicated().unwrap() {
-                if self.node().splitted() {
-                    self.aggregate_cat(device_id, target);
-                } else {
-                    self.cache.extend_from_slice(&self.node().replicas.iter().map(|(_, name)| format!("{}:{}", name, self.index)).collect::<Vec<_>>());
-                }
+    // get the names as the specified form
+    pub fn as_form(&mut self, form: &Form) -> &[String] {
+        if !self.forms.contains_key(form) {
+            let names = if form == &self.node().form {
+                form.devices.iter().map(|device_id| format!("{}:{}", self.node().replica_name_on_device(*device_id), self.index)).collect()
             } else {
-                let name = format!("{}:{}", self.node().replicas[0].1, self.index);
-                self.cache.extend((0..target.devices.len()).map(|_| name.clone()));
-            }
+                let node_kind = self.node().form.kind;
+                match (form.kind, node_kind) {
+                    (FormKind::Full, FormKind::Full) => { // easy mode, use the copy in the corresponding device, or from the first device otherwise
+                        let raw = self.as_form(&self.node().form).to_vec(); // TODO: no clone?
+                        form.devices.iter().map(|device_id| {
+                            self.node().form.devices.iter().position(|x| *x == *device_id).map(|ind| raw[ind].clone()).unwrap_or(raw[0].clone())
+                        }).collect()
+                    }
+                    _ => unimplemented!()
+                }
+            };
+
+            self.forms.insert(form.clone(), names);
         }
 
-        self.cache[device_id].clone()
-    }
-
-    pub fn get_split(&mut self, device_id: usize, target: &mut Target) -> String {
-        if self.split.is_empty() {
-            if self.node().replicated().unwrap() {
-                if self.node().splitted() {
-                    self.split.extend_from_slice(&self.node().replicas.iter().map(|(_, name)| format!("{}:{}", name, self.index)).collect::<Vec<_>>());
-                } else {
-                    // panic!("cannot alter the form of {} node {}", self.node().raw_node.op, self.original_name());
-                    self.cache_to_split(target);
-                }
-            } else {
-                self.replicate_split(target);
-            }
-        }
-
-        self.split[device_id].clone()
+        &self.forms[form]
     }
 
     /**************************************
     * following are graph editing methods *
     **************************************/
 
-    pub fn aggregate_sum(&mut self, server: usize, target: &mut Target) {
-        assert!(self.node().replicated().unwrap() && self.node().splitted() && self.cache.is_empty());
+    pub fn aggregate_sum(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
+        assert!(from.is_part() && to.is_full() && to.devices.len() == 1);
 
         let mut addn = self.node().make_node("AddN".to_string());
         addn.name += &format!("/aux_sum_{}", self.index);
-        addn.device = target.devices[server].clone();
-        addn.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(self.node().replicas.len().try_into().unwrap())));
+        addn.device = target.devices[to.devices[0]].clone();
+        addn.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(from.devices.len().try_into().unwrap())));
         addn.attr.insert("T".into(), get_dtype(&self.node().raw_node));
-        addn.input = self.node().replicas.iter().map(|(_, x)| format!("{}:{}", x, self.index)).collect();
-        for i in 0..self.node().replicas.len() {
-            set_input_size(&mut addn, i, self.get_size() / self.node().replicas.len() as u64)
+        addn.input = self.as_form(from).iter().cloned().collect();
+        for i in 0..from.devices.len() {
+            set_input_size(&mut addn, i, self.get_size() / from.devices.len() as u64)
         }
 
-        self.cache.extend((0..target.devices.len()).map(|_| addn.name.clone()));
+        let result = vec![addn.name.clone()].into_boxed_slice();
         target.pb.node.push(addn);
+        result
     }
 
     // TODO: share the same axis nodes for all concating (and do the same thing for dim nodes in splitting)
-
-    pub fn aggregate_cat(&mut self, server: usize, target: &mut Target) {
-        assert!(self.node().replicated().unwrap() && self.node().splitted() && self.cache.is_empty());
+    pub fn aggregate_cat(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
+        assert!(from.is_part() && to.is_full() && to.devices.len() == 1);
 
         let mut axis = self.node().make_node("Const".to_string());
         axis.name += &format!("/aux_concat_{}/axis", self.index);
-        axis.device = target.devices[server].clone();
+        axis.device = target.devices[to.devices[0]].clone();
         axis.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
         let value = crate::proto::tensor::TensorProto::new().apply(|x| {
             x.set_dtype(DataType::DT_INT32);
@@ -296,27 +282,29 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
 
         let mut concat = self.node().make_node("ConcatV2".to_string());
         concat.name += &format!("/aux_concat_{}", self.index);
-        concat.device = target.devices[server].clone();
-        concat.input = self.node().replicas.iter().map(|(_, x)| format!("{}:{}", x, self.index)).collect();
+        concat.device = target.devices[to.devices[0]].clone();
+        concat.input = self.as_form(from).iter().cloned().collect();
         concat.input.push(format!("{}/aux_concat_{}/axis", self.node().raw_node.name, self.index));
-        concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(self.node().replicas.len().try_into().unwrap())));
+        concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(from.devices.len().try_into().unwrap())));
         concat.attr.insert("T".into(), get_dtype(&self.node().raw_node));
         concat.attr.insert("Tidx".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
-        for i in 0..self.node().replicas.len() {
-            set_input_size(&mut concat, i, self.get_size() / self.node().replicas.len() as u64)
+        for i in 0..from.devices.len() {
+            set_input_size(&mut concat, i, self.get_size() / from.devices.len() as u64)
         }
 
-        self.cache.extend((0..target.devices.len()).map(|_| concat.name.clone()));
+        let result = vec![concat.name.clone()].into_boxed_slice();
         target.pb.node.push(axis);
         target.pb.node.push(concat);
+        result
     }
 
-    pub fn replicate_split(&mut self, target: &mut Target) {
-        assert!(!self.node().replicated().unwrap() && self.split.is_empty());
+    // currenly we only split from the first replica. Future we can split on every device and use the local copy to reduce transfering
+    pub fn replicate_split(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
+        assert!(from.is_full() && to.is_part());
 
         let mut dim = self.node().make_node("Const".to_string());
         dim.name += &format!("/aux_split_{}/split_dim", self.index);
-        dim.device = target.devices[self.node().replicas[0].0].clone();
+        dim.device = target.devices[from.devices[0]].clone();
         dim.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
         let value = crate::proto::tensor::TensorProto::new().apply(|x| {
             x.set_dtype(DataType::DT_INT32);
@@ -327,78 +315,52 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
 
         let mut split = self.node().make_node("Split".to_string());
         split.name += &format!("/aux_split_{}", self.index);
-        split.device = target.devices[self.node().replicas[0].0].clone();
+        split.device = target.devices[from.devices[0]].clone();
         split.input.push(dim.name.clone());
-        split.input.push(format!("{}:{}", self.node().replicas[0].1, self.index));
+        split.input.push(format!("{}:{}", self.as_form(from)[0].clone(), self.index));
         split.attr.insert("T".into(), get_dtype(&self.node().raw_node));
-        split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(target.devices.len().try_into().unwrap())));
+        split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(to.devices.len().try_into().unwrap())));
         set_input_size(&mut split, 1, self.get_size());
 
-        self.split.extend((0..target.devices.len()).map(|i| format!("{}:{}", split.name, i)));
+        let result = (0..to.devices.len()).map(|i| format!("{}:{}", split.name, i)).collect();
         target.pb.node.push(dim);
         target.pb.node.push(split);
+        result
     }
 
-    // currently just copy replicate_split; later we should split on every device and retrieve only the part used
-    pub fn cache_to_split(&mut self, target: &mut Target) {
-        assert!(self.node().replicated().unwrap() && self.split.is_empty());
-
-        let mut dim = self.node().make_node("Const".to_string());
-        dim.name += &format!("/aux_split_{}/split_dim", self.index);
-        dim.device = target.devices[self.node().replicas[0].0].clone();
-        dim.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
-        let value = crate::proto::tensor::TensorProto::new().apply(|x| {
-            x.set_dtype(DataType::DT_INT32);
-            x.set_tensor_shape(crate::proto::tensor_shape::TensorShapeProto::new());
-            x.int_val.push(0);
-        });
-        dim.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
-
-        let mut split = self.node().make_node("Split".to_string());
-        split.name += &format!("/aux_split_{}", self.index);
-        split.device = target.devices[self.node().replicas[0].0].clone();
-        split.input.push(dim.name.clone());
-        split.input.push(format!("{}:{}", self.node().replicas[0].1, self.index));
-        split.attr.insert("T".into(), get_dtype(&self.node().raw_node));
-        split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(target.devices.len().try_into().unwrap())));
-        set_input_size(&mut split, 1, self.get_size());
-
-        self.split.extend((0..target.devices.len()).map(|i| format!("{}:{}", split.name, i)));
-        target.pb.node.push(dim);
-        target.pb.node.push(split);
-    }
-
-    pub fn all_reduce_nccl(&mut self, target: &mut Target) {
+    pub fn all_reduce_nccl(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
         // to all_sum n tensors (can be on the same devie), one should have n NcclAllReduce nodes with the same shared_name attr
         // each node have only *one* input, and should be on the same device of the input. The output of these nodes will be the same
 
-        assert!(self.node().replicated().unwrap() && self.node().splitted() && self.cache.is_empty());
+        assert!(from.is_part() && to.is_full() && from.devices == to.devices);
 
-        for (id, replica) in self.node().replicas.iter() {
+        let index = self.index;
+
+        for (i, device_id) in from.devices.iter().copied().enumerate() {
             let mut nccl = self.node().make_node("NcclAllReduce".to_string());
-            nccl.name += &format!("/aux_nccl_{}_{}", self.index, id);
-            nccl.device = target.devices[*id].clone();
+            nccl.name += &format!("/aux_nccl_{}_{}", index, i);
+            nccl.device = target.devices[device_id].clone();
             nccl.attr.insert("reduction".into(), AttrValue::new().apply(|x| x.set_s(b"sum".to_vec())));
             nccl.attr.insert("T".into(), get_dtype(&self.node().raw_node));
-            nccl.attr.insert("num_devices".into(), AttrValue::new().apply(|x| x.set_i(self.node().replicas.len().try_into().unwrap())));
+            nccl.attr.insert("num_devices".into(), AttrValue::new().apply(|x| x.set_i(from.devices.len().try_into().unwrap())));
             nccl.attr.insert("shared_name".into(), AttrValue::new().apply(|x| x.set_s(self.original_name().into_bytes())));
-            nccl.input.push(format!("{}:{}", replica, self.index));
+            nccl.input.push(format!("{}:{}", self.as_form(from)[i], index));
 
             target.pb.node.push(nccl)
         }
 
-        self.cache.extend_from_slice(&(0..target.devices.len()).map(|i| format!("{}/aux_nccl_{}_{}", self.node().raw_node.name, self.index, i)).collect::<Vec<_>>());
+        (0..from.devices.len()).map(|i| format!("{}/aux_nccl_{}_{}", self.node().raw_node.name, self.index, i)).collect()
     }
 
-    pub fn all_reduce_ring(&mut self, target: &mut Target) {
-        assert!(self.node().replicated().unwrap() && self.node().splitted() && self.cache.is_empty());
+    // pub fn all_reduce_ring(&mut self, target: &mut Target) {
+    //     assert!(self.node().replicated().unwrap() && self.node().splitted() && self.cache.is_empty());
 
-        let list: Vec<_> = self.node().replicas.iter().map(|(id, name)| (*id, format!("{}:{}", name, self.index))).collect();
-        let results = _all_reduce_sum_ring_chunked(self, &list, target);
+    //     let list: Vec<_> = self.node().replicas.iter().map(|(id, name)| (*id, format!("{}:{}", name, self.index))).collect();
+    //     let results = _all_reduce_sum_ring_chunked(self, &list, target);
 
-        assert!(Iterator::eq(list.iter().map(|(x, _)| *x), 0..target.devices.len()));
-        self.cache.extend((0..target.devices.len()).map(|i| results[i].clone()));
-    }
+    //     assert!(Iterator::eq(list.iter().map(|(x, _)| *x), 0..target.devices.len()));
+    //     self.cache.extend((0..target.devices.len()).map(|i| results[i].clone()));
+    // }
 }
 
 pub struct Target {
@@ -447,155 +409,155 @@ fn parse_input(x: &str) -> (&str, usize) {
     }
 }
 
-/// performing chunked ring all reduce for a list of (device_id, tensor_name), returning the name of summed results on each device
-fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX, TEX>, list: &[(usize, String)], target: &mut Target) -> Vec<String> {
-    let n = list.len();
-    let basename = tensor.node().raw_node.name.clone();
-    let devices: Vec<_> = list.iter().map(|(id, _)| target.devices[*id].clone()).collect();
-    let dtype = get_dtype(&tensor.node().raw_node);
-    let psize = tensor.get_size() / tensor.node().replicas.len() as u64;
+// /// performing chunked ring all reduce for a list of (device_id, tensor_name), returning the name of summed results on each device
+// fn _all_reduce_sum_ring_chunked<NEX: Default, TEX: Default>(tensor: &Tensor<NEX, TEX>, list: &[(usize, String)], target: &mut Target) -> Vec<String> {
+//     let n = list.len();
+//     let basename = tensor.node().raw_node.name.clone();
+//     let devices: Vec<_> = list.iter().map(|(id, _)| target.devices[*id].clone()).collect();
+//     let dtype = get_dtype(&tensor.node().raw_node);
+//     let psize = tensor.get_size() / tensor.node().replicas.len() as u64;
 
-    // 1. recording the shape
-    let shapes: Vec<_> = (0..n).map(|i| {
-        let mut shape = tensor.node().make_node("Shape".to_string());
-        shape.name += &format!("/ring_{}/aux_shape_{}", tensor.index, i);
-        shape.device = devices[i].clone();
-        shape.attr.insert("T".into(), dtype.clone());
-        shape.input.push(list[i].1.clone());
-        set_input_size(&mut shape, 0, psize);
-        target.pb.node.push(shape);
-        format!("{}/ring_{}/aux_shape_{}", basename, tensor.index, i)
-    }).collect();
+//     // 1. recording the shape
+//     let shapes: Vec<_> = (0..n).map(|i| {
+//         let mut shape = tensor.node().make_node("Shape".to_string());
+//         shape.name += &format!("/ring_{}/aux_shape_{}", tensor.index, i);
+//         shape.device = devices[i].clone();
+//         shape.attr.insert("T".into(), dtype.clone());
+//         shape.input.push(list[i].1.clone());
+//         set_input_size(&mut shape, 0, psize);
+//         target.pb.node.push(shape);
+//         format!("{}/ring_{}/aux_shape_{}", basename, tensor.index, i)
+//     }).collect();
 
-    // 2. flattening
-    let flats: Vec<_> = (0..n).map(|i| {
-        let mut shape = tensor.node().make_node("Const".to_string());
-        shape.name += &format!("/ring_{}/aux_flat_{}/shape", tensor.index, i);
-        shape.device = devices[i].clone();
-        shape.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
-        let mut value = crate::proto::tensor::TensorProto::new();
-        let mut x = crate::proto::tensor_shape::TensorShapeProto::new();
-        let mut dim = crate::proto::tensor_shape::TensorShapeProto_Dim::new();
-        dim.size = 1;
-        x.dim.push(dim);
-        value.dtype = DataType::DT_INT32;
-        value.tensor_shape = protobuf::SingularPtrField::some(x);
-        value.int_val.push(-1);
-        shape.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
-        target.pb.node.push(shape);
+//     // 2. flattening
+//     let flats: Vec<_> = (0..n).map(|i| {
+//         let mut shape = tensor.node().make_node("Const".to_string());
+//         shape.name += &format!("/ring_{}/aux_flat_{}/shape", tensor.index, i);
+//         shape.device = devices[i].clone();
+//         shape.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
+//         let mut value = crate::proto::tensor::TensorProto::new();
+//         let mut x = crate::proto::tensor_shape::TensorShapeProto::new();
+//         let mut dim = crate::proto::tensor_shape::TensorShapeProto_Dim::new();
+//         dim.size = 1;
+//         x.dim.push(dim);
+//         value.dtype = DataType::DT_INT32;
+//         value.tensor_shape = protobuf::SingularPtrField::some(x);
+//         value.int_val.push(-1);
+//         shape.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
+//         target.pb.node.push(shape);
 
-        let mut flat = tensor.node().make_node("Reshape".to_string());
-        flat.name += &format!("/ring_{}/aux_flat_{}", tensor.index, i);
-        flat.device = devices[i].clone();
-        flat.attr.insert("T".into(), dtype.clone());
-        flat.input.push(list[i].1.clone());
-        flat.input.push(format!("{}/ring_{}/aux_flat_{}/shape", basename, tensor.index, i));
-        set_input_size(&mut flat, 0, psize);
-        target.pb.node.push(flat);
-        format!("{}/ring_{}/aux_flat_{}", basename, tensor.index, i)
-    }).collect();
+//         let mut flat = tensor.node().make_node("Reshape".to_string());
+//         flat.name += &format!("/ring_{}/aux_flat_{}", tensor.index, i);
+//         flat.device = devices[i].clone();
+//         flat.attr.insert("T".into(), dtype.clone());
+//         flat.input.push(list[i].1.clone());
+//         flat.input.push(format!("{}/ring_{}/aux_flat_{}/shape", basename, tensor.index, i));
+//         set_input_size(&mut flat, 0, psize);
+//         target.pb.node.push(flat);
+//         format!("{}/ring_{}/aux_flat_{}", basename, tensor.index, i)
+//     }).collect();
 
-    // 3. chunking
-    let mut chunks: Vec<Vec<String>> = (0..n).map(|i| {
-        let mut dim = tensor.node().make_node("Const".to_string());
-        dim.name += &format!("/ring_{}/aux_split_{}/split_dim", tensor.index, i);
-        dim.device = devices[i].clone();
-        dim.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
-        let mut value = crate::proto::tensor::TensorProto::new();
-        let shape = crate::proto::tensor_shape::TensorShapeProto::new();
-        value.dtype = DataType::DT_INT32;
-        value.tensor_shape = protobuf::SingularPtrField::some(shape);
-        value.int_val.push(0);
-        dim.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
-        target.pb.node.push(dim);
+//     // 3. chunking
+//     let mut chunks: Vec<Vec<String>> = (0..n).map(|i| {
+//         let mut dim = tensor.node().make_node("Const".to_string());
+//         dim.name += &format!("/ring_{}/aux_split_{}/split_dim", tensor.index, i);
+//         dim.device = devices[i].clone();
+//         dim.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
+//         let mut value = crate::proto::tensor::TensorProto::new();
+//         let shape = crate::proto::tensor_shape::TensorShapeProto::new();
+//         value.dtype = DataType::DT_INT32;
+//         value.tensor_shape = protobuf::SingularPtrField::some(shape);
+//         value.int_val.push(0);
+//         dim.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
+//         target.pb.node.push(dim);
 
-        let mut split = tensor.node().make_node("Split".to_string());
-        split.name += &format!("/ring_{}/aux_split_{}", tensor.index, i);
-        split.device = devices[i].clone();
-        split.input.push(format!("{}/ring_{}/aux_split_{}/split_dim", basename, tensor.index, i));
-        split.input.push(flats[i].clone());
-        split.attr.insert("T".into(), dtype.clone());
-        split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(n.try_into().unwrap())));
-        set_input_size(&mut split, 1, psize);
-        target.pb.node.push(split);
+//         let mut split = tensor.node().make_node("Split".to_string());
+//         split.name += &format!("/ring_{}/aux_split_{}", tensor.index, i);
+//         split.device = devices[i].clone();
+//         split.input.push(format!("{}/ring_{}/aux_split_{}/split_dim", basename, tensor.index, i));
+//         split.input.push(flats[i].clone());
+//         split.attr.insert("T".into(), dtype.clone());
+//         split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(n.try_into().unwrap())));
+//         set_input_size(&mut split, 1, psize);
+//         target.pb.node.push(split);
 
-        (0..n).map(|j| {
-            format!("{}/ring_{}/aux_split_{}:{}", basename, tensor.index, i, j)
-        }).collect()
-    }).collect();
+//         (0..n).map(|j| {
+//             format!("{}/ring_{}/aux_split_{}:{}", basename, tensor.index, i, j)
+//         }).collect()
+//     }).collect();
 
-    // 4. n-1 rounds of reducing. the last modified chunks (i+n-2) have the full content
-    for round in 0..n-1 {
-        // at the r round, the r+i chunk on i node is replaced by the sum of r+i and r+i+1
-        for i in 0..n {
-            let mut add = tensor.node().make_node("Add".to_string());
-            add.name += &format!("/ring_{}/aux_add_{}_{}", tensor.index, i, round);
-            add.device = devices[i].clone();
-            add.input.push(chunks[i][(round+i) % n].clone());
-            add.input.push(chunks[(i+1) % n][(round+i) % n].clone());
-            add.attr.insert("T".into(), dtype.clone());
-            set_input_size(&mut add, 0, psize);
-            set_input_size(&mut add, 1, psize);
-            chunks[i][(round+i) % n] = add.name.clone();
-            target.pb.node.push(add);
-        }
-    }
+//     // 4. n-1 rounds of reducing. the last modified chunks (i+n-2) have the full content
+//     for round in 0..n-1 {
+//         // at the r round, the r+i chunk on i node is replaced by the sum of r+i and r+i+1
+//         for i in 0..n {
+//             let mut add = tensor.node().make_node("Add".to_string());
+//             add.name += &format!("/ring_{}/aux_add_{}_{}", tensor.index, i, round);
+//             add.device = devices[i].clone();
+//             add.input.push(chunks[i][(round+i) % n].clone());
+//             add.input.push(chunks[(i+1) % n][(round+i) % n].clone());
+//             add.attr.insert("T".into(), dtype.clone());
+//             set_input_size(&mut add, 0, psize);
+//             set_input_size(&mut add, 1, psize);
+//             chunks[i][(round+i) % n] = add.name.clone();
+//             target.pb.node.push(add);
+//         }
+//     }
 
-    // 5. n-1 rounds of gathering
-    for round in 0..n-1 {
-        for i in 0..n {
-            let mut identity = tensor.node().make_node("Identity".to_string());
-            identity.name += &format!("/ring_{}/aux_identity_{}_{}", tensor.index, i, round);
-            identity.device = devices[i].clone();
-            identity.attr.insert("T".into(), dtype.clone());
-            identity.input.push(chunks[(i+1) % n][(i+round+n-1) % n].clone());
-            set_input_size(&mut identity, 0, psize);
-            chunks[i][(i+round+n-1) % n] = identity.name.clone();
-            target.pb.node.push(identity);
-        }
-    }
+//     // 5. n-1 rounds of gathering
+//     for round in 0..n-1 {
+//         for i in 0..n {
+//             let mut identity = tensor.node().make_node("Identity".to_string());
+//             identity.name += &format!("/ring_{}/aux_identity_{}_{}", tensor.index, i, round);
+//             identity.device = devices[i].clone();
+//             identity.attr.insert("T".into(), dtype.clone());
+//             identity.input.push(chunks[(i+1) % n][(i+round+n-1) % n].clone());
+//             set_input_size(&mut identity, 0, psize);
+//             chunks[i][(i+round+n-1) % n] = identity.name.clone();
+//             target.pb.node.push(identity);
+//         }
+//     }
 
-    // 6. concating
-    let concated: Vec<_> = chunks.into_iter().enumerate().map(|(i, chunk)| {
-        let mut axis = tensor.node().make_node("Const".to_string());
-        axis.name += &format!("/ring_{}/aux_concat_{}/axis", tensor.index, i);
-        axis.device = devices[i].clone();
-        axis.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
-        let mut value = crate::proto::tensor::TensorProto::new();
-        let shape = crate::proto::tensor_shape::TensorShapeProto::new();
-        value.dtype = DataType::DT_INT32;
-        value.tensor_shape = protobuf::SingularPtrField::some(shape);
-        value.int_val.push(0);
-        axis.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
-        target.pb.node.push(axis);
+//     // 6. concating
+//     let concated: Vec<_> = chunks.into_iter().enumerate().map(|(i, chunk)| {
+//         let mut axis = tensor.node().make_node("Const".to_string());
+//         axis.name += &format!("/ring_{}/aux_concat_{}/axis", tensor.index, i);
+//         axis.device = devices[i].clone();
+//         axis.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
+//         let mut value = crate::proto::tensor::TensorProto::new();
+//         let shape = crate::proto::tensor_shape::TensorShapeProto::new();
+//         value.dtype = DataType::DT_INT32;
+//         value.tensor_shape = protobuf::SingularPtrField::some(shape);
+//         value.int_val.push(0);
+//         axis.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
+//         target.pb.node.push(axis);
 
-        let len = chunk.len(); // save it here since we will destruct it later
-        let mut concat = tensor.node().make_node("ConcatV2".to_string());
-        concat.name += &format!("/ring_{}/aux_concat_{}", tensor.index, i);
-        concat.device = devices[i].clone();
-        concat.input = chunk.into_iter().collect();
-        concat.input.push(format!("{}/ring_{}/aux_concat_{}/axis", basename, tensor.index, i));
-        concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(n.try_into().unwrap())));
-        concat.attr.insert("T".into(), dtype.clone());
-        concat.attr.insert("Tidx".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
-        for j in 0..len {
-            set_input_size(&mut concat, j, psize);
-        }
-        target.pb.node.push(concat);
+//         let len = chunk.len(); // save it here since we will destruct it later
+//         let mut concat = tensor.node().make_node("ConcatV2".to_string());
+//         concat.name += &format!("/ring_{}/aux_concat_{}", tensor.index, i);
+//         concat.device = devices[i].clone();
+//         concat.input = chunk.into_iter().collect();
+//         concat.input.push(format!("{}/ring_{}/aux_concat_{}/axis", basename, tensor.index, i));
+//         concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(n.try_into().unwrap())));
+//         concat.attr.insert("T".into(), dtype.clone());
+//         concat.attr.insert("Tidx".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
+//         for j in 0..len {
+//             set_input_size(&mut concat, j, psize);
+//         }
+//         target.pb.node.push(concat);
 
-        format!("{}/ring_{}/aux_concat_{}", basename, tensor.index, i)
-    }).collect();
+//         format!("{}/ring_{}/aux_concat_{}", basename, tensor.index, i)
+//     }).collect();
 
-    // 7. restore shapes
-    concated.into_iter().zip(shapes).enumerate().map(|(i, (concat, shape))| {
-        let mut reshape = tensor.node().make_node("Reshape".to_string());
-        reshape.name += &format!("/ring_{}/aux_reshape_{}", tensor.index, i);
-        reshape.device = devices[i].clone();
-        reshape.attr.insert("T".into(), dtype.clone());
-        reshape.input.push(concat);
-        reshape.input.push(shape);
-        set_input_size(&mut reshape, 0, psize);
-        target.pb.node.push(reshape);
-        format!("{}/ring_{}/aux_reshape_{}", basename, tensor.index, i)
-    }).collect()
-}
+//     // 7. restore shapes
+//     concated.into_iter().zip(shapes).enumerate().map(|(i, (concat, shape))| {
+//         let mut reshape = tensor.node().make_node("Reshape".to_string());
+//         reshape.name += &format!("/ring_{}/aux_reshape_{}", tensor.index, i);
+//         reshape.device = devices[i].clone();
+//         reshape.attr.insert("T".into(), dtype.clone());
+//         reshape.input.push(concat);
+//         reshape.input.push(shape);
+//         set_input_size(&mut reshape, 0, psize);
+//         target.pb.node.push(reshape);
+//         format!("{}/ring_{}/aux_reshape_{}", basename, tensor.index, i)
+//     }).collect()
+// }
