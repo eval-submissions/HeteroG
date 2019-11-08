@@ -148,7 +148,7 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
                     FormKind::Full => input_tensor.get_size(),
                     FormKind::Part => input_tensor.get_size() / self.form.ndev() as u64,
                 });
-                let input_names = input_tensor.as_form(&Form { kind, devices: self.form.devices.clone() });
+                let input_names = input_tensor.as_form(&Form { kind, devices: self.form.devices.clone() }, target);
                 input_names[replica_index].clone()
             }).collect();
 
@@ -223,28 +223,17 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
     }
 
     // get the names as the specified form
-    pub fn as_form(&mut self, form: &Form) -> &[String] {
+    pub fn as_form(&mut self, form: &Form, target: &mut Target) -> &[String] {
         if !self.forms.contains_key(form) {
             let names = if form == &self.node().form {
                 form.devices.iter().map(|device_id| format!("{}:{}", self.node().replica_name_on_device(*device_id), self.index)).collect()
             } else {
                 let node_kind = self.node().form.kind;
                 match (form.kind, node_kind) {
-                    (FormKind::Full, FormKind::Full) => { // easy mode, use the copy in the corresponding device, or from the first device otherwise
-                        let raw = self.as_form(&self.node().form).to_vec(); // TODO: no clone?
-                        form.devices.iter().map(|device_id| {
-                            self.node().form.devices.iter().position(|x| *x == *device_id).map(|ind| raw[ind].clone()).unwrap_or_else(|| raw[0].clone())
-                        }).collect()
-                    }
-                    (FormKind::Part, FormKind::Full) => {
-                        unimplemented!() // split it
-                    }
-                    (FormKind::Full, FormKind::Part) => {
-                        unimplemented!() // concat them
-                    }
-                    (FormKind::Part, FormKind::Part) => {
-                        unimplemented!() // if not the same, perform n-to-m transformation
-                    }
+                    (FormKind::Full, FormKind::Full) => self.replicate_broadcast(&self.node().form, form, target),
+                    (FormKind::Part, FormKind::Full) => self.replicate_split(&self.node().form, form, target),
+                    (FormKind::Full, FormKind::Part) => self.aggregate_cat(&self.node().form, form, target),
+                    (FormKind::Part, FormKind::Part) => self.resplit(&self.node().form, form, target),
                 }
             };
 
@@ -259,26 +248,26 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
     **************************************/
 
     pub fn aggregate_sum(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
-        assert!(from.is_part() && to.is_full() && to.ndev() == 1);
+        assert!(from.is_part() && to.is_full());
 
         let mut addn = self.node().make_node("AddN".to_string());
         addn.name += &format!("/aux_sum_{}", self.index);
         addn.device = target.devices[to.devices[0]].clone();
         addn.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(from.ndev().try_into().unwrap())));
         addn.attr.insert("T".into(), get_dtype(&self.node().raw_node));
-        addn.input = self.as_form(from).iter().cloned().collect();
+        addn.input = self.as_form(from, target).iter().cloned().collect();
         for i in 0..from.ndev() {
             set_input_size(&mut addn, i, self.get_size() / from.ndev() as u64)
         }
 
-        let result = vec![addn.name.clone()].into_boxed_slice();
+        let result = vec![addn.name.clone(); to.ndev()].into_boxed_slice();
         target.pb.node.push(addn);
         result
     }
 
     // TODO: share the same axis nodes for all concating (and do the same thing for dim nodes in splitting)
     pub fn aggregate_cat(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
-        assert!(from.is_part() && to.is_full() && to.ndev() == 1);
+        assert!(from.is_part() && to.is_full());
 
         let mut axis = self.node().make_node("Const".to_string());
         axis.name += &format!("/aux_concat_{}/axis", self.index);
@@ -294,8 +283,8 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         let mut concat = self.node().make_node("ConcatV2".to_string());
         concat.name += &format!("/aux_concat_{}", self.index);
         concat.device = target.devices[to.devices[0]].clone();
-        concat.input = self.as_form(from).iter().cloned().collect();
-        concat.input.push(format!("{}/aux_concat_{}/axis", self.node().raw_node.name, self.index));
+        concat.input = self.as_form(from, target).iter().cloned().collect();
+        concat.input.push(axis.name.clone());
         concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(from.ndev().try_into().unwrap())));
         concat.attr.insert("T".into(), get_dtype(&self.node().raw_node));
         concat.attr.insert("Tidx".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
@@ -303,10 +292,19 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             set_input_size(&mut concat, i, self.get_size() / from.ndev() as u64)
         }
 
-        let result = vec![concat.name.clone()].into_boxed_slice();
+        let result = vec![concat.name.clone(); to.ndev()].into_boxed_slice();
         target.pb.node.push(axis);
         target.pb.node.push(concat);
         result
+    }
+
+    pub fn replicate_broadcast(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
+        assert!(from.is_full() && to.is_full());
+
+        let raw = self.as_form(&self.node().form, target).to_vec(); // TODO: no clone?
+        to.devices.iter().map(|device_id| {
+            from.devices.iter().position(|x| *x == *device_id).map(|ind| raw[ind].clone()).unwrap_or_else(|| raw[0].clone())
+        }).collect()
     }
 
     // currenly we only split from the first replica. Future we can split on every device and use the local copy to reduce transfering
@@ -328,7 +326,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         split.name += &format!("/aux_split_{}", self.index);
         split.device = target.devices[from.devices[0]].clone();
         split.input.push(dim.name.clone());
-        split.input.push(format!("{}:{}", self.as_form(from)[0].clone(), self.index));
+        split.input.push(format!("{}:{}", self.as_form(from, target)[0].clone(), self.index));
         split.attr.insert("T".into(), get_dtype(&self.node().raw_node));
         split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(to.ndev().try_into().unwrap())));
         set_input_size(&mut split, 1, self.get_size());
@@ -337,6 +335,83 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         target.pb.node.push(dim);
         target.pb.node.push(split);
         result
+    }
+
+    pub fn resplit(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
+        assert!(from.is_part() && to.is_part());
+
+        let gcd = { // the number of intermediat concated nodes
+            let mut a = from.ndev();
+            let mut b = to.ndev();
+            while a != b {
+                if a > b {
+                    a -= b;
+                } else {
+                    b -= a;
+                }
+            }
+            a
+        };
+
+        self.as_form(from, target).to_vec().chunks(from.ndev() / gcd).enumerate().map(|(i, chunk)| {
+            let dest = from.devices[i * chunk.len()];
+
+            let mut axis = self.node().make_node("Const".to_string());
+            axis.name += &format!("/aux_resplit_{}_{}/concat_axis", self.index, i);
+            axis.device = target.devices[dest].clone();
+            axis.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
+            let value = crate::proto::tensor::TensorProto::new().apply(|x| {
+                x.set_dtype(DataType::DT_INT32);
+                x.set_tensor_shape(crate::proto::tensor_shape::TensorShapeProto::new());
+                x.int_val.push(0);
+            });
+            axis.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
+
+            let mut concat = self.node().make_node("ConcatV2".to_string());
+            concat.name += &format!("/aux_resplit_{}_{}/concat", self.index, i);
+            concat.device = target.devices[dest].clone();
+            concat.input = chunk.iter().cloned().collect();
+            concat.input.push(axis.name.clone());
+            concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(chunk.len().try_into().unwrap())));
+            concat.attr.insert("T".into(), get_dtype(&self.node().raw_node));
+            concat.attr.insert("Tidx".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
+            for j in 0..chunk.len() {
+                set_input_size(&mut concat, j, self.get_size() / from.ndev() as u64)
+            }
+
+            let result = concat.name.clone();
+            target.pb.node.push(axis);
+            target.pb.node.push(concat);
+            (dest, result)
+        }).collect::<Vec<_>>().iter().zip(to.devices.chunks(to.ndev() / gcd)).enumerate().flat_map(|(i, ((concat_place, concated), devices))| {
+            let mut dim = self.node().make_node("Const".to_string());
+            dim.name += &format!("/aux_resplit_{}_{}/split_dim", self.index, i);
+            dim.device = target.devices[*concat_place].clone();
+            dim.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
+            let value = crate::proto::tensor::TensorProto::new().apply(|x| {
+                x.set_dtype(DataType::DT_INT32);
+                x.set_tensor_shape(crate::proto::tensor_shape::TensorShapeProto::new());
+                x.int_val.push(0);
+            });
+            dim.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
+
+            let mut split = self.node().make_node("Split".to_string());
+            split.name += &format!("/aux_resplit_{}_{}/split", self.index, i);
+            split.device = target.devices[*concat_place].clone();
+            split.input.push(dim.name.clone());
+            split.input.push(concated.clone());
+            split.attr.insert("T".into(), get_dtype(&self.node().raw_node));
+            split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(devices.len().try_into().unwrap())));
+            set_input_size(&mut split, 1, self.get_size() / gcd as u64);
+
+            let result = (0..to.ndev() / gcd).map({
+                let name = split.name.clone();
+                move |i| format!("{}:{}", name, i)
+            });
+            target.pb.node.push(dim);
+            target.pb.node.push(split);
+            result
+        }).collect()
     }
 
     pub fn all_reduce_nccl(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
@@ -355,7 +430,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             nccl.attr.insert("T".into(), get_dtype(&self.node().raw_node));
             nccl.attr.insert("num_devices".into(), AttrValue::new().apply(|x| x.set_i(from.ndev().try_into().unwrap())));
             nccl.attr.insert("shared_name".into(), AttrValue::new().apply(|x| x.set_s(self.original_name().into_bytes())));
-            nccl.input.push(format!("{}:{}", self.as_form(from)[i], index));
+            nccl.input.push(format!("{}:{}", self.as_form(from, target)[i], index));
 
             target.pb.node.push(nccl)
         }
