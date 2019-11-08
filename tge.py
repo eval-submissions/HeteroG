@@ -111,10 +111,10 @@ class TGE:
         self.strategy = libtge.data_parallel(inner, 0)
 
     @chain
-    def custom(self, decisions):
+    def custom(self, decisions): # each value in decision is an array, where the first element is 0 or 1 indicating PS or all-reduce, followed by the devices
         decision_raw = ''
         for name, decision in decisions.items():
-            decision_raw += name + ' ' + str(decision) + '\n'
+            decision_raw += ' '.join([name, str(decision[0])] + [str(x) for x in sorted(decision[1:])]) + '\n'
         self.strategy = libtge.custom(decision_raw.encode('ascii'), len(decision_raw.encode('ascii')))
 
     @chain

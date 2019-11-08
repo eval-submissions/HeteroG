@@ -23,7 +23,7 @@ type Node = crate::graph::Node<NEX, TEX>;
 type Tensor = crate::graph::Tensor<NEX, TEX>;
 
 pub struct Custom {
-    pub strategy_map: std::collections::BTreeMap<String, usize>
+    pub strategy_map: std::collections::BTreeMap<String, (Vec<usize>, bool)> // devices (the same definition of form), is Ring reduce
 }
 
 impl Strategy for Custom {
@@ -35,8 +35,6 @@ impl Strategy for Custom {
     /// 3. if all nodes in a group are replicated, use split, otherwise all replications are cache.
     #[allow(clippy::cognitive_complexity)]
     fn plan(&mut self, graph: &mut Graph, target: &mut Target) {
-        let n = target.devices.len();
-
         // mark batch splittablity
         for node in graph.nodes.iter_mut() {
             node.extra.is_descendant_of_input = node.inputs.iter().any(|x| {
@@ -102,7 +100,7 @@ impl Strategy for Custom {
 
         // do replications as the user requested
         for node in graph.nodes.iter_mut() {
-            let s = self.strategy_map.get(&node.raw_node.name).copied();
+            let s = self.strategy_map.get(&node.raw_node.name).cloned();
 
             match &node.raw_node.op[..] {
                 // TODO: RandomUniform, NoOp
@@ -110,15 +108,15 @@ impl Strategy for Custom {
                 "ApplyGradientDescent" | "Assign" => { // ignore decision and put along with the variable
                     let var = &node.graph().nodes[node.inputs[0].0];
                     if var.replicated().unwrap() {
-                        node.put_on_devices(&(0..target.devices.len()).collect::<Vec<_>>());
+                        node.put_on_devices(&(0..target.ndev()).collect::<Vec<_>>());
                     } else {
                         #[allow(mutable_borrow_reservation_conflict)]
                         node.put_on_devices(&var.form.devices[..1]);
                     }
                 }
                 _ => match s {
-                    Some(i) if i < n => node.put_on_devices(&[i]),
-                    Some(_) | None => node.put_on_devices(&(0..target.devices.len()).collect::<Vec<_>>()),
+                    Some((devices, _)) => node.put_on_devices(&devices),
+                    None => node.put_on_devices(&(0..target.ndev()).collect::<Vec<_>>()),
                 }
             }
         }
@@ -149,7 +147,7 @@ impl Strategy for Custom {
                 let (id, index, _) = &node.inputs[2];
                 assert!(node.extra.group.is_none() || node.extra.group.as_ref().unwrap().borrow().len() == 1); // it either doesn't in a group, or it is its only member
                 if node.replicated().unwrap() {
-                    let _s = self.strategy_map.get(&node.raw_node.name).copied();
+                    let _s = self.strategy_map.get(&node.raw_node.name).cloned();
                     let grad = &mut node.graph().nodes[*id];
                     if grad.replicated().unwrap() && grad.form.is_part() {
                         // TODO: currently only PS

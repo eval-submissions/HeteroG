@@ -112,8 +112,13 @@ enum CommunicationMethod {
 #[no_mangle]
 unsafe extern fn custom(strategy_data: *const u8, len: u32) -> *mut Bundle {
     let strategy_data = std::str::from_utf8(std::slice::from_raw_parts(strategy_data, len as usize)).unwrap();
-    let strategy_dict = strategy_data.split_ascii_whitespace().collect::<Vec<_>>()
-        .chunks(2).map(|x| (x[0].to_string(), x[1].parse().unwrap())).collect();
+    let strategy_dict = strategy_data.lines().map(|line| {
+        let mut line = line.split_ascii_whitespace().collect::<Vec<_>>();
+        let name = line.pop().unwrap().to_string();
+        let method = line.pop().unwrap().parse::<u8>().unwrap() != 0;
+        let places = line.into_iter().map(|x| x.parse().unwrap()).collect(); // assume sorted
+        (name, (places, method))
+    }).collect();
     let strategy = strategy::Custom { strategy_map: strategy_dict };
     let bundle = TheBundle::new(strategy);
     leak(Bundle::from(Box::new(bundle)))
