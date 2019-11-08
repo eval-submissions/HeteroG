@@ -115,6 +115,7 @@ class TGE:
         decision_raw = ''
         for name, decision in decisions.items():
             decision_raw += ' '.join([name, str(decision[0])] + [str(x) for x in sorted(decision[1:])]) + '\n'
+        # print(decision_raw)
         self.strategy = libtge.custom(decision_raw.encode('ascii'), len(decision_raw.encode('ascii')))
 
     @chain

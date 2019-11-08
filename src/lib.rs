@@ -113,10 +113,10 @@ enum CommunicationMethod {
 unsafe extern fn custom(strategy_data: *const u8, len: u32) -> *mut Bundle {
     let strategy_data = std::str::from_utf8(std::slice::from_raw_parts(strategy_data, len as usize)).unwrap();
     let strategy_dict = strategy_data.lines().map(|line| {
-        let mut line = line.split_ascii_whitespace().collect::<Vec<_>>();
-        let name = line.pop().unwrap().to_string();
-        let method = line.pop().unwrap().parse::<u8>().unwrap() != 0;
-        let places = line.into_iter().map(|x| x.parse().unwrap()).collect(); // assume sorted
+        let line = line.split_ascii_whitespace().collect::<Vec<_>>();
+        let name = line[0].to_string();
+        let method = line[1].parse::<u8>().unwrap() != 0;
+        let places = line[2..].iter().map(|x| x.parse().unwrap()).collect(); // assume sorted
         (name, (places, method))
     }).collect();
     let strategy = strategy::Custom { strategy_map: strategy_dict };
@@ -131,7 +131,7 @@ unsafe extern fn compile(ctx: *mut Context, pflag: u8) -> u32 {
     if pflag & 0x01 != 0 { polishing::remove_colocation_hint(target); }
     if pflag & 0x02 != 0 { polishing::remove_shape_hint(target); }
     if pflag & 0x04 != 0 { polishing::destructify_names(target); }
-    if pflag & 0x08 != 0 { polishing::remove_dangling_nodes(&["GradientDescent"], target); }
+    if pflag & 0x08 != 0 { polishing::remove_dangling_nodes(&["GradientDescent/replica_0"], target); }
     target.pb.compute_size()
 }
 
