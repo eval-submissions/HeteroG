@@ -114,7 +114,12 @@ class TGE:
     def custom(self, decisions): # each value in decision is an array, where the first element is 0 or 1 indicating PS or all-reduce, followed by the devices
         decision_raw = ''
         for name, decision in decisions.items():
-            decision_raw += ' '.join([name, str(decision[0])] + [str(x) for x in sorted(decision[1:])]) + '\n'
+            decision_raw += name + ' ' + str(decision[0])
+            for i, j in enumerate(decision[1:]):
+                while j > 0:
+                    decision_raw += ' ' + str(i)
+                    j -= 1
+            decision_raw += '\n'
         # print(decision_raw)
         self.strategy = libtge.custom(decision_raw.encode('ascii'), len(decision_raw.encode('ascii')))
 
