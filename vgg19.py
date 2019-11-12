@@ -36,7 +36,7 @@ from profiler import profiler_factory
 tic1 = time.perf_counter()
 g = (tge.TGE(gdef, devices)
     # .data_parallel('ring')
-    .custom({ node.name: [np.random.randint(0, 2)] + [np.random.randint(0, len(devices)) for i in range(np.random.randint(1, len(devices)))] for node in gdef.node })
+    .custom({ node.name: [np.random.randint(0, 2)] + [np.random.randint(0, 2) for _ in devices] for node in gdef.node })
     # .destructify_names()
     # .compile()
     # .get_result()

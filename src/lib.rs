@@ -141,7 +141,7 @@ unsafe extern fn evaluate(ctx: *mut Context, profile_data: *const u8, len: u32) 
     let profile_dict: std::collections::BTreeMap<String, u64> = profile_str.split_ascii_whitespace().collect::<Vec<_>>()
         .chunks(2).map(|x| (x[0].to_string(), x[1].parse().unwrap())).collect();
     let Context(_bundle, target) = &mut *ctx;
-    let mut scheduler = scheduler::TensorFlowLikeScheduler::new(target.devices.len(), profile_dict);
+    let mut scheduler = scheduler::TensorFlowLikeScheduler::new(profile_dict);
     scheduler::Scheduler::evaluate(&mut scheduler, target)
 }
 

@@ -4,7 +4,7 @@ use oh_my_rust::*;
 use std::convert::TryInto;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, VecDeque};
 use std::cmp;
-use crate::graph::Target;
+use crate::graph::{Target, Form};
 use crate::proto::types::DataType;
 use crate::proto::attr_value::{AttrValue, AttrValue_oneof_value};
 use crate::proto::node_def::NodeDef;
@@ -15,24 +15,24 @@ pub trait Scheduler {
 }
 
 pub struct TensorFlowLikeScheduler {
-    n: usize,
     profile_dict: BTreeMap<String, u64>
 }
 
 impl TensorFlowLikeScheduler {
-    pub fn new(n: usize, profile_dict: BTreeMap<String, u64>) -> Self {
-        Self { n, profile_dict }
+    pub fn new(profile_dict: BTreeMap<String, u64>) -> Self {
+        Self { profile_dict }
     }
 
     fn profile(&self, node: &NodeDef, _device_id: usize) -> Option<u64> {
         let origin_name = node.attr.get("_tge_origin")?.get_s();
+        // technically we do not need to extract the form if we use a profiler since it will be reflected by the input size.
+        let form = Form::from_code(std::str::from_utf8(node.attr.get("_tge_form")?.get_s()).ok()?);
         let time = self.profile_dict.get(&String::from_utf8(origin_name.to_vec()).unwrap()).copied();
-        // technically we do not need to know whether it is replicated if we use a profiler since it will be reflected by the input size.
-        time.map(|x| if node.name.as_bytes() == origin_name { // not replicated
-            x
-        } else { // replicated
-            x / self.n as u64
-        })
+        if form.is_part() {
+            time.map(|x| x / form.ndev() as u64)
+        } else {
+            time
+        }
     }
 }
 
@@ -120,6 +120,7 @@ impl Scheduler for TensorFlowLikeScheduler {
                 let task = &mut tasks[task_id];
                 match task.content {
                     TaskType::Computation { id: node_id, gpu } => {
+                        debug!("{:?} {:?} {:?} {:?}", gpu_avaliable_time[gpu], gpu, nodes[node_id].name, self.profile(&nodes[node_id], gpu).unwrap_or(0));
                         let eft = cmp::max(gpu_avaliable_time[gpu], time) + self.profile(&nodes[node_id], gpu).unwrap_or(0);
                         gpu_avaliable_time[gpu] = eft;
                         ongoing_tasks.push(OngoingTask { id: task_id, eft });

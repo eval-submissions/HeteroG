@@ -72,7 +72,7 @@ impl Form {
         self.devices.len()
     }
 
-    // fully describde the form so we can append it into the name of generated ops
+    // TODO: use to_string() and parse()?
     pub fn code(&self) -> String {
         let mut x = String::from(if self.is_full() {"full"} else {"part"});
         for d in self.devices.iter() {
@@ -80,6 +80,16 @@ impl Form {
             x += &d.to_string();
         }
         x
+    }
+
+    pub fn from_code(code: &str) -> Self {
+        let segs: Vec<_> = code.split('_').collect();
+        let kind = match segs[0] {
+            "full" => FormKind::Full,
+            "part" => FormKind::Part,
+            _ => unreachable!()
+        };
+        Self { kind, devices: segs[1..].iter().map(|x| x.parse().unwrap()).collect() }
     }
 
     pub fn valid(&self) -> bool {
@@ -154,6 +164,7 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
             node.name = self.replica(replica_index);
             node.device = target.devices[*device_id].clone();
             set_origin(&mut node, &self.raw_node.name);
+            set_form(&mut node, &self.form.code());
 
             // 2. link inputs and set size
             node.input = self.inputs.iter().copied().enumerate().map(|(i, (node_id, index, kind))| {
@@ -481,11 +492,11 @@ impl Target {
 }
 
 fn set_origin(node: &mut NodeDef, origin: &str) {
-    node.attr.insert("_tge_origin".into(), AttrValue::new().apply(|x| x.set_s(origin.as_bytes().to_vec())));
+    node.attr.insert("_tge_origin".to_string(), AttrValue::new().apply(|x| x.set_s(origin.as_bytes().to_vec())));
 }
 
 fn set_belong_to(node: &mut NodeDef, belong_to: &str) {
-    node.attr.insert("_tge_belong_to".into(), AttrValue::new().apply(|x| x.set_s(belong_to.as_bytes().to_vec())));
+    node.attr.insert("_tge_belong_to".to_string(), AttrValue::new().apply(|x| x.set_s(belong_to.as_bytes().to_vec())));
 }
 
 fn set_input_size(node: &mut NodeDef, index: usize, size: u64) {
@@ -494,6 +505,10 @@ fn set_input_size(node: &mut NodeDef, index: usize, size: u64) {
         sizes.resize(index+1, 0)
     }
     sizes[index] = size as _;
+}
+
+fn set_form(node: &mut NodeDef, form_code: &str) {
+    node.attr.insert("_tge_form".to_string(), AttrValue::new().apply(|x| x.set_s(form_code.as_bytes().to_vec())));
 }
 
 // TODO: This function is not done. Need to parse ops.pbtxt and follow type or type_attr.
