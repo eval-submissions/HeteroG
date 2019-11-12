@@ -149,16 +149,21 @@ impl Strategy for Custom {
                 let (id, index, _) = &node.inputs[2];
                 assert!(node.extra.group.is_none() || node.extra.group.as_ref().unwrap().borrow().len() == 1); // it either doesn't in a group, or it is its only member
                 if node.replicated().unwrap() {
-                    let _s = self.strategy_map.get(&node.raw_node.name).cloned();
-                    let grad = &mut node.graph().nodes[*id];
-                    if grad.replicated().unwrap() && grad.form.is_part() {
-                        // TODO: currently only PS
-                        grad.get_output(*index).aggregate_sum(&grad.form, &node.form.clone().apply(|x| x.devices.truncate(1)), target);
-                        // if s == Some(n) { // PS
-                        //     grad.get_output(*index).aggregate_sum(node.replicas[0].0, target);
-                        // } else { // Ring reduce
-                        //     grad.get_output(*index).all_reduce_ring(target);
-                        // }
+                    let s = self.strategy_map.get(&node.raw_node.name).cloned();
+                    let grad = &mut node.graph().nodes[*id].get_output(*index);
+                    if grad.node().form.is_part() { // is_part implies ndev > 1
+                        let full = match s {
+                            Some((_, true)) => grad.all_reduce_ring(&grad.node().form, &node.form.clone(), target),
+                            _ => {
+                                let x = grad.aggregate_sum(&grad.node().form, &node.form.clone().apply(|x| x.devices.truncate(1)), target);
+                                if node.form.ndev() > 1 {
+                                    (0..node.form.ndev()).map(|_| x[0].clone()).collect()
+                                } else {
+                                    x
+                                }
+                            }
+                        };
+                        grad.forms.insert(node.form.clone(), full);
                     }
                 }
             }
