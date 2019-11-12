@@ -153,7 +153,8 @@ impl Strategy for Custom {
                     let grad = &mut node.graph().nodes[*id].get_output(*index);
                     if grad.node().form.is_part() { // is_part implies ndev > 1
                         let full = match s {
-                            Some((_, true)) => grad.all_reduce_ring(&grad.node().form, &node.form.clone(), target),
+                            // alternatively, we can allow this and perform a post transfer?
+                            Some((_, true)) if grad.node().form.devices == node.form.devices => grad.all_reduce_ring(&grad.node().form, &node.form.clone(), target),
                             _ => {
                                 let x = grad.aggregate_sum(&grad.node().form, &node.form.clone().apply(|x| x.devices.truncate(1)), target);
                                 if node.form.ndev() > 1 {
