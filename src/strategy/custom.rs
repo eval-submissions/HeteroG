@@ -121,20 +121,22 @@ impl Strategy for Custom {
             }
         }
 
-        // only split if the whole group is replicated. Otherwise go cache (default).
+        // only split if the whole group is replicated the same times. Otherwise go cache (default).
         let mut visited_groups = std::collections::BTreeSet::new();
         for node in graph.nodes.iter_mut() {
             if node.extra.group.is_some() && !visited_groups.contains(&node.extra.group.as_ref().map(|x| &*x.borrow() as *const _).unwrap()) {
                 visited_groups.insert(node.extra.group.as_ref().map(|x| &*x.borrow() as *const _).unwrap());
                 // info!("{}, {:?}", visited_groups.len(), node.extra.group.as_ref().unwrap().borrow().iter().map(|x| node.graph().nodes[*x].raw_node.name.clone()).collect::<Vec<_>>());
                 let group = &node.extra.group.as_ref().unwrap().borrow();
-                if group.iter().copied().all(|x| node.graph().nodes[x].replicated().unwrap()) {
+                let n = node.form.ndev();
+                if n > 1 && group.iter().copied().all(|x| node.graph().nodes[x].form.ndev() == n) {
                     for member in group.iter() {
                         let member = &mut node.graph().nodes[*member];
                         for (id, index, kind) in member.inputs.iter_mut() {
                             let input = node.graph().nodes[*id].get_output(*index);
-                            if input.node().extra.is_descendant_of_input && input.extra.has_batch_dimension {
-                                *kind = FormKind::Part
+                            if input.node().extra.is_descendant_of_input && (group.contains(id) || input.extra.has_batch_dimension) {
+                                *kind = FormKind::Part;
+                                member.form.kind = FormKind::Part;
                             }
                         }
                     }
