@@ -134,7 +134,7 @@ impl Strategy for Custom {
                         let member = &mut node.graph().nodes[*member];
                         for (id, index, kind) in member.inputs.iter_mut() {
                             let input = node.graph().nodes[*id].get_output(*index);
-                            if input.node().extra.is_descendant_of_input && (group.contains(id) || input.extra.has_batch_dimension) {
+                            if (input.node().raw_node.op == "Placeholder" || input.node().extra.is_descendant_of_input) && (group.contains(id) || input.extra.has_batch_dimension) {
                                 *kind = FormKind::Part;
                                 member.form.kind = FormKind::Part;
                             }

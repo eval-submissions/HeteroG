@@ -1,4 +1,4 @@
-// evaluate a given graph by simulate a scheduler with profile data
+// evaluate a given graph by simulating a scheduler with profile data
 
 use oh_my_rust::*;
 use std::convert::TryInto;
@@ -120,7 +120,7 @@ impl Scheduler for TensorFlowLikeScheduler {
                 let task = &mut tasks[task_id];
                 match task.content {
                     TaskType::Computation { id: node_id, gpu } => {
-                        debug!("{:?} {:?} {:?} {:?}", gpu_avaliable_time[gpu], gpu, nodes[node_id].name, self.profile(&nodes[node_id], gpu).unwrap_or(0));
+                        debug!("{:?} {:?} {:?} {:?} {:?}", gpu, gpu_avaliable_time[gpu], time, nodes[node_id].name, self.profile(&nodes[node_id], gpu).unwrap_or(0));
                         let eft = cmp::max(gpu_avaliable_time[gpu], time) + self.profile(&nodes[node_id], gpu).unwrap_or(0);
                         gpu_avaliable_time[gpu] = eft;
                         ongoing_tasks.push(OngoingTask { id: task_id, eft });
