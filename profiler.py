@@ -56,6 +56,14 @@ def _prepare_graph(node_def, graph_def):
         node.device = node_def.device
         _mkinput(node, t, size)
 
+        # sepcial cases
+        if node_def.op == 'Conv2DBackpropFilter' and i == 1:
+            content = tf.constant([x.size for x in node_def.attr['_output_shapes'].list.shape[0].dim]).op.node_def.attr['value']
+            node.attr['value'].CopyFrom(content)
+        if node_def.op == 'Conv2DBackpropInput' and i == 0:
+            content = tf.constant([x.size for x in node_def.attr['_output_shapes'].list.shape[0].dim]).op.node_def.attr['value']
+            node.attr['value'].CopyFrom(content)
+
     profilee = graph_def.node.add()
     profilee.CopyFrom(node_def)
 
