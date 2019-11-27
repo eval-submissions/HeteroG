@@ -1,120 +1,48 @@
-import os
-import time
+import numpy as np
 import tensorflow as tf
-import tensorflow.core.framework as tfpb
-import operator
-from functools import reduce
-from http.server import HTTPServer, BaseHTTPRequestHandler
 
-cache = {} # TODO: persistence? LRU?
+class Profiler():
+    def __init__(self, graph_def, target=None):
+        self.graph_def = graph_def
+        self.names = { node.name for node in graph_def.node }
+        self.target = target
+        self.profiled = set()
+        self.cache = {} # TODO: persistence? LRU?
 
-import utils
-op_def_dict = utils.op_def_dict()
+    def _profile(self, device):
+        tf.reset_default_graph()
+        tf.import_graph_def(self.graph_def)
+        graph = tf.get_default_graph()
+        for op in graph.get_operations():
+            op._set_device(device)
+        init = graph.get_operation_by_name("import/init")
 
-def _mkinput(node, dtype, size):
-    if dtype < 100: # _ref types are 100 + the corresponding type
-        ts = tf.DType(dtype)
-        if not ts.is_integer and not ts.is_floating: # complex, string, or other unhandleable fancy things
-            raise Exception("not implemented")
+        sess = tf.Session(self.target)#, config=tf.ConfigProto(allow_soft_placement=False))
+        sess.run(init)
 
-        shape = tfpb.tensor_shape_pb2.TensorShapeProto()
-        for s in size:
-            x = shape.dim.add()
-            x.size = s
+        placeholders = (node.outputs[0] for node in graph.get_operations() if node.node_def.op == 'Placeholder')
+        input_dict = { p: np.random.rand(*p.shape.as_list()) for p in placeholders }
 
-        node.op = 'Const'
-        node.attr['dtype'].CopyFrom(tfpb.attr_value_pb2.AttrValue(type=dtype))
-        node.attr['value'].CopyFrom(tfpb.attr_value_pb2.AttrValue(tensor={
-            'dtype': dtype, 'tensor_shape': shape, 'tensor_content': b'\0' * reduce(operator.mul, size, ts.size)
-        }))
-    else:
-        node.op = 'VariableV2'
-        raise Exception("not implemented")
+        run_meta = tf.compat.v1.RunMetadata()
+        run_opt = tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE, output_partition_graphs=True)
+        opt = graph.get_operation_by_name('import/GradientDescent')
+        sess.run(opt, options=run_opt, run_metadata=run_meta, feed_dict=input_dict)
 
-# node_def is a normal node def but instead of the name, the inputs are replaced by the sizes seperated by commas (and empty name means scalar)
-def _prepare_graph(node_def, graph_def):
-    type_list = []
-    op_def = op_def_dict[node_def.op]
-    for input_arg in op_def.input_arg:
-        if input_arg.type:
-            t = input_arg.type
-        elif input_arg.type_attr:
-            t = node_def.attr[input_arg.type_attr].type
+        result = { x: [float('inf'), 0] for x in self.names }
+        for dev in run_meta.step_stats.dev_stats:
+            for node in dev.node_stats:
+                name = node.node_name.split(':')[0][7:] # remove "import/" prefix
+                if name in result:
+                    result[name][0] = min(result[name][0], node.all_start_micros)
+                    result[name][1] = max(result[name][1], node.all_start_micros + node.all_end_rel_micros)
 
-        for i in range(node_def.attr.get(input_arg.number_attr, 1)):
-            type_list.append(t)
+        for name, [start, end] in result.items():
+            if end > start:
+                self.cache[(name, device)] = end - start
 
-    input_nodes = []
-    for (i, (t, size)) in enumerate(zip(type_list, node_def.input)):
-        size = [int(x) for x in size.split(',') if x] # split gives an empty element if size is empty
-        if t >= 100: # need Variable, skip them for now
-            print(node_def.op, t)
-            return None
+        self.profiled.add(device)
 
-        node = graph_def.node.add()
-        node.name = 'input_{}'.format(i)
-        node.device = node_def.device
-        _mkinput(node, t, size)
-
-        # sepcial cases
-        if node_def.op == 'Conv2DBackpropFilter' and i == 1:
-            content = tf.constant([x.size for x in node_def.attr['_output_shapes'].list.shape[0].dim]).op.node_def.attr['value']
-            node.attr['value'].CopyFrom(content)
-        if node_def.op == 'Conv2DBackpropInput' and i == 0:
-            content = tf.constant([x.size for x in node_def.attr['_output_shapes'].list.shape[0].dim]).op.node_def.attr['value']
-            node.attr['value'].CopyFrom(content)
-
-    profilee = graph_def.node.add()
-    profilee.CopyFrom(node_def)
-
-    for i in range(len(node_def.input)):
-        profilee.input[i] = 'input_{}'.format(i)
-
-    return graph_def
-
-def _profile(node_def_raw, target):
-    if node_def_raw in cache:
-        return cache[node_def_raw]
-
-    node_def = tfpb.node_def_pb2.NodeDef()
-    node_def.ParseFromString(node_def_raw)
-
-    tf.reset_default_graph()
-    gdef = tf.get_default_graph().as_graph_def()
-
-    x = _prepare_graph(node_def, gdef)
-    if x == None:
-        return 0
-    tf.reset_default_graph()
-    tf.import_graph_def(gdef)
-
-    # TODO: creating ad-hoc sessions introduces a big overhead.
-    sess = tf.Session(target, config=tf.ConfigProto(allow_soft_placement=False))
-    run_meta = tf.compat.v1.RunMetadata()
-    run_opt = tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE, output_partition_graphs=True)
-    sess.run(tf.get_default_graph().get_operation_by_name('import/profilee'),
-        options=run_opt, run_metadata=run_meta)
-
-    print(run_meta.step_stats.dev_stats)
-    op_start, op_end = float('inf'), 0
-    for dev in run_meta.step_stats.dev_stats:
-        for node in dev.node_stats:
-            if node.node_name.startswith('import/profilee'):
-                op_start = min(op_start, node.all_start_micros)
-                op_end = max(op_end, node.all_start_micros + node.all_end_rel_micros)
-
-    print("{}: {}".format(node_def.op, op_end - op_start))
-    return op_end - op_start
-
-def profiler_factory(target):
-    def inner(pointer, size):
-        node_def_raw = pointer[:size]
-        try:
-            return _profile(node_def_raw, target)
-        except:
-            print("failed")
-            return 0
-    return inner
-
-# TODO: concurrent profiling if the devices do not overlap? I don't know if tf sessions are thread-safe
-# TODO: transfering profiling. currently we just accept a bandwidth matrix (can be generagted using funciton in util) along with the topology
+    def profile(self, node_name, device):
+        if device not in self.profiled:
+            self._profile(device)
+        return self.cache.get((node_name, device), 0)
