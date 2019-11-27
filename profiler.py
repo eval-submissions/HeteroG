@@ -6,7 +6,7 @@ import operator
 from functools import reduce
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-cache = {} # TODO: LRU?
+cache = {} # TODO: persistence? LRU?
 
 import utils
 op_def_dict = utils.op_def_dict()
@@ -85,23 +85,26 @@ def _profile(node_def_raw, target):
     x = _prepare_graph(node_def, gdef)
     if x == None:
         return 0
+    tf.reset_default_graph()
     tf.import_graph_def(gdef)
 
     # TODO: creating ad-hoc sessions introduces a big overhead.
-    sess = tf.Session(target)
+    sess = tf.Session(target, config=tf.ConfigProto(allow_soft_placement=False))
     run_meta = tf.compat.v1.RunMetadata()
     run_opt = tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE, output_partition_graphs=True)
     sess.run(tf.get_default_graph().get_operation_by_name('import/profilee'),
         options=run_opt, run_metadata=run_meta)
 
+    print(run_meta.step_stats.dev_stats)
+    op_start, op_end = float('inf'), 0
     for dev in run_meta.step_stats.dev_stats:
         for node in dev.node_stats:
-            if node.node_name == 'import/profilee':
-                time = node.op_end_rel_micros - node.op_start_rel_micros
-                # TODO: will there be duplications? A single operation runs on multiple devices (require both host and accelerator)?
+            if node.node_name.startswith('import/profilee'):
+                op_start = min(op_start, node.all_start_micros)
+                op_end = max(op_end, node.all_start_micros + node.all_end_rel_micros)
 
-    print("{}: {}".format(node_def.op, time))
-    return time
+    print("{}: {}".format(node_def.op, op_end - op_start))
+    return op_end - op_start
 
 def profiler_factory(target):
     def inner(pointer, size):
