@@ -1,6 +1,6 @@
 def model_fn():
-    x = tf.placeholder(tf.float32, shape=(None, 1024))
-    y = tf.placeholder(tf.float32, shape=(None, 10,))
+    x = tf.placeholder(tf.float32, shape=(64, 1024))
+    y = tf.placeholder(tf.float32, shape=(64, 10,))
     hidden = tf.layers.dense(x, 256, activation=tf.nn.softmax)
     output = tf.layers.dense(hidden, 10, activation=tf.nn.softmax)
     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
@@ -30,6 +30,7 @@ noop = ('Placeholder', 'Const', 'Identity', 'NoOp', 'ReadVariableOp', 'VarHandle
 
 g = (tge.TGE(gdef, devices)
     .custom({ node.name: (0, 1, 1, 1, 1) for node in gdef.node })
+    .set_bandwidth(10000, 100)
     .evaluate({ node.name: (0 if node.op in noop else 1000) for node in gdef.node })
 )
 print(g)

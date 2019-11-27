@@ -1,3 +1,4 @@
+import re
 import ctypes
 
 PROFILER_T = ctypes.CFUNCTYPE(ctypes.c_uint64, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32)
@@ -85,9 +86,26 @@ class TGE:
         links: an array contains the bandwidth of each link. The unit is bytes/time where time is the same unit of profiling
         paths: an array where the i*n+j element is an array of link indexes that in the path of i->j.
         '''
-        links_raw = ' '.join(links).encode('ascii')
-        paths_raw = '\n'.join((' '.join(path) for path in paths)).encode('ascii')
+        links_raw = ' '.join(map(str, links)).encode('ascii')
+        paths_raw = '\n'.join((' '.join(map(str, path)) for path in paths))
+        paths_raw = (paths_raw + '\n').encode('ascii')
         self.topology = libtge.topology(links_raw, len(links_raw), paths_raw, len(paths_raw))
+
+    @chain
+    def set_bandwidth(self, intra, inter):
+        'conveient method for setting a topology that devices on the same task are independently connected, while devices on different tasks shares a unique link'
+        task_map = { device: re.findall(r"task:(\d+)/", device) for device in self.devices }
+        links, paths = [inter], [] # the 0-th link is the shared inter link, others are intra links
+        for i in range(len(self.devices)):
+            for j in range(len(self.devices)):
+                if i == j: # the same node, no link needed
+                    paths.append([])
+                elif task_map[self.devices[i]] == task_map[self.devices[j]]: # intra link
+                    paths.append([len(links)])
+                    links.append(intra)
+                else: # inter link
+                    paths.append([0])
+        self.set_topology(links, paths)
 
     def get_topology(self):
         'default topology use a single shared 100k bytes per micro second bandwidth'
