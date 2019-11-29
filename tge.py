@@ -64,8 +64,8 @@ class TGE:
         graph_raw = self.graph_def.SerializeToString()
         device_raw = ' '.join(self.devices).encode('ascii')
         profile_raw = ''
-        for name, time in profile_dict.items():
-            profile_raw += name + ' ' + str(time) + '\n'
+        for name, times in profile_dict.items():
+            profile_raw += ' '.join([name, *map(str, times)]) + '\n'
         profile_raw = profile_raw.encode('ascii')
         tge = libtge.tge(self.strategy, self.get_topology(), graph_raw, len(graph_raw), device_raw, len(device_raw))
         size = libtge.compile(tge, self.flag | 0x08)

@@ -138,8 +138,12 @@ unsafe extern fn compile(ctx: *mut Context, pflag: u8) -> u32 {
 #[no_mangle]
 unsafe extern fn evaluate(ctx: *mut Context, profile_data: *const u8, len: u32) -> u64 {
     let profile_str = std::str::from_utf8(std::slice::from_raw_parts(profile_data, len as usize)).unwrap();
-    let profile_dict: std::collections::BTreeMap<String, u64> = profile_str.split_ascii_whitespace().collect::<Vec<_>>()
-        .chunks(2).map(|x| (x[0].to_string(), x[1].parse().unwrap())).collect();
+    let profile_dict: std::collections::BTreeMap<String, Vec<u64>> = profile_str.lines().map(|line| {
+        let line = line.split_ascii_whitespace().collect::<Vec<_>>();
+        let name = line[0].to_string();
+        let times = line[1..].iter().map(|x| x.parse().unwrap()).collect();
+        (name, times)
+    }).collect();
     let Context(_bundle, target) = &mut *ctx;
     let mut scheduler = scheduler::TensorFlowLikeScheduler::new(profile_dict);
     scheduler::Scheduler::evaluate(&mut scheduler, target)

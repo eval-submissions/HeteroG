@@ -15,19 +15,19 @@ pub trait Scheduler {
 }
 
 pub struct TensorFlowLikeScheduler {
-    profile_dict: BTreeMap<String, u64>
+    profile_dict: BTreeMap<String, Vec<u64>>
 }
 
 impl TensorFlowLikeScheduler {
-    pub fn new(profile_dict: BTreeMap<String, u64>) -> Self {
+    pub fn new(profile_dict: BTreeMap<String, Vec<u64>>) -> Self {
         Self { profile_dict }
     }
 
-    fn profile(&self, node: &NodeDef, _device_id: usize) -> Option<u64> {
+    fn profile(&self, node: &NodeDef, device_id: usize) -> Option<u64> {
         let origin_name = node.attr.get("_tge_origin")?.get_s();
         // technically we do not need to extract the form if we use a profiler since it will be reflected by the input size.
         let form = Form::from_code(std::str::from_utf8(node.attr.get("_tge_form")?.get_s()).ok()?);
-        let time = self.profile_dict.get(&String::from_utf8(origin_name.to_vec()).unwrap()).copied();
+        let time = self.profile_dict.get(&String::from_utf8(origin_name.to_vec()).unwrap()).map(|x| x[device_id]);
         if form.is_part() {
             time.map(|x| x / form.ndev() as u64)
         } else {

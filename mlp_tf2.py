@@ -31,6 +31,6 @@ noop = ('Placeholder', 'Const', 'Identity', 'NoOp', 'ReadVariableOp', 'VarHandle
 g = (tge.TGE(gdef, devices)
     .custom({ node.name: (0, 1, 1, 1, 1) for node in gdef.node })
     .set_bandwidth(10000, 100)
-    .evaluate({ node.name: (0 if node.op in noop else 1000) for node in gdef.node })
+    .evaluate({ node.name: [0 if node.op in noop else 1000] * len(devices) for node in gdef.node })
 )
 print(g)
