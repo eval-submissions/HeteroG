@@ -97,7 +97,7 @@ class Environment(object):
                 line = line.strip()
                 items = line.split(" ")
                 name = items[0]
-                cost = np.array(items[-len(devices):],dtype=np.int32)
+                cost = list(np.array(items[-len(devices):]))
                 name_cost_dict[name] = cost
         return name_cost_dict
 
