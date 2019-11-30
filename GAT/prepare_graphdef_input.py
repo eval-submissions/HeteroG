@@ -81,9 +81,9 @@ def generate_feature_file(gdef):
                 except Exception as ex:
                     print(sys.stderr, 'profile error: ', ex)
                     print(nodedef)
-                    time = 0.1
+                    time = 0
             else:
-                time = 0.1
+                time = 0
             times+=str(time)+" "
         item_list.append("{} {} {}".format(nodedef.name, op_type_dict[nodedef.op],times))
 
