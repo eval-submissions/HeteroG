@@ -139,8 +139,7 @@ dataset = load_cora("data/graph",NewWhiteSpaceTokenizer())
 adj = dataset.adj_matrix(sparse=True)
 feature_matrix, feature_masks = dataset.feature_matrix(bag_of_words=False, sparse=False)
 
-
-
+feature_matrix = StandardScaler().fit_transform(feature_matrix)
 
 labels, label_masks = dataset.label_list_or_matrix(one_hot=False)
 
