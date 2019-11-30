@@ -9,6 +9,7 @@ from data_process.example import load_M10, load_cora, load_dblp
 from data_process.meta_network import MetaNetwork, N_TYPE_NODE, N_TYPE_LABEL, IdIndexer
 import google.protobuf.text_format as pbtf
 from tensorflow.core.framework import graph_pb2
+from sklearn.preprocessing import StandardScaler
 import copy
 import sys
 import os
@@ -96,10 +97,8 @@ class Environment(object):
                 line = line.strip()
                 items = line.split(" ")
                 name = items[0]
-                cost = items[1]
-                name_cost_dict[name] = int(float(cost))
-        for key,value in name_cost_dict.items():
-            name_cost_dict[key] = [value]*len(self.devices)
+                cost = np.array(items[-len(devices):],dtype=np.int32)
+                name_cost_dict[name] = cost
         return name_cost_dict
 
 checkpt_file = 'pre_trained/cora/mod_cora.ckpt'

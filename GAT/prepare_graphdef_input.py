@@ -10,6 +10,13 @@ import sys
 sys.path.append('../')
 from profiler import Profiler
 
+
+devices = (
+    "/job:tge/replica:0/task:0/device:GPU:0",
+    "/job:tge/replica:0/task:0/device:GPU:1",
+    "/job:tge/replica:0/task:1/device:GPU:0",
+    "/job:tge/replica:0/task:1/device:GPU:1"
+)
 def model_fn():
     from tensorflow.contrib.slim.nets import vgg
     x = tf.placeholder(tf.float32, shape=(64, 224, 224, 3))
@@ -66,18 +73,19 @@ def generate_feature_file(gdef):
 
         if not op_type_dict.get(nodedef.op,None):
             op_type_dict[nodedef.op] = len(op_type_dict.keys())
-        if nodedef.op!="Placeholder":
-            try:
-                time = profiler.profile(nodedef.name,'/gpu:0')
-            except Exception as ex:
-                print(sys.stderr, 'profile error: ', ex)
-                print(nodedef)
+        times = ''
+        for i in range(len(devices)):
+            if nodedef.op!="Placeholder":
+                try:
+                    time = profiler.profile(nodedef.name,'/gpu:0')
+                except Exception as ex:
+                    print(sys.stderr, 'profile error: ', ex)
+                    print(nodedef)
+                    time = 0.1
+            else:
                 time = 0.1
-            item_list.append("{} {} {}".format(nodedef.name, time, op_type_dict[nodedef.op]))
-        else:
-            item_list.append("{} {} {}".format(nodedef.name, 0.1, op_type_dict[nodedef.op]))
-
-
+            times+=str(time)+" "
+        item_list.append("{} {} {}".format(nodedef.name, op_type_dict[nodedef.op],times))
 
     with open("docs.txt","w") as f:
         item_list = ["\n"+item if i!=0 else item for i,item in enumerate(item_list)]
