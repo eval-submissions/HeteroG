@@ -419,12 +419,12 @@ class new_place_GNN():
             self.avg_reward = tf.placeholder(dtype=tf.float32, shape=(),name="avg_reward")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
 
-        logits = model.inference(self.ftr_in, nb_classes, nb_nodes, self.is_train,
+        logits = model.inference(self.ftr_in, 256, nb_nodes, self.is_train,
                                  self.attn_drop, self.ffd_drop,
                                  bias_mat=self.bias_in,
                                  hid_units=hid_units, n_heads=n_heads,
                                  residual=residual, activation=nonlinearity)
-        log_resh = tf.reshape(logits, [-1, nb_classes])
+        log_resh = tf.reshape(logits, [-1, 256])
 
         self.cell = tf.nn.rnn_cell.MultiRNNCell([self.get_a_cell() for _ in range(len(devices))])
         #inputs = tf.placeholder(np.float32, shape=(nb_nodes, nb_classes))
