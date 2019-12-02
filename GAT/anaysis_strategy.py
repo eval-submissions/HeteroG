@@ -13,10 +13,9 @@ with open("best_reward.log", "r") as f:
 
 sorted_tuple =list()
 for name, cost in name_cost_dict.items():
-    sorted_tuple.append((cost,name))
+    sorted_tuple.append((int(cost[0]),name))
 
 sorted_tuple.sort(reverse=True)
-
 
 #strategy counter for all
 counter_dict = dict()
@@ -34,7 +33,7 @@ for strategy,counter in counter_dict.items():
 #top 100 operation details
 sorted_tuple = sorted_tuple[:100]
 for item in sorted_tuple:
-    cost = item[0]
     name = item[1]
+    cost = name_cost_dict[name]
     strategy = best_strategy[name]
     print("Name:",name," Strategy:",strategy," Cost:",cost)
