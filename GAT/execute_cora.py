@@ -593,6 +593,7 @@ def architecture_three():
                                     coef_entropy=co_entropy)
                     tr_step += 1
                 tr_step = 0
+            '''
             while tr_step * batch_size < tr_size:
                 new_loss = place_gnn.learn(ftr_in=features[tr_step * batch_size:(tr_step + 1) * batch_size],
                                            bias_in=biases[tr_step * batch_size:(tr_step + 1) * batch_size],
@@ -605,6 +606,7 @@ def architecture_three():
                                            coef_entropy=co_entropy)
                 tr_step += 1
             tr_step = 0
+            '''
 
 
             if epoch % show_interval == 0:
