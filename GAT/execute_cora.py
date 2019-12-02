@@ -27,10 +27,8 @@ class Environment(object):
             txt = f.read()
         pbtf.Parse(txt,self.gdef)
         self.random_strategy=list()
-
-        self.best_reward=sys.maxsize
+        self.best_reward = sys.maxsize
         self.best_strategy = dict()
-
 
         random_strategies_file = "data/graph/random_strategies.pkl"
         if os.path.exists(random_strategies_file):
@@ -53,6 +51,15 @@ class Environment(object):
 
 
         self.strategy_reward_dict=dict()
+
+        if os.path.exists("best_reward.log"):
+            with open("best_reward.log", "r") as f:
+                tmp = json.load(f)
+                self.best_reward = tmp["time"]
+                self.best_strategy = tmp["strategy"]
+                self.strategy_reward_dict[str(self.best_strategy)] = self.best_reward
+
+
         self.devices =devices
         self.name_cost_dict = self.get_name_cost_dict()
         self._tge = tge.TGE(self.gdef, devices)
@@ -425,7 +432,7 @@ class new_place_GNN():
                                  hid_units=hid_units, n_heads=n_heads,
                                  residual=residual, activation=nonlinearity)
         log_resh = tf.reshape(logits, [-1, 256])
-
+        log_resh = tf.layers.dense(log_resh, units=256, activation=tf.nn.relu)
         self.cell = tf.nn.rnn_cell.MultiRNNCell([self.get_a_cell() for _ in range(len(devices))])
         #inputs = tf.placeholder(np.float32, shape=(nb_nodes, nb_classes))
         h0 = self.cell.zero_state(self.nb_node, np.float32)
