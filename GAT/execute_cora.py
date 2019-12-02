@@ -517,6 +517,11 @@ def architecture_three():
             sess.run(init_op)
 
         co_entropy = 1000
+        best_reward = sys.maxsize
+        best_replica_num = list()
+        best_replica_n_hot_num = np.zeros(shape=(nb_nodes, len(devices)), dtype=np.int32)
+        best_device_choice = np.zeros(shape=(nb_nodes, len(devices)), dtype=np.int32)
+        best_ps_or_reduce = list()
         for epoch in range(nb_epochs):
             tr_step = 0
             tr_size = features.shape[0]
@@ -564,6 +569,14 @@ def architecture_three():
 
                 cal_entropy = outputs[-1]
                 _reward = env.get_reward2(replica_num, device_choice,ps_or_reduce,index_id_dict)
+                if _reward<best_reward:
+                    best_reward = _reward
+                    best_replica_num = replica_num
+                    best_replica_n_hot_num = replica_n_hot_num
+                    best_device_choice = device_choice
+                    best_ps_or_reduce = ps_or_reduce
+
+
                 rewards.append(_reward)
             average_reward = average_reward*0.1+0.9*np.mean(rewards)
 
@@ -580,6 +593,18 @@ def architecture_three():
                                     coef_entropy=co_entropy)
                     tr_step += 1
                 tr_step = 0
+            while tr_step * batch_size < tr_size:
+                new_loss = place_gnn.learn(ftr_in=features[tr_step * batch_size:(tr_step + 1) * batch_size],
+                                           bias_in=biases[tr_step * batch_size:(tr_step + 1) * batch_size],
+                                           nb_nodes=nb_nodes,
+                                           replica_num_array=best_replica_n_hot_num,
+                                           sample_ps_or_reduce=best_ps_or_reduce,
+                                           sample_device_choice=best_device_choice,
+                                           step_reward=best_reward,
+                                           avg_reward=average_reward,
+                                           coef_entropy=co_entropy)
+                tr_step += 1
+            tr_step = 0
 
 
             if epoch % show_interval == 0:
