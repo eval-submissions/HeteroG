@@ -22,9 +22,6 @@ def model_fn():
     x = tf.placeholder(tf.float32, shape=(64, 224, 224, 3))
     y = tf.placeholder(tf.float32, shape=(64, 1000))
     output, _ = vgg.vgg_19(x, 1000)
-    output = tf.contrib.layers.fully_connected(output, 10)
-    output = tf.contrib.layers.fully_connected(output, 100000,scope="sp1")
-    output = tf.contrib.layers.fully_connected(output,1000,scope="sp2")
     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
     return optimizer
