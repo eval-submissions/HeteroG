@@ -159,6 +159,7 @@ labels=np.eye(n_values)[labels]
 nb_nodes = feature_matrix.shape[0]
 ft_size = feature_matrix.shape[1]
 nb_classes = 6
+sample_times = 10
 
 adj = adj.todense()
 
@@ -419,11 +420,10 @@ class new_place_GNN():
             self.attn_drop = tf.placeholder(dtype=tf.float32, shape=(),name="attn_drop")
             self.ffd_drop = tf.placeholder(dtype=tf.float32, shape=(),name="ffd_drop")
             self.is_train = tf.placeholder(dtype=tf.bool, shape=(),name="is_train")
-            self.sample_ps_or_reduce = tf.placeholder(dtype=tf.int32, shape=(None,),name="sample_ps_or_reduce")
-            self.sample_device_choice = tf.placeholder(dtype=tf.int32, shape=(None,len(devices),),name="sample_device_choice")
-            self.replica_num_array = tf.placeholder(dtype=tf.float32, shape=(None,len(devices)),name="replica_num_array")
-            self.step_reward = tf.placeholder(dtype=tf.float32, shape=(),name="step_reward")
-            self.avg_reward = tf.placeholder(dtype=tf.float32, shape=(),name="avg_reward")
+            self.sample_ps_or_reduce = tf.placeholder(dtype=tf.int32, shape=(None,None,),name="sample_ps_or_reduce")
+            self.sample_device_choice = tf.placeholder(dtype=tf.int32, shape=(None,None,len(devices),),name="sample_device_choice")
+            self.replica_num_array = tf.placeholder(dtype=tf.float32, shape=(None,None,len(devices)),name="replica_num_array")
+            self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(None,),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
 
         logits = model.inference(self.ftr_in, 256, nb_nodes, self.is_train,
@@ -451,29 +451,29 @@ class new_place_GNN():
 
         self.entropy = tf.reduce_sum(tf.log(self.ps_or_reduce + np.power(10.0, -9)) * self.ps_or_reduce, 1)
         self.entropy = tf.reduce_mean(self.entropy)+sum/len(devices)
+        for i in range(sample_times):
+            one_hot_sample = tf.one_hot(self.sample_ps_or_reduce[i], 2)
+            print("one_hot_sample.shape")
+            print(one_hot_sample.shape)
 
-        one_hot_sample = tf.one_hot(self.sample_ps_or_reduce, 2)
-        print("one_hot_sample.shape")
-        print(one_hot_sample.shape)
+            prob = tf.reduce_sum( self.ps_or_reduce * one_hot_sample, 1)
+            # prob = tf.reduce_prod(peirob)
+            reward = tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * self.time_ratio[i])
 
-        prob = tf.reduce_sum( self.ps_or_reduce * one_hot_sample, 1)
-        # prob = tf.reduce_prod(peirob)
-        reward = tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * (self.step_reward - self.avg_reward)/ 100000)
+            #first device choice n*m
+            one_hot_sample = tf.one_hot(self.sample_device_choice[i][:, 0], len(devices))
+            prob = tf.reduce_sum(self.device_choices[0] * one_hot_sample, 1) * self.replica_num_array[i][:, 0] + (
+                        1 - self.replica_num_array[i][:, 0])
+            reward += tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * self.time_ratio[i])
 
-        #first device choice n*m
-        one_hot_sample = tf.one_hot(self.sample_device_choice[:, 0], len(devices))
-        prob = tf.reduce_sum(self.device_choices[0] * one_hot_sample, 1) * self.replica_num_array[:, 0] + (
-                    1 - self.replica_num_array[:, 0])
-        reward += tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * (self.step_reward - self.avg_reward) / 100000)
-
-        #rest device choice n*(m+1)
-        for i in range(1,len(devices)):
-            one_hot_sample = tf.one_hot(self.sample_device_choice[:,i], len(devices)+1)
-            prob = tf.reduce_sum(self.device_choices[i] * one_hot_sample, 1) * self.replica_num_array[:,i]+(1-self.replica_num_array[:,i])
-            reward+=tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * (self.step_reward - self.avg_reward)/100000)
+            #rest device choice n*(m+1)
+            for j in range(1,len(devices)):
+                one_hot_sample = tf.one_hot(self.sample_device_choice[i][:,j], len(devices)+1)
+                prob = tf.reduce_sum(self.device_choices[j] * one_hot_sample, 1) * self.replica_num_array[i][:,j]+(1-self.replica_num_array[i][:,j])
+                reward+=tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * self.time_ratio[i])
 
 
-        self.loss = reward #+ self.coef_entropy * self.entropy
+        self.loss = reward/sample_times #+ self.coef_entropy * self.entropy
         self.train_op = model.training(self.loss, lr, l2_coef)
 
 
@@ -481,7 +481,7 @@ class new_place_GNN():
     def get_a_cell(self):
         return tf.nn.rnn_cell.BasicLSTMCell(num_units=256)
 
-    def learn(self,ftr_in,bias_in,nb_nodes,replica_num_array,sample_ps_or_reduce,sample_device_choice,step_reward,avg_reward,coef_entropy):
+    def learn(self,ftr_in,bias_in,nb_nodes,replica_num_array,sample_ps_or_reduce,sample_device_choice,time_ratio,coef_entropy):
         loss,_ = self.sess.run([self.loss,self.train_op],
                      feed_dict={
                          self.ftr_in: ftr_in,
@@ -491,7 +491,7 @@ class new_place_GNN():
                          self.attn_drop: 0.6, self.ffd_drop: 0.6, self.replica_num_array: replica_num_array,
                          self.sample_ps_or_reduce:sample_ps_or_reduce,
                          self.sample_device_choice:sample_device_choice,
-                         self.step_reward: step_reward, self.avg_reward: avg_reward, self.coef_entropy: coef_entropy})
+                         self.time_ratio:time_ratio, self.coef_entropy: coef_entropy})
         return loss
     def get_replica_num_prob_and_entropy(self,ftr_in,bias_in,nb_nodes):
         fetch_list =[item for item in self.device_choices]
@@ -534,7 +534,7 @@ def architecture_three():
             if epoch % 100 == 0:
                 co_entropy = co_entropy * 0.95
 
-            for i in range(10):
+            for i in range(sample_times):
                 replica_num = list()
                 replica_n_hot_num = np.zeros(shape=(nb_nodes,len(devices)),dtype=np.int32)
                 device_choice = np.zeros(shape=(nb_nodes,len(devices)),dtype=np.int32)
@@ -580,19 +580,18 @@ def architecture_three():
                 rewards.append(_reward)
             average_reward = average_reward*0.1+0.9*np.mean(rewards)
 
-            for i in range(10):
-                while tr_step * batch_size < tr_size:
-                    new_loss=place_gnn.learn(ftr_in=features[tr_step * batch_size:(tr_step + 1) * batch_size],
-                                    bias_in=biases[tr_step * batch_size:(tr_step + 1) * batch_size],
-                                    nb_nodes=nb_nodes,
-                                    replica_num_array=replica_n_hot_nums[i],
-                                    sample_ps_or_reduce = ps_or_reduces[i],
-                                    sample_device_choice = device_choices[i],
-                                    step_reward=rewards[i],
-                                    avg_reward=average_reward,
-                                    coef_entropy=co_entropy)
-                    tr_step += 1
-                tr_step = 0
+
+            while tr_step * batch_size < tr_size:
+                new_loss=place_gnn.learn(ftr_in=features[tr_step * batch_size:(tr_step + 1) * batch_size],
+                                bias_in=biases[tr_step * batch_size:(tr_step + 1) * batch_size],
+                                nb_nodes=nb_nodes,
+                                replica_num_array=np.array(replica_n_hot_nums),
+                                sample_ps_or_reduce = np.array(ps_or_reduces),
+                                sample_device_choice = np.array(device_choices),
+                                time_ratio = (np.array(rewards)-float(average_reward))/100000000,
+                                coef_entropy=co_entropy)
+                tr_step += 1
+            tr_step = 0
             '''
             while tr_step * batch_size < tr_size:
                 new_loss = place_gnn.learn(ftr_in=features[tr_step * batch_size:(tr_step + 1) * batch_size],
@@ -612,7 +611,7 @@ def architecture_three():
             if epoch % show_interval == 0:
                 print("step = {}".format(epoch))
                 print("reward = {}".format(rewards))
-                print("average reward = {}".format(np.mean(rewards)))
+                print("average reward = {}".format(average_reward))
                 print("overall entropy:{}".format(cal_entropy))
                 with open("reward_log.log", "a+") as f:
                     f.write(str(np.mean(rewards)) + ",")
