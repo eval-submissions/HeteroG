@@ -458,7 +458,7 @@ class new_place_GNN():
 
         prob = tf.reduce_sum( self.ps_or_reduce * one_hot_sample, 1)
         # prob = tf.reduce_prod(peirob)
-        reward = tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * (self.step_reward - self.avg_reward))
+        reward = tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * (self.step_reward - self.avg_reward)/ 100000)
 
         #first device choice n*m
         one_hot_sample = tf.one_hot(self.sample_device_choice[:, 0], len(devices))
@@ -470,7 +470,7 @@ class new_place_GNN():
         for i in range(1,len(devices)):
             one_hot_sample = tf.one_hot(self.sample_device_choice[:,i], len(devices)+1)
             prob = tf.reduce_sum(self.device_choices[i] * one_hot_sample, 1) * self.replica_num_array[:,i]+(1-self.replica_num_array[:,i])
-            reward+=tf.reduce_mean(tf.log(prob + np.power(10.0, -9)) * (self.step_reward - self.avg_reward)/100000)
+            reward+=tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * (self.step_reward - self.avg_reward)/100000)
 
 
         self.loss = reward #+ self.coef_entropy * self.entropy
