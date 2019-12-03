@@ -1,7 +1,13 @@
 import numpy as np
 import json
 import re
-with open("best_reward.log", "r") as f:
+import sys
+
+
+prefix=sys.argv[1]
+logfile = open(prefix+"/analysis.log","w")
+
+with open(prefix+"/best_reward.log", "r") as f:
     txt = f.read()
     regex = re.compile(r'\\(?![/u"])')
     txt=regex.sub(r"\\\\", txt)
@@ -10,6 +16,8 @@ with open("best_reward.log", "r") as f:
     best_reward = txt_dict["time"]
     best_strategy = txt_dict["strategy"]
     name_cost_dict = txt_dict["cost"]
+print("Time:",best_reward)
+logfile.write("Time:{}\n".format(best_reward))
 
 sorted_tuple =list()
 for name, cost in name_cost_dict.items():
@@ -27,6 +35,7 @@ for name,strategy in best_strategy.items():
 
 for strategy,counter in counter_dict.items():
     print("Strategy:",strategy," Counter:",counter, "Ratio:",float(counter)/len(best_strategy))
+    logfile.write("Strategy:{} Counter:{} Ratio:{}\n".format(strategy,counter,float(counter)/len(best_strategy)))
 
 
 
@@ -37,3 +46,6 @@ for item in sorted_tuple:
     cost = name_cost_dict[name]
     strategy = best_strategy[name]
     print("Name:",name," Strategy:",strategy," Cost:",cost)
+    logfile.write("Name:{} Strategy:{} Cost:{}\n".format(name,strategy,cost))
+
+logfile.close()
