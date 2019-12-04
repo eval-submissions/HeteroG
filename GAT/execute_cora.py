@@ -3,6 +3,7 @@ import numpy as np
 import tensorflow as tf
 
 from models import GAT
+from models import SpGAT
 from utils import process
 from data_process.dataset import GraphDataset, WhiteSpaceTokenizer,NewWhiteSpaceTokenizer
 from data_process.example import load_M10, load_cora, load_dblp
@@ -31,7 +32,7 @@ hid_units = [64,32] # numbers of hidden units per each attention head in each la
 n_heads = [8,8, 1] # additional entry for the output layer
 residual = False
 nonlinearity = tf.nn.elu
-model = GAT
+model = SpGAT
 
 print('Dataset: ' + _dataset)
 print('----- Opt. hyperparams -----')
@@ -190,7 +191,7 @@ class feature_item(object):
             device_choice = np.zeros(shape=(self.nb_nodes,len(devices)),dtype=np.int32)
             ps_or_reduce=list()
             outputs = self.place_gnn.get_replica_num_prob_and_entropy(ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
-                                                                      bias_in=self.biases[tr_step * batch_size:(tr_step + 1) * batch_size],
+                                                                      bias_in=self.biases,
                                                                  nb_nodes=self.nb_nodes)
 
             finished_node = list()
@@ -236,7 +237,7 @@ class feature_item(object):
 
         while tr_step * batch_size < tr_size:
             new_loss=self.place_gnn.learn(ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
-                            bias_in=self.biases[tr_step * batch_size:(tr_step + 1) * batch_size],
+                            bias_in=self.biases,
                             nb_nodes=self.nb_nodes,
                             replica_num_array=np.array(replica_n_hot_nums),
                             sample_ps_or_reduce = np.array(ps_or_reduces),
@@ -278,7 +279,7 @@ class new_place_GNN():
             self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(None,),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
 
-        logits = model.inference(self.ftr_in, 64, 0, self.is_train,
+        logits = model.inference(self.ftr_in, 64, self.nb_node, self.is_train,
                                  self.attn_drop, self.ffd_drop,
                                  bias_mat=self.bias_in,
                                  hid_units=hid_units, n_heads=n_heads,

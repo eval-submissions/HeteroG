@@ -72,7 +72,8 @@ def sp_attn_head(seq, out_sz, adj_mat, activation, nb_nodes, in_drop=0.0, coef_d
         seq_fts = tf.squeeze(seq_fts)
         vals = tf.sparse_tensor_dense_matmul(coefs, seq_fts)
         vals = tf.expand_dims(vals, axis=0)
-        vals.set_shape([1, nb_nodes, out_sz])
+        #vals.set_shape([1, nb_nodes, out_sz])
+        vals = tf.reshape(vals, (1,nb_nodes, out_sz))
         ret = tf.contrib.layers.bias_add(vals)
 
         # residual connection
