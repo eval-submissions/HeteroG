@@ -143,8 +143,10 @@ class feature_item(object):
 
         self.nb_nodes = feature_matrix.shape[0]
         self.ft_size = feature_matrix.shape[1]
+        self.biases = process.preprocess_adj_bias(adj)
 
         adj = adj.todense()
+        adj = adj[np.newaxis]
 
         train_mask=train_masks
         val_mask=test_masks
@@ -152,12 +154,12 @@ class feature_item(object):
 
         self.index_id_dict = self.dataset.network.get_indexer(N_TYPE_NODE).index_id_dict
         self.features = feature_matrix[np.newaxis]
-        adj = adj[np.newaxis]
+
         self.train_mask = train_mask[np.newaxis]
         self.val_mask = val_mask[np.newaxis]
         self.test_mask = test_mask[np.newaxis]
 
-        self.biases = process.adj_to_bias(adj, [self.nb_nodes], nhood=5)
+        #self.biases = process.adj_to_bias(adj, [self.nb_nodes], nhood=5)
         self.env = Environment(folder_path+"/graph.pbtxt",devices,folder_path)
         self.average_reward=0
         self.best_reward = sys.maxsize
@@ -264,7 +266,8 @@ class new_place_GNN():
             self.sess = sess
 
             self.ftr_in = tf.placeholder(dtype=tf.float32, shape=(batch_size, None, ft_size),name="ftr_in")
-            self.bias_in = tf.placeholder(dtype=tf.float32, shape=(batch_size, None, None),name="bias_in")
+            #self.bias_in = tf.placeholder(dtype=tf.float32, shape=(batch_size, None, None),name="bias_in")
+            self.bias_in = tf.sparse_placeholder(dtype=tf.float32)
             self.nb_node = tf.placeholder(dtype=tf.int32, shape=(),name="nb_node")
             self.attn_drop = tf.placeholder(dtype=tf.float32, shape=(),name="attn_drop")
             self.ffd_drop = tf.placeholder(dtype=tf.float32, shape=(),name="ffd_drop")
