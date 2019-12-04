@@ -14,6 +14,8 @@ from sklearn.preprocessing import StandardScaler
 import copy
 import sys
 import os
+import scipy.sparse as sp
+
 import pickle
 sys.path.append('../')
 import tge
@@ -144,10 +146,12 @@ class feature_item(object):
 
         self.nb_nodes = feature_matrix.shape[0]
         self.ft_size = feature_matrix.shape[1]
-        self.biases = process.preprocess_adj_bias(adj)
 
         adj = adj.todense()
         adj = adj[np.newaxis]
+        self.biases = process.adj_to_bias(adj, [self.nb_nodes], nhood=5)
+        self.biases = self.biases[0]
+        self.biases = process.preprocess_adj_bias(sp.csr_matrix(self.biases))
 
         train_mask=train_masks
         val_mask=test_masks
@@ -160,7 +164,7 @@ class feature_item(object):
         self.val_mask = val_mask[np.newaxis]
         self.test_mask = test_mask[np.newaxis]
 
-        #self.biases = process.adj_to_bias(adj, [self.nb_nodes], nhood=5)
+
         self.env = Environment(folder_path+"/graph.pbtxt",devices,folder_path)
         self.average_reward=0
         self.best_reward = sys.maxsize
