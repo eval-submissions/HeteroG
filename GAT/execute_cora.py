@@ -18,6 +18,45 @@ sys.path.append('../')
 import tge
 import json
 
+checkpt_file = 'pre_trained/cora/mod_cora.ckpt'
+_dataset = 'cora'
+
+# training params
+batch_size = 1
+nb_epochs = 100000
+patience = 100
+lr = 0.01  # learning rate
+l2_coef = 0.0005  # weight decay
+hid_units = [512,256] # numbers of hidden units per each attention head in each layer
+n_heads = [8,8, 1] # additional entry for the output layer
+residual = False
+nonlinearity = tf.nn.elu
+model = GAT
+
+print('Dataset: ' + _dataset)
+print('----- Opt. hyperparams -----')
+print('lr: ' + str(lr))
+print('l2_coef: ' + str(l2_coef))
+print('----- Archi. hyperparams -----')
+print('nb. layers: ' + str(len(hid_units)))
+print('nb. units per layer: ' + str(hid_units))
+print('nb. attention heads: ' + str(n_heads))
+print('residual: ' + str(residual))
+print('nonlinearity: ' + str(nonlinearity))
+print('model: ' + str(model))
+feature_folders = ["data/graph1","data/graph2"]
+sample_times = 10
+devices = (
+    "/job:tge/replica:0/task:0/device:GPU:0",
+    "/job:tge/replica:0/task:0/device:GPU:1",
+    "/job:tge/replica:0/task:1/device:GPU:0",
+    "/job:tge/replica:0/task:1/device:GPU:1"
+)
+show_interval = 10
+
+
+
+
 
 class Environment(object):
     def __init__(self,gdef_path,devices,folder_path):
@@ -88,41 +127,7 @@ class Environment(object):
                 name_cost_dict[name] = cost
         return name_cost_dict
 
-checkpt_file = 'pre_trained/cora/mod_cora.ckpt'
-_dataset = 'cora'
 
-# training params
-batch_size = 1
-nb_epochs = 100000
-patience = 100
-lr = 0.01  # learning rate
-l2_coef = 0.0005  # weight decay
-hid_units = [8] # numbers of hidden units per each attention head in each layer
-n_heads = [8, 1] # additional entry for the output layer
-residual = False
-nonlinearity = tf.nn.elu
-model = GAT
-
-print('Dataset: ' + _dataset)
-print('----- Opt. hyperparams -----')
-print('lr: ' + str(lr))
-print('l2_coef: ' + str(l2_coef))
-print('----- Archi. hyperparams -----')
-print('nb. layers: ' + str(len(hid_units)))
-print('nb. units per layer: ' + str(hid_units))
-print('nb. attention heads: ' + str(n_heads))
-print('residual: ' + str(residual))
-print('nonlinearity: ' + str(nonlinearity))
-print('model: ' + str(model))
-feature_folders = ["data/graph1","data/graph2"]
-sample_times = 10
-devices = (
-    "/job:tge/replica:0/task:0/device:GPU:0",
-    "/job:tge/replica:0/task:0/device:GPU:1",
-    "/job:tge/replica:0/task:1/device:GPU:0",
-    "/job:tge/replica:0/task:1/device:GPU:1"
-)
-show_interval = 10
 
 class feature_item(object):
     def __init__(self,folder_path):
@@ -281,7 +286,6 @@ class new_place_GNN():
         h0 = self.cell.zero_state(self.nb_node, np.float32)
         self.output,self.h = self.cell.call(log_resh, h0)
         self.ps_or_reduce = tf.layers.dense(self.output, units=2, activation=tf.nn.softmax)
-        #self.ps_or_reduce = tf.nn.softmax(tf.nn.l2_normalize(self.ps_or_reduce,axis = -1))
         self.device_choices = list()
         sum=0
         out = tf.layers.dense(self.h[0].c, units=len(devices), activation=tf.nn.softmax)
@@ -331,7 +335,7 @@ class new_place_GNN():
                          self.bias_in:bias_in,
                          self.nb_node:nb_nodes,
                          self.is_train: True,
-                         self.attn_drop: 0.6, self.ffd_drop: 0.6, self.replica_num_array: replica_num_array,
+                         self.attn_drop: 0.1, self.ffd_drop: 0.1, self.replica_num_array: replica_num_array,
                          self.sample_ps_or_reduce:sample_ps_or_reduce,
                          self.sample_device_choice:sample_device_choice,
                          self.time_ratio:time_ratio, self.coef_entropy: coef_entropy})
@@ -345,7 +349,7 @@ class new_place_GNN():
             self.bias_in: bias_in,
             self.nb_node:nb_nodes,
             self.is_train: True,
-            self.attn_drop: 0.6, self.ffd_drop: 0.6})
+            self.attn_drop: 0.1, self.ffd_drop: 0.1})
         return outputs
 
 def architecture_three():
