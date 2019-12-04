@@ -27,7 +27,7 @@ nb_epochs = 100000
 patience = 100
 lr = 0.01  # learning rate
 l2_coef = 0.0005  # weight decay
-hid_units = [512,256] # numbers of hidden units per each attention head in each layer
+hid_units = [64,32] # numbers of hidden units per each attention head in each layer
 n_heads = [8,8, 1] # additional entry for the output layer
 residual = False
 nonlinearity = tf.nn.elu
@@ -275,13 +275,13 @@ class new_place_GNN():
             self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(None,),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
 
-        logits = model.inference(self.ftr_in, 256, 0, self.is_train,
+        logits = model.inference(self.ftr_in, 64, 0, self.is_train,
                                  self.attn_drop, self.ffd_drop,
                                  bias_mat=self.bias_in,
                                  hid_units=hid_units, n_heads=n_heads,
                                  residual=residual, activation=nonlinearity)
-        log_resh = tf.reshape(logits, [-1, 256])
-        log_resh = tf.layers.dense(log_resh, units=256, activation=tf.nn.relu)
+        log_resh = tf.reshape(logits, [-1, 64])
+        log_resh = tf.layers.dense(log_resh, units=64, activation=tf.nn.relu)
         self.cell = tf.nn.rnn_cell.MultiRNNCell([self.get_a_cell() for _ in range(len(devices))])
         h0 = self.cell.zero_state(self.nb_node, np.float32)
         self.output,self.h = self.cell.call(log_resh, h0)
@@ -326,7 +326,7 @@ class new_place_GNN():
 
 
     def get_a_cell(self):
-        return tf.nn.rnn_cell.BasicLSTMCell(num_units=256)
+        return tf.nn.rnn_cell.BasicLSTMCell(num_units=64)
 
     def learn(self,ftr_in,bias_in,nb_nodes,replica_num_array,sample_ps_or_reduce,sample_device_choice,time_ratio,coef_entropy):
         loss,_ = self.sess.run([self.loss,self.train_op],
