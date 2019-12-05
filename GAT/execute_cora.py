@@ -102,7 +102,14 @@ class Environment(object):
         ps_or_reduce = np.reshape(ps_or_reduce, (ps_or_reduce.shape[0], 1))
         new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
         strategy = {index_id_dict[index]:new_device_array[index].tolist() for index in range(new_device_array.shape[0])}
-        time = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom(strategy).evaluate(self.name_cost_dict)
+        bandwidth = config_dict.get("bandwidth",None)
+        if bandwidth==None:
+            intra = "10000"
+            inter = "10000"
+        else:
+            intra = bandwidth[0]
+            inter = bandwidth[1]
+        time = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom(strategy).set_bandwidth(intra,inter).evaluate(self.name_cost_dict)
         time = float(time)/(10**6)
         #reward = np.sum(strategy*strategy)
         if time<self.best_time:
