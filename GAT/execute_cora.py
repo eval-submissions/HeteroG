@@ -70,16 +70,16 @@ class Environment(object):
         pbtf.Parse(txt,self.gdef)
         self.folder_path = folder_path
         self.random_strategy=list()
-        self.best_reward = sys.maxsize
+        self.best_time = sys.maxsize
         self.best_strategy = dict()
-        self.strategy_reward_dict=dict()
+        self.strategy_time_dict=dict()
 
-        if os.path.exists(folder_path+"/best_reward.log"):
-            with open(folder_path+"/best_reward.log", "r") as f:
+        if os.path.exists(folder_path+"/best_time.log"):
+            with open(folder_path+"/best_time.log", "r") as f:
                 tmp = json.load(f)
-                self.best_reward = tmp["time"]
+                self.best_time = tmp["time"]
                 self.best_strategy = tmp["strategy"]
-                self.strategy_reward_dict[str(self.best_strategy)] = self.best_reward
+                self.strategy_time_dict[str(self.best_strategy)] = self.best_time
 
 
         self.devices =devices
@@ -96,28 +96,20 @@ class Environment(object):
         ps_or_reduce = np.reshape(ps_or_reduce, (ps_or_reduce.shape[0], 1))
         new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
         strategy = {index_id_dict[index]:new_device_array[index].tolist() for index in range(new_device_array.shape[0])}
-        reward = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom(strategy).evaluate(self.name_cost_dict)
+        time = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom(strategy).evaluate(self.name_cost_dict)
+        time = float(time)/(10**6)
         #reward = np.sum(strategy*strategy)
-        if reward<self.best_reward:
-            self.best_reward = reward
+        if time<self.best_time:
+            self.best_time = time
             self.best_strategy = strategy
-            with open(self.folder_path+"/best_reward.log", "w") as f:
+            with open(self.folder_path+"/best_time.log", "w") as f:
                 tmp = dict()
-                tmp["time"] = reward
+                tmp["time"] = time
                 tmp["strategy"] = self.best_strategy
                 tmp["cost"] = self.name_cost_dict
                 json.dump(tmp, f)
 
-        return np.float32(reward)
-
-    def get_reward(self,strategy,index_id_dict):
-        if self.strategy_reward_dict.get(str(strategy),None):
-            reward= self.strategy_reward_dict.get(str(strategy))
-        else:
-            reward = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom({index_id_dict[index]:self.random_strategy[strategy_int] for index,strategy_int in enumerate(strategy)}).evaluate(self.name_cost_dict)
-            #reward = np.sum(strategy*strategy)
-            self.strategy_reward_dict[str(strategy)]=reward
-        return np.float32(reward)
+        return -np.float32(np.sqrt(time))
 
     def get_name_cost_dict(self):
         name_cost_dict = dict()
@@ -167,7 +159,7 @@ class feature_item(object):
 
         self.env = Environment(folder_path+"/graph.pbtxt",devices,folder_path)
         self.average_reward=0
-        self.best_reward = sys.maxsize
+        self.best_reward = 1-sys.maxsize
         self.best_replica_num = list()
         self.best_replica_n_hot_num = np.zeros(shape=(self.nb_nodes, len(devices)), dtype=np.int32)
         self.best_device_choice = np.zeros(shape=(self.nb_nodes, len(devices)), dtype=np.int32)
@@ -224,7 +216,7 @@ class feature_item(object):
 
             cal_entropy = outputs[-1]
             _reward = self.env.get_reward2(replica_num, device_choice,ps_or_reduce,self.index_id_dict)
-            if _reward<self.best_reward:
+            if _reward>self.best_reward:
                 self.best_reward = _reward
                 self.best_replica_num = replica_num
                 self.best_replica_n_hot_num = replica_n_hot_num
@@ -246,17 +238,17 @@ class feature_item(object):
                             replica_num_array=np.array(replica_n_hot_nums),
                             sample_ps_or_reduce = np.array(ps_or_reduces),
                             sample_device_choice = np.array(device_choices),
-                            time_ratio = (np.array(rewards)-float(self.average_reward))/100000000,
+                            time_ratio = (np.array(rewards)-float(self.average_reward)),
                             coef_entropy=co_entropy)
             tr_step += 1
 
         if epoch % show_interval == 0:
             print("[{}] step = {}".format(self.folder_path,epoch))
-            print("[{}] reward = {}".format(self.folder_path,rewards))
+            print("[{}] time = {}".format(self.folder_path,rewards*rewards))
             print("[{}] average reward = {}".format(self.folder_path,self.average_reward))
             print("[{}] overall entropy:{}".format(self.folder_path,cal_entropy))
-            with open(self.folder_path+"/reward_log.log", "a+") as f:
-                f.write(str(np.mean(rewards)) + ",")
+            with open(self.folder_path+"/time.log", "a+") as f:
+                f.write(str(np.mean(rewards*rewards)) + ",")
             with open(self.folder_path+"/entropy.log", "a+") as f:
                 f.write(str(cal_entropy) + ",")
             with open(self.folder_path+"/loss.log", "a+") as f:
@@ -328,7 +320,7 @@ class new_place_GNN():
                 reward+=tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * self.time_ratio[i])
 
 
-        self.loss = reward/sample_times #+ self.coef_entropy * self.entropy
+        self.loss = -reward/sample_times #+ self.coef_entropy * self.entropy
         self.train_op = model.training(self.loss, lr, l2_coef)
 
 
