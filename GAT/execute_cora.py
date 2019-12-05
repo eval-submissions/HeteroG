@@ -53,8 +53,8 @@ print('nb. attention heads: ' + str(n_heads))
 print('residual: ' + str(residual))
 print('nonlinearity: ' + str(nonlinearity))
 print('model: ' + str(model))
-feature_folders = ["data/graph1","data/graph2"]
-sample_times = 10
+feature_folders = ["data/graph1","data/graph2","data/graph3"]
+sample_times = 3
 devices = (
     "/job:tge/replica:0/task:0/device:GPU:0",
     "/job:tge/replica:0/task:0/device:GPU:1",
