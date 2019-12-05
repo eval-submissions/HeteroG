@@ -24,11 +24,17 @@ import json
 checkpt_file = 'pre_trained/cora/mod_cora.ckpt'
 _dataset = 'cora'
 
+
+config_dict =dict()
+if os.path.exists("config.txt"):
+    with open("config.txt", "r") as f:
+        config_dict = json.load(f)
+
 # training params
 batch_size = 1
 nb_epochs = 100000
 patience = 100
-lr = 0.01  # learning rate
+lr = config_dict.get("learning_rate",0.01)  # learning rate
 l2_coef = 0.0005  # weight decay
 hid_units = [64,32] # numbers of hidden units per each attention head in each layer
 n_heads = [8,8, 1] # additional entry for the output layer
@@ -139,11 +145,8 @@ class feature_item(object):
         self.nb_nodes = feature_matrix.shape[0]
         self.ft_size = feature_matrix.shape[1]
 
-        adj = adj.todense()
-        adj = adj[np.newaxis]
-        self.biases = process.adj_to_bias(adj, [self.nb_nodes], nhood=5)
-        self.biases = self.biases[0]
-        self.biases = process.preprocess_adj_bias(sp.csr_matrix(self.biases))
+
+        self.biases = process.preprocess_adj_bias(adj)
 
         train_mask=train_masks
         val_mask=test_masks
@@ -241,14 +244,14 @@ class feature_item(object):
                             time_ratio = (np.array(rewards)-float(self.average_reward)),
                             coef_entropy=co_entropy)
             tr_step += 1
-
+        times = [item*item for item in rewards]
         if epoch % show_interval == 0:
             print("[{}] step = {}".format(self.folder_path,epoch))
-            print("[{}] time = {}".format(self.folder_path,rewards*rewards))
+            print("[{}] time = {}".format(self.folder_path,times))
             print("[{}] average reward = {}".format(self.folder_path,self.average_reward))
             print("[{}] overall entropy:{}".format(self.folder_path,cal_entropy))
             with open(self.folder_path+"/time.log", "a+") as f:
-                f.write(str(np.mean(rewards*rewards)) + ",")
+                f.write(str(np.mean(times)) + ",")
             with open(self.folder_path+"/entropy.log", "a+") as f:
                 f.write(str(cal_entropy) + ",")
             with open(self.folder_path+"/loss.log", "a+") as f:
