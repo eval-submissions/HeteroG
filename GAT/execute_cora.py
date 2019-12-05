@@ -359,7 +359,9 @@ def architecture_three():
     models = list()
     for feature_folder in feature_folders:
         models.append(feature_item(folder_path=feature_folder))
-    with tf.Session() as sess:
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    with tf.Session(config=config) as sess:
         place_gnn = new_place_GNN(sess,ft_size=models[0].ft_size)
 
         for model in models:
