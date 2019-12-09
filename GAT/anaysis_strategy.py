@@ -7,12 +7,8 @@ import sys
 prefix=sys.argv[1]
 logfile = open(prefix+"/analysis.log","w")
 
-with open(prefix+"/best_reward.log", "r") as f:
-    txt = f.read()
-    regex = re.compile(r'\\(?![/u"])')
-    txt=regex.sub(r"\\\\", txt)
-    txt = txt.replace("'", '"')
-    txt_dict = json.loads(txt)
+with open(prefix+"/best_time.log", "r") as f:
+    txt_dict = json.load(f)
     best_reward = txt_dict["time"]
     best_strategy = txt_dict["strategy"]
     name_cost_dict = txt_dict["cost"]
