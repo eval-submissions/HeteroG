@@ -26,12 +26,12 @@ devices = (
 
 import tge
 
-with open("../../xiaodong/tge/GAT/data/graph/docs.txt", "r") as f:
-    records = (x.strip().split(" ") for x in f.readlines())
-    prof = {items[0]: int(float(items[1])) for items in records}
+# with open("../../xiaodong/tge/GAT/data/graph/docs.txt", "r") as f:
+#     records = (x.strip().split(" ") for x in f.readlines())
+#     prof = {items[0]: [int(float(x)) for x in items[1:]] for items in records}
 
 g = (tge.TGE(gdef, devices)
-    .custom({ node.name: [0, 1, 0, 0, 0] for node in gdef.node })
-    .evaluate({ node.name: (prof[node.name] if node.name in prof else 0) for node in gdef.node })
+    .custom({ node.name: [0, 2, 1, 0, 1] for node in gdef.node })
+    .evaluate({ node.name: [200]*len(devices) for node in gdef.node }, "trace.json")
 )
 print(g)

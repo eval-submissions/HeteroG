@@ -26,7 +26,7 @@ libtge.custom.restype = ctypes.c_void_p
 libtge.compile.argtypes = [ctypes.c_void_p, ctypes.c_ubyte]
 libtge.compile.restype = ctypes.c_uint32
 
-libtge.evaluate.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32]
+libtge.evaluate.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32]
 libtge.evaluate.restype = ctypes.c_uint64
 
 libtge.read_and_destroy.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
@@ -60,7 +60,7 @@ class TGE:
         self.graph_def.Clear() # I'm not sure if this line is needed
         self.graph_def.ParseFromString(buf.raw)
 
-    def evaluate(self, profile_dict):
+    def evaluate(self, profile_dict, trace_path=""):
         graph_raw = self.graph_def.SerializeToString()
         device_raw = ' '.join(self.devices).encode('ascii')
         profile_raw = ''
@@ -69,7 +69,8 @@ class TGE:
         profile_raw = profile_raw.encode('ascii')
         tge = libtge.tge(self.strategy, self.get_topology(), graph_raw, len(graph_raw), device_raw, len(device_raw))
         size = libtge.compile(tge, self.flag | 0x08)
-        result = libtge.evaluate(tge, profile_raw, len(profile_raw))
+        trace_path = trace_path.encode('ascii')
+        result = libtge.evaluate(tge, profile_raw, len(profile_raw), trace_path, len(trace_path))
         buf = ctypes.create_string_buffer(size)
         libtge.read_and_destroy(tge, buf)
         self.graph_def.Clear()

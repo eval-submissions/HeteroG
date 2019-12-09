@@ -11,7 +11,7 @@ use crate::proto::node_def::NodeDef;
 use crate::proto::tensor::TensorProto;
 
 pub trait Scheduler {
-    fn evaluate(&mut self, target: &Target) -> u64;
+    fn evaluate<W: std::io::Write>(&mut self, target: &Target, trace: Option<&mut W>) -> u64;
 }
 
 pub struct TensorFlowLikeScheduler {
@@ -78,8 +78,12 @@ impl PartialOrd for OngoingTask {
 }
 
 impl Scheduler for TensorFlowLikeScheduler {
-    fn evaluate(&mut self, target: &Target) -> u64 {
+    fn evaluate<W: std::io::Write>(&mut self, target: &Target, mut tracer: Option<&mut W>) -> u64 {
         task!("evaluating graph of {} nodes...", target.pb.node.len());
+
+        if let Some(tracer) = &mut tracer { // initialize tracing
+            write!(tracer, "[").unwrap();
+        }
 
         let nodes = sort_nodes(&target.pb.node);
         let node_dict: BTreeMap<_, _> = nodes.iter().enumerate().map(|(i, x)| (x.name.clone(), i)).collect();
@@ -140,6 +144,23 @@ impl Scheduler for TensorFlowLikeScheduler {
 
             // move a time step forward
             if let Some(OngoingTask { id, eft }) = ongoing_tasks.pop() {
+                if let Some(tracer) = &mut tracer {
+                    match &tasks[id].content {
+                        TaskType::Computation { id: node_id, gpu } => {
+                            let duration = self.profile(&nodes[*node_id], *gpu).unwrap_or(0);
+                            writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"computation\", \"ph\": \"B\", \"ts\": {}, \"pid\": 0, \"tid\": {} }},", nodes[*node_id].name, eft - duration, gpu).expect("fail to write log");
+                            writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"computation\", \"ph\": \"E\", \"ts\": {}, \"pid\": 0, \"tid\": {} }},", nodes[*node_id].name, eft, gpu).expect("fail to write log");
+                        }
+                        TaskType::Transfering { size, path } => {
+                            let bandwidth = path.iter().fold(std::u64::MAX, |min, link| cmp::min(min, target.links[*link]));
+                            let duration = size / bandwidth;
+                            for link in *path {
+                                writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"computation\", \"ph\": \"B\", \"ts\": {}, \"pid\": 1, \"tid\": {} }},", id, eft - duration, link).expect("fail to write log");
+                                writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"computation\", \"ph\": \"E\", \"ts\": {}, \"pid\": 1, \"tid\": {} }},", id, eft, link).expect("fail to write log");
+                            }
+                        }
+                    }
+                };
                 time = eft;
                 for notify in &tasks[id].notify.clone() { // TODO: the clone sucks
                     let list = &mut tasks[*notify].wait_for;
