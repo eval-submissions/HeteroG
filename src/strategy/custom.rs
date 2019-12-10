@@ -107,12 +107,7 @@ impl Strategy for Custom {
                 "Placeholder" | "NoOp" => node.put_on_devices(&[0]), // ignore decision and put on device 0
                 "ApplyGradientDescent" | "Assign" => { // ignore decision and put along with the variable
                     let var = &node.graph().nodes[node.inputs[0].0];
-                    if var.replicated().unwrap() {
-                        node.put_on_devices(&(0..target.ndev()).collect::<Vec<_>>());
-                    } else {
-                        #[allow(mutable_borrow_reservation_conflict)]
-                        node.put_on_devices(&var.form.devices[..1]);
-                    }
+                    node.put_on_devices(&var.form.devices);
                 }
                 _ => match s {
                     Some((devices, _)) => node.put_on_devices(&devices),
