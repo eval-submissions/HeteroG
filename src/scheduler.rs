@@ -10,6 +10,9 @@ use crate::proto::attr_value::{AttrValue, AttrValue_oneof_value};
 use crate::proto::node_def::NodeDef;
 use crate::proto::tensor::TensorProto;
 
+// todo: split scheduling and simulating. logging and memory calculation are simulation
+// memory consideration: focus on TransferTasks: memory usage increase when trasfer done, reduce when transfer.notify all done
+
 pub trait Scheduler {
     fn evaluate<W: std::io::Write>(&mut self, target: &Target, trace: Option<&mut W>) -> u64;
 }
@@ -144,6 +147,7 @@ impl Scheduler for TensorFlowLikeScheduler {
 
             // move a time step forward
             if let Some(OngoingTask { id, eft }) = ongoing_tasks.pop() {
+                // print tracing infomation
                 if let Some(tracer) = &mut tracer {
                     match &tasks[id].content {
                         TaskType::Computation { id: node_id, gpu } => {
@@ -165,8 +169,9 @@ impl Scheduler for TensorFlowLikeScheduler {
                         }
                     }
                 };
+
                 time = eft;
-                for notify in &tasks[id].notify.clone() { // TODO: the clone sucks
+                for notify in &tasks[id].notify.clone() { // TODO: the cloning sucks
                     let list = &mut tasks[*notify].wait_for;
                     list.retain(|x| *x != id);
                     if list.is_empty() {
