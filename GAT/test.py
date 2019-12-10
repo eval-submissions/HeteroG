@@ -28,11 +28,11 @@ class Environment(object):
         self.devices =devices
         self._tge = tge.TGE(self.gdef, devices)
 
-    def get_reward(self,strategy,index_id_dict):
+    def get_reward(self,strategy,index_id_dict,trace=""):
         if self.strategy_reward_dict.get(str(strategy),None):
             reward= self.strategy_reward_dict.get(str(strategy))
         else:
-            reward = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).evaluate(self.name_cost_dict)
+            reward = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).evaluate(self.name_cost_dict,trace)
             #reward = np.sum(strategy*strategy)
             self.strategy_reward_dict[str(strategy)]=reward
         return np.float32(reward/(10**6))
@@ -68,7 +68,7 @@ for _strategy in strategies:
         strategy.append(_strategy)
     arr_strategy = np.array(strategy)
     print("strategy:",_strategy)
-    print(env.get_reward(arr_strategy,index_id_dict))
+    print(env.get_reward(arr_strategy,index_id_dict,prefix+"/"+str(_strategy)+".json"))
 '''
 name_cost_dict = env.get_name_cost_dict()
 cost = list(name_cost_dict.values())

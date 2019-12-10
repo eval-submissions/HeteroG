@@ -32,10 +32,16 @@ class Environment(object):
         if self.strategy_reward_dict.get(str(strategy),None):
             reward= self.strategy_reward_dict.get(str(strategy))
         else:
-            reward = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).evaluate(self.name_cost_dict)
+            reward = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).evaluate(self.name_cost_dict,self.folder+"/modified_strategy.json")
             #reward = np.sum(strategy*strategy)
             self.strategy_reward_dict[str(strategy)]=reward
         return np.float32(reward/(10**6))
+
+    def directly_get_reward(self,strategy_dict):
+        time = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom(
+            strategy_dict).evaluate(
+            self.name_cost_dict,self.folder+"/best_stratey.json")
+        return np.float32(time / (10 ** 6))
 
     def get_name_cost_dict(self):
         name_cost_dict = dict()
@@ -77,7 +83,7 @@ for change in changes:
             change_strategy[i] = new
 change_strategy = np.array(change_strategy)
 print("changes",changes)
-print("time before change:",best_time)
+print("time before change:",env.directly_get_reward(best_strategy))
 print("time after change:",env.get_reward(change_strategy,index_id_dict))
 '''
 name_cost_dict = env.get_name_cost_dict()
