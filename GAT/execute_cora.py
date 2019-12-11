@@ -65,7 +65,85 @@ show_interval = 10
 
 
 
+class strategy_pool(object):
+    def __init__(self,folder_path,node_num):
+        self.folder_path = folder_path
+        self.node_num = node_num
+        if os.path.exists(self.folder_path+"/pool.json"):
+            with open(self.folder_path+"/pool.json","r") as f:
+                self.strategies= json.load(f)
+        else:
+            self.strategies = list()
+        self.rewards = [item["reward"] for item in self.strategies]
+    def get_stratey_list(self,device_choice,ps_or_reduce):
+        new_device_array = np.zeros(shape=device_choice.shape,dtype=np.int32)
+        for i in range(device_choice.shape[0]):
+            for j in range(device_choice.shape[1]):
+                if device_choice[i,j]!=-1 and device_choice[i,j]!=len(devices):
+                    new_device_array[i,device_choice[i,j]]+=1
+        ps_or_reduce = np.reshape(ps_or_reduce, (ps_or_reduce.shape[0], 1))
+        new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
+        return new_device_array.tolist()
 
+    def save_strategy_pool(self):
+        with open(self.folder_path + "/pool.json", "w") as f:
+            json.dump(self.strategies,f)
+
+    def insert(self,reward,device_choice,ps_or_reduce):
+        if len(self.strategies)<10:
+            strategy_list = self.get_stratey_array(device_choice,ps_or_reduce)
+            for strategy in self.strategies:
+                exist_strategy_list = (strategy["strategy_list"])
+                diff_list = [0 if strategy_list[i]==exist_strategy_list[i] else 1 for i in range(len(exist_strategy_list))]
+                if sum(diff_list)/len(diff_list)<0.01:
+                    if reward>strategy["reward"]:
+                        self.strategies.append({"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
+                        self.strategies.remove(strategy)
+                        self.save_strategy_pool()
+                        self.rewards = [item["reward"] for item in self.strategies]
+                    return
+            self.strategies.append({"strategy_list": strategy_list, "reward": reward, "device_choice": device_choice,
+                                    "ps_or_reduce": ps_or_reduce})
+            self.save_strategy_pool()
+            self.rewards.append(reward)
+        elif len(self.strategies)<200 and reward>np.mean(self.rewards):
+            strategy_list = self.get_stratey_array(device_choice,ps_or_reduce)
+            for strategy in self.strategies:
+                exist_strategy_list = (strategy["strategy_list"])
+                diff_list = [0 if strategy_list[i]==exist_strategy_list[i] else 1 for i in range(len(exist_strategy_list))]
+                if sum(diff_list)/len(diff_list)<0.01:
+                    if reward>strategy["reward"]:
+                        self.strategies.append({"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
+                        self.strategies.remove(strategy)
+                        self.save_strategy_pool()
+                        self.rewards = [item["reward"] for item in self.strategies]
+                    return
+            self.strategies.append({"strategy_list": strategy_list, "reward": reward, "device_choice": device_choice,
+                                    "ps_or_reduce": ps_or_reduce})
+            self.save_strategy_pool()
+            self.rewards.append(reward)
+        elif len(self.strategies)>=200 and reward>np.mean(self.rewards):
+            strategy_list = self.get_stratey_array(device_choice,ps_or_reduce)
+            for strategy in self.strategies:
+                exist_strategy_list = (strategy["strategy_list"])
+                diff_list = [0 if strategy_list[i]==exist_strategy_list[i] else 1 for i in range(len(exist_strategy_list))]
+                if sum(diff_list)/len(diff_list)<0.01:
+                    if reward>strategy["reward"]:
+                        self.strategies.append({"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
+                        self.strategies.remove(strategy)
+                        self.save_strategy_pool()
+                        self.rewards = [item["reward"] for item in self.strategies]
+                    return
+            index = self.rewards.index(min(self.rewards))
+            self.strategies.remove(self.strategies[index])
+            self.strategies.append({"strategy_list": strategy_list, "reward": reward, "device_choice": device_choice,
+                                    "ps_or_reduce": ps_or_reduce})
+            self.save_strategy_pool()
+            self.rewards = [item["reward"] for item in self.strategies]
+
+    def choose_strategy(self):
+        index = np.random.randint(0,len(self.strategies))
+        return self.strategies(index)
 
 class Environment(object):
     def __init__(self,gdef_path,devices,folder_path):
@@ -184,7 +262,7 @@ class feature_item(object):
         self.best_device_choice = np.zeros(shape=(self.nb_nodes, len(devices)), dtype=np.int32)
         self.best_ps_or_reduce = list()
         self.folder_path = folder_path
-
+        self.strategy_pool = strategy_pool(folder_path,self.nb_nodes)
 
 
     def set_session_and_network(self,sess,place_gnn):
@@ -214,7 +292,7 @@ class feature_item(object):
             for i in range(len(devices)):
                 output = outputs[i]
                 for j,pred in enumerate(output):
-                    pred = pred*0.9+(0.1/pred.size)
+                   # pred = pred*0.9+(0.1/pred.size)
                     if j not in finished_node:
                         index = np.random.choice(pred.size,p=pred)
                         if index==len(devices):
@@ -230,7 +308,7 @@ class feature_item(object):
             replica_n_hot_nums.append(replica_n_hot_num)
 
             for j, pred in enumerate(outputs[len(devices)]):
-                pred = pred * 0.9 + (0.1 / pred.size)
+                #pred = pred * 0.9 + (0.1 / pred.size)
                 index = np.random.choice(pred.size, p=pred)
                 ps_or_reduce.append(index)
             ps_or_reduce = np.array(ps_or_reduce)
@@ -244,6 +322,13 @@ class feature_item(object):
                 self.best_device_choice = device_choice
                 self.best_ps_or_reduce = ps_or_reduce
             rewards.append(_reward)
+
+        index  = rewards.index(max(rewards))
+        self.strategy_pool.insert(rewards[index],device_choices[index],ps_or_reduces[index])
+        pool_strategy = self.strategy_pool.choose_strategy()
+        rewards.append(pool_strategy["reward"])
+        device_choices.append(pool_strategy["device_choice"])
+        ps_or_reduces.append(pool_strategy["ps_or_reduce"])
 
         #sample real distribution
         replica_num = list()
