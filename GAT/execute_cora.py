@@ -20,6 +20,7 @@ import pickle
 sys.path.append('../')
 import tge
 import json
+import pickle as pkl
 
 checkpt_file = 'pre_trained/cora/mod_cora.ckpt'
 _dataset = 'cora'
@@ -69,9 +70,9 @@ class strategy_pool(object):
     def __init__(self,folder_path,node_num):
         self.folder_path = folder_path
         self.node_num = node_num
-        if os.path.exists(self.folder_path+"/pool.json"):
-            with open(self.folder_path+"/pool.json","r") as f:
-                self.strategies= json.load(f)
+        if os.path.exists(self.folder_path+"/pool.pkl"):
+            with open(self.folder_path+"/pool.pkl","rb") as f:
+                self.strategies= pkl.load(f)
         else:
             self.strategies = list()
         self.rewards = [item["reward"] for item in self.strategies]
@@ -86,8 +87,8 @@ class strategy_pool(object):
         return new_device_array.tolist()
 
     def save_strategy_pool(self):
-        with open(self.folder_path + "/pool.json", "w") as f:
-            json.dump(self.strategies,f)
+        with open(self.folder_path + "/pool.pkl", "wb") as f:
+            pkl.dump(self.strategies,f)
 
     def insert(self,reward,device_choice,ps_or_reduce):
         if len(self.strategies)<10:
@@ -143,7 +144,7 @@ class strategy_pool(object):
 
     def choose_strategy(self):
         index = np.random.randint(0,len(self.strategies))
-        return self.strategies(index)
+        return self.strategies[index]
 
 class Environment(object):
     def __init__(self,gdef_path,devices,folder_path):
