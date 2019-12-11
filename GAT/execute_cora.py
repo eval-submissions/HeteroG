@@ -200,19 +200,21 @@ class feature_item(object):
         device_choices = list()
         rewards = list()
         ps_or_reduces=list()
+        outputs = self.place_gnn.get_replica_num_prob_and_entropy(
+            ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
+            bias_in=self.biases,
+            nb_nodes=self.nb_nodes)
+
         for i in range(sample_times):
             replica_num = list()
             replica_n_hot_num = np.zeros(shape=(self.nb_nodes,len(devices)),dtype=np.int32)
             device_choice = np.zeros(shape=(self.nb_nodes,len(devices)),dtype=np.int32)
             ps_or_reduce=list()
-            outputs = self.place_gnn.get_replica_num_prob_and_entropy(ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
-                                                                      bias_in=self.biases,
-                                                                 nb_nodes=self.nb_nodes)
-
             finished_node = list()
             for i in range(len(devices)):
                 output = outputs[i]
                 for j,pred in enumerate(output):
+                    pred = pred*0.9+(0.1/pred.size)
                     if j not in finished_node:
                         index = np.random.choice(pred.size,p=pred)
                         if index==len(devices):
@@ -228,11 +230,11 @@ class feature_item(object):
             replica_n_hot_nums.append(replica_n_hot_num)
 
             for j, pred in enumerate(outputs[len(devices)]):
+                pred = pred * 0.9 + (0.1 / pred.size)
                 index = np.random.choice(pred.size, p=pred)
                 ps_or_reduce.append(index)
             ps_or_reduce = np.array(ps_or_reduce)
             ps_or_reduces.append(ps_or_reduce)
-
             cal_entropy = outputs[-1]
             _reward = self.env.get_reward2(replica_num, device_choice,ps_or_reduce,self.index_id_dict)
             if _reward>self.best_reward:
@@ -241,9 +243,39 @@ class feature_item(object):
                 self.best_replica_n_hot_num = replica_n_hot_num
                 self.best_device_choice = device_choice
                 self.best_ps_or_reduce = ps_or_reduce
-
-
             rewards.append(_reward)
+
+        #sample real distribution
+        replica_num = list()
+        replica_n_hot_num = np.zeros(shape=(self.nb_nodes,len(devices)),dtype=np.int32)
+        device_choice = np.zeros(shape=(self.nb_nodes,len(devices)),dtype=np.int32)
+        ps_or_reduce=list()
+        finished_node = list()
+        for i in range(len(devices)):
+            output = outputs[i]
+            for j,pred in enumerate(output):
+                if j not in finished_node:
+                    index = np.random.choice(pred.size,p=pred)
+                    if index==len(devices):
+                        finished_node.append(j)
+                        device_choice[j, i] = index
+                        replica_n_hot_num[j,i]=1
+                    else:
+                        device_choice[j,i] = index
+                        replica_n_hot_num[j,i]=1
+                else:
+                    device_choice[j,i] = -1
+        for j, pred in enumerate(outputs[len(devices)]):
+            index = np.random.choice(pred.size, p=pred)
+            ps_or_reduce.append(index)
+        ps_or_reduce = np.array(ps_or_reduce)
+        _reward = self.env.get_reward2(replica_num, device_choice,ps_or_reduce,self.index_id_dict)
+        if _reward>self.best_reward:
+            self.best_reward = _reward
+            self.best_replica_num = replica_num
+            self.best_replica_n_hot_num = replica_n_hot_num
+            self.best_device_choice = device_choice
+            self.best_ps_or_reduce = ps_or_reduce
         if epoch>20:
             self.average_reward = (self.average_reward*19+np.mean(rewards))/20
         else:
@@ -260,14 +292,14 @@ class feature_item(object):
                             time_ratio = (np.array(rewards)-float(self.average_reward)),
                             coef_entropy=co_entropy)
             tr_step += 1
-        times = [item*item for item in rewards]
+        times = _reward*_reward
         if epoch % show_interval == 0:
             print("[{}] step = {}".format(self.folder_path,epoch))
             print("[{}] time = {}".format(self.folder_path,times))
             print("[{}] average reward = {}".format(self.folder_path,self.average_reward))
             print("[{}] overall entropy:{}".format(self.folder_path,cal_entropy))
             with open(self.folder_path+"/time.log", "a+") as f:
-                f.write(str(np.mean(times)) + ",")
+                f.write(str(times) + ",")
             with open(self.folder_path+"/entropy.log", "a+") as f:
                 f.write(str(cal_entropy) + ",")
             with open(self.folder_path+"/loss.log", "a+") as f:
@@ -718,4 +750,4 @@ def actor_critic():
 
         sess.close()
 
-actor_critic()
+architecture_three()
