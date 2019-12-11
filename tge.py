@@ -26,7 +26,7 @@ libtge.custom.restype = ctypes.c_void_p
 libtge.compile.argtypes = [ctypes.c_void_p, ctypes.c_ubyte]
 libtge.compile.restype = ctypes.c_uint32
 
-libtge.evaluate.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32]
+libtge.evaluate.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint64)]
 libtge.evaluate.restype = ctypes.c_uint64
 
 libtge.read_and_destroy.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
@@ -70,12 +70,13 @@ class TGE:
         tge = libtge.tge(self.strategy, self.get_topology(), graph_raw, len(graph_raw), device_raw, len(device_raw))
         size = libtge.compile(tge, self.flag | 0x08)
         trace_path = trace_path.encode('ascii')
-        result = libtge.evaluate(tge, profile_raw, len(profile_raw), trace_path, len(trace_path))
+        memory = (ctypes.c_uint64 * len(self.devices))(*[0 for x in self.devices])
+        result = libtge.evaluate(tge, profile_raw, len(profile_raw), trace_path, len(trace_path), memory)
         buf = ctypes.create_string_buffer(size)
         libtge.read_and_destroy(tge, buf)
         self.graph_def.Clear()
         self.graph_def.ParseFromString(buf.raw)
-        return result
+        return result, list(memory)
 
     @chain
     def destructify_names(self):

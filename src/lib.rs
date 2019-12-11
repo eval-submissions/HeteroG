@@ -136,7 +136,7 @@ unsafe extern fn compile(ctx: *mut Context, pflag: u8) -> u32 {
 }
 
 #[no_mangle]
-unsafe extern fn evaluate(ctx: *mut Context, profile_data: *const u8, profile_len: u32, trace_path: *const u8, trace_len: u32) -> u64 {
+unsafe extern fn evaluate(ctx: *mut Context, profile_data: *const u8, profile_len: u32, trace_path: *const u8, trace_len: u32, memory: *mut u64) -> u64 {
     let profile_str = std::str::from_utf8(std::slice::from_raw_parts(profile_data, profile_len as usize)).unwrap();
     let profile_dict: std::collections::BTreeMap<String, Vec<u64>> = profile_str.lines().map(|line| {
         let line = line.split_ascii_whitespace().collect::<Vec<_>>();
@@ -151,7 +151,7 @@ unsafe extern fn evaluate(ctx: *mut Context, profile_data: *const u8, profile_le
     } else {
         Some(std::str::from_utf8(std::slice::from_raw_parts(trace_path, trace_len as usize)).unwrap())
     };
-    scheduler::Scheduler::evaluate(&mut scheduler, target, tracer.map(|x| std::fs::File::create(x).unwrap()).as_mut())
+    scheduler::Scheduler::evaluate(&mut scheduler, target, tracer.map(|x| std::fs::File::create(x).unwrap()).as_mut(), std::slice::from_raw_parts_mut(memory, target.devices.len()))
 }
 
 #[no_mangle]
