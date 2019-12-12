@@ -54,7 +54,7 @@ print('nb. attention heads: ' + str(n_heads))
 print('residual: ' + str(residual))
 print('nonlinearity: ' + str(nonlinearity))
 print('model: ' + str(model))
-feature_folders = ["data/graph1","data/graph2","data/graph3"]
+feature_folders = ["data/graph1","data/graph2","data/graph3","data/graph4","data/graph5","data/graph6"]
 sample_times = 3
 devices = (
     "/job:tge/replica:0/task:0/device:GPU:0",
@@ -197,8 +197,8 @@ class Environment(object):
         strategy = {index_id_dict[index]:new_device_array[index].tolist() for index in range(new_device_array.shape[0])}
         bandwidth = config_dict.get("bandwidth",None)
         if bandwidth==None:
-            intra = "10000"
-            inter = "10000"
+            intra = "5000"
+            inter = "1250"
         else:
             intra = bandwidth[0]
             inter = bandwidth[1]
@@ -276,7 +276,7 @@ class feature_item(object):
         self.place_gnn = place_gnn
 
     def sample_and_train(self,epoch):
-        co_entropy = 100
+        co_entropy = 10
 
         tr_step = 0
         tr_size = self.features.shape[0]
@@ -453,7 +453,7 @@ class ac_feature_item(object):
         self.critic = critic
 
     def sample_and_train(self,epoch):
-        co_entropy = 1000
+        co_entropy = 10
         rewards = list()
 
         replica_num = list()

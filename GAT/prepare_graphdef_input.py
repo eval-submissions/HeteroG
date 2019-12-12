@@ -20,7 +20,7 @@ devices = (
     "/job:tge/replica:0/task:1/device:GPU:1"
 )
 def model_fn(model_name=None):
-    if model_name==None:
+    if model_name=="vgg19":
         from tensorflow.contrib.slim.nets import vgg
         x = tf.placeholder(tf.float32, shape=(64, 224, 224, 3))
         y = tf.placeholder(tf.float32, shape=(64,1000))
@@ -36,9 +36,40 @@ def model_fn(model_name=None):
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
         optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
         return optimizer
-
-def generate_edge_file(gdef):
-    with open("graph.pbtxt","w") as f:
+    elif model_name=="resnet101":
+        from tensorflow.contrib.slim.nets import resnet_v2
+        x = tf.placeholder(tf.float32, shape=(64, 224, 224, 3))
+        y = tf.placeholder(tf.float32, shape=(64,1,1, 1000))
+        output, _ = resnet_v2.resnet_v2_101(x, 1000)
+        loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
+        optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
+        return optimizer
+    elif model_name=="resnet152":
+        from tensorflow.contrib.slim.nets import resnet_v2
+        x = tf.placeholder(tf.float32, shape=(64, 224, 224, 3))
+        y = tf.placeholder(tf.float32, shape=(64,1,1, 1000))
+        output, _ = resnet_v2.resnet_v2_152(x, 1000)
+        loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
+        optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
+        return optimizer
+    elif model_name=="resnet50":
+        from tensorflow.contrib.slim.nets import resnet_v2
+        x = tf.placeholder(tf.float32, shape=(64, 224, 224, 3))
+        y = tf.placeholder(tf.float32, shape=(64,1,1, 1000))
+        output, _ = resnet_v2.resnet_v2_152(x, 1000)
+        loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
+        optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
+        return optimizer
+    elif model_name=="inceptionv3":
+        from tensorflow.contrib.slim.nets import inception_v3
+        x = tf.placeholder(tf.float32, shape=(64, 224, 224, 3))
+        y = tf.placeholder(tf.float32, shape=(64, 1000))
+        output, _ = inception_v3.inception_v3(x, 1000)
+        loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
+        optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
+        return optimizer
+def generate_edge_file(gdef,folder):
+    with open(folder+"graph.pbtxt","w") as f:
         f.write(str(gdef))
     name_list = [nodedef.name for nodedef in gdef.node]
     item_list=[]
@@ -63,7 +94,7 @@ def generate_edge_file(gdef):
                 #for dim in output_shape.dim:
                 #    size*=dim.size
                 item_list.append("{} {} {}".format(input_nodedef.name,nodedef.name,1))
-    with open("edgelist.txt","w") as f:
+    with open(folder+"edgelist.txt","w") as f:
         item_list = ["\n"+item if i!=0 else item for i,item in enumerate(item_list)]
         f.writelines(item_list)
 
@@ -73,7 +104,7 @@ def generate_edge_file(gdef):
 
 
 
-def generate_feature_file(gdef):
+def generate_feature_file(gdef,folder):
     item_list=[]
     if os.path.exists("op_type_dict.json"):
         with open("op_type_dict.json", "r") as f:
@@ -96,21 +127,21 @@ def generate_feature_file(gdef):
                     time = 0
             else:
                 time = 0
-            times+=str(int(time*(1+i*0.5)))+" "
+            times+=str(int(time*(1+i*0.6)))+" "
         item_list.append("{} {} {}".format(nodedef.name, op_type_dict[nodedef.op],times))
 
-    with open("docs.txt","w") as f:
+    with open(folder+"docs.txt","w") as f:
         item_list = ["\n"+item if i!=0 else item for i,item in enumerate(item_list)]
         f.writelines(item_list)
     with open("op_type_dict.json", "w") as f:
         json.dump(op_type_dict,f)
 
-
-opt = model_fn()
-init = tf.global_variables_initializer()
-gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
-
-
-
-generate_edge_file(gdef)
-generate_feature_file(gdef)
+models = ["vgg19","resnet200","resnet50","resnet101","resnet152","inceptionv3"]
+for i in range(len(models)):
+    tf.reset_default_graph()
+    folder = "data/graph"+str(i+1)+"/"
+    opt = model_fn(models[i])
+    init = tf.global_variables_initializer()
+    gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+    generate_edge_file(gdef,folder)
+    generate_feature_file(gdef,folder)
