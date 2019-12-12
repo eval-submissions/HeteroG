@@ -276,7 +276,7 @@ class feature_item(object):
         self.place_gnn = place_gnn
 
     def sample_and_train(self,epoch):
-        co_entropy = 1000
+        co_entropy = 100
 
         tr_step = 0
         tr_size = self.features.shape[0]
@@ -570,7 +570,7 @@ class new_place_GNN():
             sum = sum+tf.reduce_mean(tf.reduce_sum(tf.log(out + np.power(10.0, -9)) *out, 1))
 
         self.entropy = tf.reduce_sum(tf.log(self.ps_or_reduce + np.power(10.0, -9)) * self.ps_or_reduce, 1)
-        self.entropy = tf.reduce_mean(self.entropy)+sum/len(devices)
+        self.entropy = -(tf.reduce_mean(self.entropy)+sum/len(devices))
         for i in range(sample_times):
             one_hot_sample = tf.one_hot(self.sample_ps_or_reduce[i], 2)
             print("one_hot_sample.shape")
@@ -593,7 +593,8 @@ class new_place_GNN():
                 reward+=tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * self.time_ratio[i])
 
 
-        self.loss = -reward/sample_times #+ self.coef_entropy * self.entropy
+        reward = reward/sample_times + self.coef_entropy * self.entropy
+        self.loss = -reward
         self.train_op = model.training(self.loss, lr, l2_coef)
 
 
