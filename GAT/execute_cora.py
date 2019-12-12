@@ -73,6 +73,7 @@ class strategy_pool(object):
         if os.path.exists(self.folder_path+"/pool.pkl"):
             with open(self.folder_path+"/pool.pkl","rb") as f:
                 self.strategies= pkl.load(f)
+            self.save_strategy_pool()
         else:
             self.strategies = list()
         self.rewards = [item["reward"] for item in self.strategies]
@@ -89,13 +90,19 @@ class strategy_pool(object):
     def save_strategy_pool(self):
         with open(self.folder_path + "/pool.pkl", "wb") as f:
             pkl.dump(self.strategies,f)
+        with open(self.folder_path + "/pool.log", "w") as f:
+            f.write(str([item["reward"] for item in self.strategies]))
+            for i in range(4):
+                f.write("\nstrategy"+str(i)+":\n")
+                f.write(str(self.strategies[np.random.randint(len(self.strategies))]["strategy_list"]))
+
 
     def insert(self,reward,device_choice,ps_or_reduce):
+        strategy_list = self.get_stratey_list(device_choice, ps_or_reduce)
         if len(self.strategies)<10:
-            strategy_list = self.get_stratey_list(device_choice,ps_or_reduce)
             for strategy in self.strategies:
-                exist_strategy_list = (strategy["strategy_list"])
-                diff_list = [0 if strategy_list[i]==exist_strategy_list[i] else 1 for i in range(len(exist_strategy_list))]
+                exist_device_choice = (strategy["device_choice"])
+                diff_list = [0 if all(device_choice[i]==exist_device_choice[i]) else 1 for i in range(len(device_choice))]
                 if sum(diff_list)/len(diff_list)<0.01:
                     if reward>strategy["reward"]:
                         self.strategies.append({"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
@@ -108,10 +115,9 @@ class strategy_pool(object):
             self.save_strategy_pool()
             self.rewards.append(reward)
         elif len(self.strategies)<200 and reward>np.mean(self.rewards):
-            strategy_list = self.get_stratey_list(device_choice,ps_or_reduce)
             for strategy in self.strategies:
-                exist_strategy_list = (strategy["strategy_list"])
-                diff_list = [0 if strategy_list[i]==exist_strategy_list[i] else 1 for i in range(len(exist_strategy_list))]
+                exist_device_choice = (strategy["device_choice"])
+                diff_list = [0 if all(device_choice[i]==exist_device_choice[i]) else 1 for i in range(len(device_choice))]
                 if sum(diff_list)/len(diff_list)<0.01:
                     if reward>strategy["reward"]:
                         self.strategies.append({"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
@@ -124,10 +130,9 @@ class strategy_pool(object):
             self.save_strategy_pool()
             self.rewards.append(reward)
         elif len(self.strategies)>=200 and reward>np.mean(self.rewards):
-            strategy_list = self.get_stratey_list(device_choice,ps_or_reduce)
             for strategy in self.strategies:
-                exist_strategy_list = (strategy["strategy_list"])
-                diff_list = [0 if strategy_list[i]==exist_strategy_list[i] else 1 for i in range(len(exist_strategy_list))]
+                exist_device_choice = (strategy["device_choice"])
+                diff_list = [0 if all(device_choice[i]==exist_device_choice[i]) else 1 for i in range(len(device_choice))]
                 if sum(diff_list)/len(diff_list)<0.01:
                     if reward>strategy["reward"]:
                         self.strategies.append({"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
