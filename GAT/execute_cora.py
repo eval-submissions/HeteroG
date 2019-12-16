@@ -42,7 +42,7 @@ n_heads = [4,4, 6] # additional entry for the output layer
 residual = False
 nonlinearity = tf.nn.elu
 model = SpGAT
-
+transformer = True
 print('Dataset: ' + _dataset)
 print('----- Opt. hyperparams -----')
 print('lr: ' + str(lr))
@@ -63,8 +63,41 @@ devices = (
     "/job:tge/replica:0/task:1/device:GPU:1"
 )
 show_interval = 10
+def rel_shift(x):
+  x_size = tf.shape(x)
+
+  x = tf.pad(x, [[0, 0], [1, 0], [0, 0], [0, 0]])
+  x = tf.reshape(x, [x_size[1] + 1, x_size[0], x_size[2], x_size[3]])
+  x = tf.slice(x, [1, 0, 0, 0], [-1, -1, -1, -1])
+  x = tf.reshape(x, x_size)
+
+def rel_multihead_attn(w, d_model,
+                       n_head, d_head, scope='rel_attn'):
+    scale = 1 / (d_head ** 0.5)
+    cat = w
+    w_heads = tf.layers.dense(cat, 3 * n_head * d_head, use_bias=False)
+
+    w_head_q, w_head_k, w_head_v = tf.split(w_heads, 3, -1)
 
 
+    rw_head_q = w_head_q
+
+    AC = tf.einsum('ib,jb->ij', rw_head_q, w_head_k)
+
+
+    attn_score = (AC) * scale
+    #attn_mask_t = attn_mask[:, :, None, None]
+    #attn_score = attn_score * (1 - attn_mask_t) - 1e30 * attn_mask_t
+
+    attn_prob = tf.nn.softmax(attn_score, 1)
+
+    attn_vec = tf.einsum('ij,jd->id', attn_prob, w_head_v)
+    #size_t = tf.shape(attn_vec)
+    #attn_vec = tf.reshape(attn_vec, [size_t[0], size_t[1], n_head * d_head])
+
+    attn_out = tf.layers.dense(attn_vec, d_model, use_bias=False)
+    output = tf.contrib.layers.layer_norm(attn_out + w, begin_norm_axis=-1)
+    return output
 
 class strategy_pool(object):
     def __init__(self,folder_path,node_num):
@@ -555,22 +588,44 @@ class new_place_GNN():
                                  residual=residual, activation=nonlinearity)
         log_resh = tf.reshape(logits, [-1, 64])
         log_resh = tf.layers.dense(log_resh, units=64, activation=tf.nn.relu)
-        self.cell = tf.nn.rnn_cell.MultiRNNCell([self.get_a_cell() for _ in range(len(devices))])
-        h0 = self.cell.zero_state(self.nb_node, np.float32)
-        self.output,self.h = self.cell.call(log_resh, h0)
-        self.ps_or_reduce = tf.layers.dense(self.output, units=2, activation=tf.nn.softmax)
-        self.device_choices = list()
-        sum=0
-        out = tf.layers.dense(self.h[0].c, units=len(devices), activation=tf.nn.softmax)
-        self.device_choices.append(out)
-        sum = sum + tf.reduce_mean(tf.reduce_sum(tf.log(out + np.power(10.0, -9)) * out, 1))
-        for i in range(len(devices)-1):
-            out = tf.layers.dense(self.h[i+1].c, units=len(devices)+1, activation=tf.nn.softmax)
+        if not transformer:
+            self.cell = tf.nn.rnn_cell.MultiRNNCell([self.get_a_cell() for _ in range(len(devices))])
+            h0 = self.cell.zero_state(self.nb_node, np.float32)
+            self.output,self.h = self.cell.call(log_resh, h0)
+            self.ps_or_reduce = tf.layers.dense(self.output, units=2, activation=tf.nn.softmax)
+            self.device_choices = list()
+            sum=0
+            out = tf.layers.dense(self.h[0].c, units=len(devices), activation=tf.nn.softmax)
             self.device_choices.append(out)
-            sum = sum+tf.reduce_mean(tf.reduce_sum(tf.log(out + np.power(10.0, -9)) *out, 1))
+            sum = sum + tf.reduce_mean(tf.reduce_sum(tf.log(out + np.power(10.0, -9)) * out, 1))
+            for i in range(len(devices)-1):
+                out = tf.layers.dense(self.h[i+1].c, units=len(devices)+1, activation=tf.nn.softmax)
+                self.device_choices.append(out)
+                sum = sum+tf.reduce_mean(tf.reduce_sum(tf.log(out + np.power(10.0, -9)) *out, 1))
+            self.entropy = tf.reduce_sum(tf.log(self.ps_or_reduce + np.power(10.0, -9)) * self.ps_or_reduce, 1)
+            self.entropy = -(tf.reduce_mean(self.entropy) + sum / len(devices))
+        else:
+            self.device_choices = list()
+            for i in range(6):
+                output = rel_multihead_attn(
+                    w=log_resh,
+                    d_model=64,
+                    n_head=10,
+                    d_head=50)
+                output = tf.layers.dense(output, len(devices)*(len(devices)+1)+1, activation=tf.nn.relu)
+            sum=0
+            o1 = tf.nn.softmax(output[:,0:len(devices)])
+            self.device_choices.append(o1)
+            sum = sum + tf.reduce_mean(tf.reduce_sum(tf.log(o1 + np.power(10.0, -9)) * o1, 1))
+            for i in range(1,len(devices)):
+                oi = tf.nn.softmax(output[:,i*(len(devices)+1)-1:(i+1)*(len(devices)+1)-1])
+                self.device_choices.append(oi)
+                sum = sum + tf.reduce_mean(tf.reduce_sum(tf.log(oi + np.power(10.0, -9)) * oi, 1))
+            self.ps_or_reduce = tf.nn.softmax(output[:,-2:])
+            self.entropy = tf.reduce_sum(tf.log(self.ps_or_reduce + np.power(10.0, -9)) * self.ps_or_reduce, 1)
+            self.entropy = -(tf.reduce_mean(self.entropy) + sum / len(devices))
 
-        self.entropy = tf.reduce_sum(tf.log(self.ps_or_reduce + np.power(10.0, -9)) * self.ps_or_reduce, 1)
-        self.entropy = -(tf.reduce_mean(self.entropy)+sum/len(devices))
+
         for i in range(sample_times):
             one_hot_sample = tf.one_hot(self.sample_ps_or_reduce[i], 2)
             print("one_hot_sample.shape")
