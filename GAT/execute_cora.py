@@ -276,7 +276,7 @@ class feature_item(object):
         self.place_gnn = place_gnn
 
     def sample_and_train(self,epoch):
-        co_entropy = 10
+        co_entropy = 1
 
         tr_step = 0
         tr_size = self.features.shape[0]
@@ -453,7 +453,7 @@ class ac_feature_item(object):
         self.critic = critic
 
     def sample_and_train(self,epoch):
-        co_entropy = 10
+        co_entropy = 1
         rewards = list()
 
         replica_num = list()

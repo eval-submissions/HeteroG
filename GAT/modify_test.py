@@ -1,7 +1,7 @@
 import time
 import numpy as np
 import tensorflow as tf
-
+import os
 from models import GAT
 from utils import process
 from data_process.dataset import GraphDataset, WhiteSpaceTokenizer,NewWhiteSpaceTokenizer
@@ -15,6 +15,12 @@ import json
 sys.path.append('../')
 import tge
 prefix=sys.argv[1]
+config_dict =dict()
+if os.path.exists("config.txt"):
+    with open("config.txt", "r") as f:
+        config_dict = json.load(f)
+
+
 class Environment(object):
     def __init__(self,gdef_path,devices,folder):
 
@@ -32,14 +38,28 @@ class Environment(object):
         if self.strategy_reward_dict.get(str(strategy),None):
             reward= self.strategy_reward_dict.get(str(strategy))
         else:
-            reward = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).evaluate(self.name_cost_dict,self.folder+"/modified_strategy.json")
+            bandwidth = config_dict.get("bandwidth",None)
+            if bandwidth==None:
+                intra = "5000"
+                inter = "1250"
+            else:
+                intra = bandwidth[0]
+                inter = bandwidth[1]
+            reward = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).set_bandwidth(intra,inter).evaluate(self.name_cost_dict,self.folder+"/modified_strategy.json")
             #reward = np.sum(strategy*strategy)
             self.strategy_reward_dict[str(strategy)]=reward
         return np.float32(reward/(10**6))
 
     def directly_get_reward(self,strategy_dict):
+        bandwidth = config_dict.get("bandwidth", None)
+        if bandwidth == None:
+            intra = "5000"
+            inter = "1250"
+        else:
+            intra = bandwidth[0]
+            inter = bandwidth[1]
         time = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom(
-            strategy_dict).evaluate(
+            strategy_dict).set_bandwidth(intra,inter).evaluate(
             self.name_cost_dict,self.folder+"/best_stratey.json")
         return np.float32(time / (10 ** 6))
 
