@@ -13,7 +13,7 @@ use crate::proto::tensor::TensorProto;
 // todo: split scheduling and simulating. logging and memory calculation are simulation
 pub trait Scheduler {
     /// `memory` should be alredy zero-initialized and be at least as long as target.device
-    fn evaluate<W: std::io::Write>(&mut self, target: &Target, trace: Option<&mut W>, memory: &mut [u64]) -> u64;
+    fn evaluate<W: std::io::Write>(&self, target: &Target, trace: Option<&mut W>, memory: &mut [u64]) -> u64;
 }
 
 pub struct TensorFlowLikeScheduler {
@@ -89,7 +89,7 @@ type TensorBuf = (usize, usize, usize); // id, index, gpu
 // TODO: ensure every tensor being transfered, even if the path is empty
 
 impl Scheduler for TensorFlowLikeScheduler {
-    fn evaluate<W: std::io::Write>(&mut self, target: &Target, mut tracer: Option<&mut W>, max_memory: &mut [u64]) -> u64 {
+    fn evaluate<W: std::io::Write>(&self, target: &Target, mut tracer: Option<&mut W>, max_memory: &mut [u64]) -> u64 {
         task!("evaluating graph of {} nodes...", target.pb.node.len());
 
         if let Some(tracer) = &mut tracer { // initialize tracing

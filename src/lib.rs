@@ -145,13 +145,13 @@ unsafe extern fn evaluate(ctx: *mut Context, profile_data: *const u8, profile_le
         (name, times)
     }).collect();
     let Context(_bundle, target) = &mut *ctx;
-    let mut scheduler = scheduler::TensorFlowLikeScheduler::new(profile_dict);
+    let scheduler = scheduler::TensorFlowLikeScheduler::new(profile_dict);
     let tracer = if trace_len == 0 {
         None
     } else {
         Some(std::str::from_utf8(std::slice::from_raw_parts(trace_path, trace_len as usize)).unwrap())
     };
-    scheduler::Scheduler::evaluate(&mut scheduler, target, tracer.map(|x| std::fs::File::create(x).unwrap()).as_mut(), std::slice::from_raw_parts_mut(memory, target.devices.len()))
+    scheduler::Scheduler::evaluate(&scheduler, target, tracer.map(|x| std::fs::File::create(x).unwrap()).as_mut(), std::slice::from_raw_parts_mut(memory, target.devices.len()))
 }
 
 #[no_mangle]

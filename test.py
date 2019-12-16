@@ -16,6 +16,7 @@ import tensorflow as tf
 opt = model_fn()
 init = tf.global_variables_initializer()
 gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+gdef = tf.graph_util.extract_sub_graph(gdef, [opt.node_def.name])
 
 devices = (
     "/job:tge/replica:0/task:0/device:GPU:0",

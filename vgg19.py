@@ -18,6 +18,7 @@ from utils import write_tensorboard, setup_workers
 opt = model_fn()
 init = tf.global_variables_initializer()
 gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+# gdef = tf.graph_util.extract_sub_graph(gdef, [opt.node_def.name])
 bytes = gdef.SerializeToString()
 
 devices = (
@@ -60,7 +61,9 @@ init = graph.get_operation_by_name("import/init")
 
 data = { x: np.random.uniform(size=(64, 224, 224, 3)), y: np.random.uniform(size=(64, 1000)) }
 
-sess = tf.Session(server.target, config=tf.ConfigProto(allow_soft_placement=True))#log_device_placement=True))
+config = tf.ConfigProto(allow_soft_placement=True)#log_device_placement=True)
+config.gpu_options.allow_growth = True
+sess = tf.Session(server.target, config=config)
 sess.run(init)
 sess.run(opt, data) # heat up
 
