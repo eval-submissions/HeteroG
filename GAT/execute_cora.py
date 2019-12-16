@@ -396,7 +396,7 @@ class feature_item(object):
             with open(self.folder_path+"/loss.log", "a+") as f:
                 f.write(str(new_loss) + ",")
 
-
+'''
 class ac_feature_item(object):
     def __init__(self,folder_path):
         self.dataset = load_cora(folder_path,NewWhiteSpaceTokenizer())
@@ -528,7 +528,7 @@ class ac_feature_item(object):
             with open(self.folder_path+"/loss.log", "a+") as f:
                 f.write(str(new_loss) + ",")
 
-
+'''
 
 class new_place_GNN():
     def __init__(self,sess,ft_size):
@@ -628,7 +628,7 @@ class new_place_GNN():
 
 
 
-
+'''
 
 class actor():
     def __init__(self,sess,ft_size):
@@ -783,6 +783,7 @@ class critic():
             self.is_train: True,
             self.attn_drop: 0.1, self.ffd_drop: 0.1})
         return outputs
+'''
 def architecture_three():
     models = list()
     for feature_folder in feature_folders:
@@ -811,7 +812,7 @@ def architecture_three():
                 saver.save(sess, checkpt_file)
 
         sess.close()
-
+'''
 def actor_critic():
     models = list()
     for feature_folder in feature_folders:
@@ -841,5 +842,5 @@ def actor_critic():
                 saver.save(sess, checkpt_file)
 
         sess.close()
-
+'''
 architecture_three()
