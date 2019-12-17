@@ -45,7 +45,7 @@ def sp_attn_head(seq, out_sz, adj_mat, activation, nb_nodes, in_drop=0.0, coef_d
         # simplest self-attention possible
         f_1 = tf.layers.conv1d(seq_fts, 1, 1)
         f_2 = tf.layers.conv1d(seq_fts, 1, 1)
-        
+
         f_1 = tf.reshape(f_1, (nb_nodes, 1))
         f_2 = tf.reshape(f_2, (nb_nodes, 1))
 
@@ -75,7 +75,8 @@ def sp_attn_head(seq, out_sz, adj_mat, activation, nb_nodes, in_drop=0.0, coef_d
         #vals.set_shape([1, nb_nodes, out_sz])
         vals = tf.reshape(vals, (1,nb_nodes, out_sz))
         ret = tf.contrib.layers.bias_add(vals)
-
+        #add one more no-linear to simulate critical path finding
+        ret = tf.nn.leaky_relu(ret)
         # residual connection
         if residual:
             if seq.shape[-1] != ret.shape[-1]:

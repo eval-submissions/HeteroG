@@ -125,7 +125,7 @@ def rel_multihead_attn(w, r,d_model,
     #size_t = tf.shape(attn_vec)
     #attn_vec = tf.reshape(attn_vec, [size_t[0], size_t[1], n_head * d_head])
 
-    attn_out = tf.layers.dense(attn_vec, d_model, use_bias=False)
+    attn_out = tf.layers.dense(attn_vec, d_model, use_bias=False,activation=tf.nn.leaky_relu)
     output = tf.contrib.layers.layer_norm(attn_out + cat, begin_norm_axis=-1)
     return output
 
