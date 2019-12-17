@@ -33,22 +33,27 @@ for x1 in range(5):
 options = list(options)
 
 dec = []
-bdec = []
+bdec = 0
 
 p = []
 for node in gdef.node:
     if node.op in ('Const', 'Placeholder', 'NoOp', 'Assign'):
         p.append((0, [0, 1, 1, 1, 1]))
     elif node.op == 'ApplyGradientDescent':
-        i = len(bdec)
-        bdec.append(0)
-        p.append((1, i))
+        p.append((1, bdec))
+        bdec += 1
     else:
         i = len(dec)
         dec.append(0)
         p.append((2, i))
 
 best = 2147483647
+
+assert bdec == 3
+
+import sys
+bdec = [int(x) for x in sys.argv[1].split('_')]
+assert len(bdec) == 3
 
 while True:
     # test current
@@ -67,7 +72,7 @@ while True:
             .evaluate(prof))[0]
 
     if t < best:
-        with open("best.txt", "w") as f:
+        with open("best_{}.txt".format(sys.argv[1]), "w") as f:
             print(t, file=f)
             for x in dec:
                 print(options[x], file=f)
@@ -77,19 +82,12 @@ while True:
         print("new best: {}".format(t))
 
     # next decision
-    for i in range(len(bdec)):
-        if bdec[i] == 0:
-            bdec[:i] = [0] * i
-            bdec[i] = 1
+    for i in range(len(dec)):
+        if dec[i] < len(options) - 1:
+            dec[i] += 1
+            dec[:i] = [0] * i
             break
     else:
-        bdec[:] = [0] * len(bdec)
-        for j in range(len(dec)):
-            if dec[j] < len(options) - 1:
-                dec[j] += 1
-                dec[:j] = [0] * j
-                break
-        else:
-            print("all done")
-            break
+        print("all done")
+        break
 
