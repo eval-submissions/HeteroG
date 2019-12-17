@@ -63,40 +63,70 @@ devices = (
     "/job:tge/replica:0/task:1/device:GPU:1"
 )
 show_interval = 10
-def rel_shift(x):
-  x_size = tf.shape(x)
 
-  x = tf.pad(x, [[0, 0], [1, 0], [0, 0], [0, 0]])
-  x = tf.reshape(x, [x_size[1] + 1, x_size[0], x_size[2], x_size[3]])
-  x = tf.slice(x, [1, 0, 0, 0], [-1, -1, -1, -1])
-  x = tf.reshape(x, x_size)
 
-def rel_multihead_attn(w, d_model,
-                       n_head, d_head, scope='rel_attn'):
+def rel_multihead_attn(w, r,d_model,
+                       n_head, d_head, nb_nodes,scope='rel_attn'):
     scale = 1 / (d_head ** 0.5)
     cat = w
+    w = tf.expand_dims(w, axis=0)
+    seq_fts = tf.layers.conv1d(w, d_model, 1, use_bias=False)
+
+    # simplest self-attention possible
+    f_1 = tf.layers.conv1d(seq_fts, 1, 1)
+    f_2 = tf.layers.conv1d(seq_fts, 1, 1)
+
+    f_1 = tf.reshape(f_1, (nb_nodes, 1))
+    f_2 = tf.reshape(f_2, (nb_nodes, 1))
+
+    f_1 = r * f_1
+
+    f_2 = r * tf.transpose(f_2, [1, 0])
+
+
+    logits = tf.sparse_add(f_1, f_2)
+    lrelu = tf.SparseTensor(indices=logits.indices,
+                            values=tf.nn.leaky_relu(logits.values),
+                            dense_shape=logits.dense_shape)
+    coefs = tf.sparse_softmax(lrelu)
+
+    # As tf.sparse_tensor_dense_matmul expects its arguments to have rank-2,
+    # here we make an assumption that our input is of batch size 1, and reshape appropriately.
+    # The method will fail in all other cases!
+    coefs = tf.sparse_reshape(coefs, [nb_nodes, nb_nodes])
+    seq_fts = tf.reshape(seq_fts,(nb_nodes,seq_fts.shape[-1]))
+    vals = tf.sparse_tensor_dense_matmul(coefs, seq_fts)
+    vals = tf.reshape(vals,(nb_nodes,seq_fts.shape[-1]))
     w_heads = tf.layers.dense(cat, 3 * n_head * d_head, use_bias=False)
+    r_head_k = tf.layers.dense(vals, n_head * d_head, use_bias=False)
+
+
 
     w_head_q, w_head_k, w_head_v = tf.split(w_heads, 3, -1)
 
 
     rw_head_q = w_head_q
 
-    AC = tf.einsum('ib,jb->ij', rw_head_q, w_head_k)
+   # AC = tf.einsum('ib,jb->ij', rw_head_q, w_head_k)
+    print(rw_head_q.shape)
+    print(tf.transpose(w_head_k).shape)
 
-
-    attn_score = (AC) * scale
+    AC =tf.matmul(rw_head_q,tf.transpose(w_head_k))
+    BD =tf.matmul(rw_head_q,tf.transpose(r_head_k))
+    print(AC.shape)
+    print(BD.shape)
+    attn_score = (AC+BD) * scale
     #attn_mask_t = attn_mask[:, :, None, None]
     #attn_score = attn_score * (1 - attn_mask_t) - 1e30 * attn_mask_t
 
     attn_prob = tf.nn.softmax(attn_score, 1)
 
-    attn_vec = tf.einsum('ij,jd->id', attn_prob, w_head_v)
+    attn_vec = tf.matmul(attn_prob,w_head_v)
     #size_t = tf.shape(attn_vec)
     #attn_vec = tf.reshape(attn_vec, [size_t[0], size_t[1], n_head * d_head])
 
     attn_out = tf.layers.dense(attn_vec, d_model, use_bias=False)
-    output = tf.contrib.layers.layer_norm(attn_out + w, begin_norm_axis=-1)
+    output = tf.contrib.layers.layer_norm(attn_out + cat, begin_norm_axis=-1)
     return output
 
 class strategy_pool(object):
@@ -609,9 +639,11 @@ class new_place_GNN():
             for i in range(6):
                 output = rel_multihead_attn(
                     w=log_resh,
+                    r = self.bias_in,
                     d_model=64,
                     n_head=10,
-                    d_head=50)
+                    d_head=50,
+                    nb_nodes=self.nb_node)
                 output = tf.layers.dense(output, len(devices)*(len(devices)+1)+1, activation=tf.nn.relu)
             sum=0
             o1 = tf.nn.softmax(output[:,0:len(devices)])
