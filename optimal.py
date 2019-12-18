@@ -12,48 +12,39 @@ with open("mlp.model", "rb") as f:
 
 devices = (
     "/job:tge/replica:0/task:0/device:GPU:0",
-    "/job:tge/replica:0/task:0/device:GPU:1",
-    "/job:tge/replica:0/task:1/device:GPU:0",
-    "/job:tge/replica:0/task:1/device:GPU:1"
+    "/job:tge/replica:0/task:0/device:GPU:1"
 )
 
 with open("mlp.data", "r") as f:
     records = (x.strip().split(" ") for x in f.readlines())
-    prof = {items[0]: [int(float(items[1]))] * len(devices) for items in records}
+    prof = {items[0]: [int(float(x)) for x in items[1:]] for items in records}
 
 import tge
 
-options = set()
-for x1 in range(5):
-    for x2 in range(5):
-        for x3 in range(5):
-            for x4 in range(5):
-                if 0 < x1 + x2 + x3 + x4 <= 4:
-                    options.add((x1, x2, x3, x4))
-options = list(options)
+options = [[0, 1], [1, 0], [0, 2], [2, 0], [1, 1]]
 
-dec = []
-bdec = 0
+import sys
+dec = [int(x) for x in sys.argv[1].split('_')] # first two are 0 and 1, remainings are 0-4
+ngiven = len(dec)
+i = 2
+j = 0
 
 p = []
 for node in gdef.node:
     if node.op in ('Const', 'Placeholder', 'NoOp', 'Assign'):
-        p.append((0, [0, 1, 1, 1, 1]))
+        p.append((0, [0, 1, 1]))
     elif node.op == 'ApplyGradientDescent':
-        p.append((1, bdec))
-        bdec += 1
+        p.append((1, j))
+        j += 1
     else:
-        i = len(dec)
-        dec.append(0)
+        while len(dec) <= i:
+            dec.append(0)
         p.append((2, i))
+        i += 1
 
 best = 2147483647
 
-assert bdec == 3
-
-import sys
-bdec = [int(x) for x in sys.argv[1].split('_')]
-assert len(bdec) == 3
+assert j == 2
 
 while True:
     # test current
@@ -62,7 +53,7 @@ while True:
         if p[i][0] == 0:
             d[node.name] = p[i][1]
         elif p[i][0] == 1:
-            d[node.name] = [bdec[p[i][1]], 1, 1, 1, 1]
+            d[node.name] = [dec[p[i][1]], 1, 1]
         else:
             d[node.name] = [0, *options[dec[p[i][1]]]]
 
@@ -74,18 +65,19 @@ while True:
     if t < best:
         with open("best_{}.txt".format(sys.argv[1]), "w") as f:
             print(t, file=f)
-            for x in dec:
-                print(options[x], file=f)
-            for x in bdec:
-                print(x, file=f)
+            for i, x in enumerate(dec):
+                if i < 2:
+                    print(x, file=f)
+                else:
+                    print(options[x], file=f)
         best = t
         print("new best: {}".format(t))
 
     # next decision
-    for i in range(len(dec)):
+    for i in range(ngiven, len(dec)):
         if dec[i] < len(options) - 1:
             dec[i] += 1
-            dec[:i] = [0] * i
+            dec[ngiven:i] = [0] * (i - ngiven)
             break
     else:
         print("all done")
