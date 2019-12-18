@@ -62,7 +62,7 @@ devices = (
     "/job:tge/replica:0/task:1/device:GPU:0",
     "/job:tge/replica:0/task:1/device:GPU:1"
 )
-show_interval = 10
+show_interval = 3
 
 
 def rel_multihead_attn(w, r,d_model,mems,
@@ -132,6 +132,7 @@ def rel_multihead_attn(w, r,d_model,mems,
 
         cat = tf.concat([mems, w],
                         0) if mems is not None and mems.shape.ndims > 1 else w
+        cat=w
         w_heads = tf.layers.dense(cat, 3 * n_head * d_head, use_bias=False)
 
         w_head_q, w_head_k, w_head_v = tf.split(w_heads, 3, -1)
@@ -165,7 +166,7 @@ def rel_multihead_attn(w, r,d_model,mems,
         size_t = tf.shape(attn_vec)
         attn_vec = tf.reshape(attn_vec, [size_t[0], size_t[1], n_head * d_head])
 
-        attn_out = tf.layers.dense(attn_vec, d_model, use_bias=False,activation=tf.nn.leaky_relu)
+        attn_out = tf.layers.dense(attn_vec, d_model, use_bias=False)
         output = tf.contrib.layers.layer_norm(attn_out + cat, begin_norm_axis=-1)
     return output[0]
 

@@ -76,7 +76,6 @@ def sp_attn_head(seq, out_sz, adj_mat, activation, nb_nodes, in_drop=0.0, coef_d
         vals = tf.reshape(vals, (1,nb_nodes, out_sz))
         ret = tf.contrib.layers.bias_add(vals)
         #add one more no-linear to simulate critical path finding
-        ret = tf.nn.leaky_relu(ret)
         # residual connection
         if residual:
             if seq.shape[-1] != ret.shape[-1]:
