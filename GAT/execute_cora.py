@@ -171,16 +171,37 @@ def rel_multihead_attn(w, r,d_model,mems,
     return output[0]
 
 class strategy_pool(object):
-    def __init__(self,folder_path,node_num):
+    def __init__(self,folder_path,node_num,index_id_dict,env):
         self.folder_path = folder_path
         self.node_num = node_num
+        self.index_id_dict = index_id_dict
+        self.env = env
         if os.path.exists(self.folder_path+"/pool.pkl"):
             with open(self.folder_path+"/pool.pkl","rb") as f:
                 self.strategies= pkl.load(f)
             self.save_strategy_pool()
         else:
             self.strategies = list()
+
+        self.rewards = [item["reward"] for item in self.strategies] if len(self.strategies) else [0]
+
+        # data parallel
+        #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
+        device_choice = np.array([np.arange(len(devices)) for i in range(self.node_num)])
+        ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
+        reward = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+        self.insert(reward, device_choice, ps_or_reduce)
+
+        #single gpu
+        device_choice = np.negative(np.ones(shape=(self.node_num, len(devices)), dtype=np.int32))
+        for item in device_choice:
+            item[0] =0
+        ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
+        reward = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+        self.insert(reward, device_choice, ps_or_reduce)
+
         self.rewards = [item["reward"] for item in self.strategies]
+
     def get_stratey_list(self,device_choice,ps_or_reduce):
         new_device_array = np.zeros(shape=device_choice.shape,dtype=np.int32)
         for i in range(device_choice.shape[0]):
@@ -203,7 +224,7 @@ class strategy_pool(object):
 
     def insert(self,reward,device_choice,ps_or_reduce):
         strategy_list = self.get_stratey_list(device_choice, ps_or_reduce)
-        if len(self.strategies)<10:
+        if len(self.strategies)<20:
             for strategy in self.strategies:
                 exist_device_choice = (strategy["device_choice"])
                 diff_list = [0 if all(device_choice[i]==exist_device_choice[i]) else 1 for i in range(len(device_choice))]
@@ -289,7 +310,7 @@ class Environment(object):
         ps_or_reduce = np.reshape(ps_or_reduce, (ps_or_reduce.shape[0], 1))
         new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
         return new_device_array
-    def get_reward2(self,strategy,device_choice,ps_or_reduce,index_id_dict):
+    def get_reward2(self,device_choice,ps_or_reduce,index_id_dict):
 
         new_device_array = np.zeros(shape=device_choice.shape,dtype=np.int32)
         for i in range(device_choice.shape[0]):
@@ -372,7 +393,7 @@ class feature_item(object):
         self.best_device_choice = np.zeros(shape=(self.nb_nodes, len(devices)), dtype=np.int32)
         self.best_ps_or_reduce = list()
         self.folder_path = folder_path
-        self.strategy_pool = strategy_pool(folder_path,self.nb_nodes)
+        self.strategy_pool = strategy_pool(folder_path,self.nb_nodes,self.index_id_dict,self.env)
 
         self.mems=[np.zeros([2, self.nb_nodes, 64], dtype=np.float32) for layer in range(3)]
 
@@ -427,7 +448,7 @@ class feature_item(object):
             ps_or_reduce = np.array(ps_or_reduce)
             ps_or_reduces.append(ps_or_reduce)
             cal_entropy = outputs[-1]
-            _reward = self.env.get_reward2(replica_num, device_choice,ps_or_reduce,self.index_id_dict)
+            _reward = self.env.get_reward2( device_choice,ps_or_reduce,self.index_id_dict)
             if _reward>self.best_reward:
                 self.best_reward = _reward
                 self.best_replica_num = replica_num
@@ -441,7 +462,7 @@ class feature_item(object):
         pool_strategy = self.strategy_pool.choose_strategy()
         rewards.append(pool_strategy["reward"])
         device_choices.append(pool_strategy["device_choice"])
-        ps_or_reduces.append(pool_strategy["ps_or_reduce"])
+        ps_or_reduces.append(np.reshape(pool_strategy["ps_or_reduce"],(self.nb_nodes,)))
 
         #sample real distribution
         replica_num = list()
@@ -467,7 +488,7 @@ class feature_item(object):
             index = np.random.choice(pred.size, p=pred)
             ps_or_reduce.append(index)
         ps_or_reduce = np.array(ps_or_reduce)
-        _reward = self.env.get_reward2(replica_num, device_choice,ps_or_reduce,self.index_id_dict)
+        _reward = self.env.get_reward2( device_choice,ps_or_reduce,self.index_id_dict)
         if _reward>self.best_reward:
             self.best_reward = _reward
             self.best_replica_num = replica_num
@@ -595,7 +616,7 @@ class ac_feature_item(object):
         ps_or_reduce = np.array(ps_or_reduce)
 
         cal_entropy = outputs[-1]
-        _reward = self.env.get_reward2(replica_num, device_choice,ps_or_reduce,self.index_id_dict)
+        _reward = self.env.get_reward2( device_choice,ps_or_reduce,self.index_id_dict)
 
         next_state = self.env.get_stratey_array(device_choice, ps_or_reduce)
         next_ftr_in = np.concatenate((self.features,next_state),axis=1)
