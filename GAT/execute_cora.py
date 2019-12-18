@@ -65,69 +65,109 @@ devices = (
 show_interval = 10
 
 
-def rel_multihead_attn(w, r,d_model,
+def rel_multihead_attn(w, r,d_model,mems,
                        n_head, d_head, nb_nodes,scope='rel_attn'):
     scale = 1 / (d_head ** 0.5)
     cat = w
-    w = tf.expand_dims(w, axis=0)
-    seq_fts = tf.layers.conv1d(w, d_model, 1, use_bias=False)
+    if False:
+        w = tf.expand_dims(w, axis=0)
+        seq_fts = tf.layers.conv1d(w, d_model, 1, use_bias=False)
 
-    # simplest self-attention possible
-    f_1 = tf.layers.conv1d(seq_fts, 1, 1)
-    f_2 = tf.layers.conv1d(seq_fts, 1, 1)
+        # simplest self-attention possible
+        f_1 = tf.layers.conv1d(seq_fts, 1, 1)
+        f_2 = tf.layers.conv1d(seq_fts, 1, 1)
 
-    f_1 = tf.reshape(f_1, (nb_nodes, 1))
-    f_2 = tf.reshape(f_2, (nb_nodes, 1))
+        f_1 = tf.reshape(f_1, (nb_nodes, 1))
+        f_2 = tf.reshape(f_2, (nb_nodes, 1))
 
-    f_1 = r * f_1
+        f_1 = r * f_1
 
-    f_2 = r * tf.transpose(f_2, [1, 0])
-
-
-    logits = tf.sparse_add(f_1, f_2)
-    lrelu = tf.SparseTensor(indices=logits.indices,
-                            values=tf.nn.leaky_relu(logits.values),
-                            dense_shape=logits.dense_shape)
-    coefs = tf.sparse_softmax(lrelu)
-
-    # As tf.sparse_tensor_dense_matmul expects its arguments to have rank-2,
-    # here we make an assumption that our input is of batch size 1, and reshape appropriately.
-    # The method will fail in all other cases!
-    coefs = tf.sparse_reshape(coefs, [nb_nodes, nb_nodes])
-    seq_fts = tf.reshape(seq_fts,(nb_nodes,seq_fts.shape[-1]))
-    vals = tf.sparse_tensor_dense_matmul(coefs, seq_fts)
-    vals = tf.reshape(vals,(nb_nodes,seq_fts.shape[-1]))
-    w_heads = tf.layers.dense(cat, 3 * n_head * d_head, use_bias=False)
-    r_head_k = tf.layers.dense(vals, n_head * d_head, use_bias=False)
+        f_2 = r * tf.transpose(f_2, [1, 0])
 
 
+        logits = tf.sparse_add(f_1, f_2)
+        lrelu = tf.SparseTensor(indices=logits.indices,
+                                values=tf.nn.leaky_relu(logits.values),
+                                dense_shape=logits.dense_shape)
+        coefs = tf.sparse_softmax(lrelu)
 
-    w_head_q, w_head_k, w_head_v = tf.split(w_heads, 3, -1)
+        # As tf.sparse_tensor_dense_matmul expects its arguments to have rank-2,
+        # here we make an assumption that our input is of batch size 1, and reshape appropriately.
+        # The method will fail in all other cases!
+        coefs = tf.sparse_reshape(coefs, [nb_nodes, nb_nodes])
+        seq_fts = tf.reshape(seq_fts,(nb_nodes,seq_fts.shape[-1]))
+        vals = tf.sparse_tensor_dense_matmul(coefs, seq_fts)
+        vals = tf.reshape(vals,(nb_nodes,seq_fts.shape[-1]))
+        w_heads = tf.layers.dense(cat, 3 * n_head * d_head, use_bias=False)
+        r_head_k = tf.layers.dense(vals, n_head * d_head, use_bias=False)
 
 
-    rw_head_q = w_head_q
 
-   # AC = tf.einsum('ib,jb->ij', rw_head_q, w_head_k)
-    print(rw_head_q.shape)
-    print(tf.transpose(w_head_k).shape)
+        w_head_q, w_head_k, w_head_v = tf.split(w_heads, 3, -1)
 
-    AC =tf.matmul(rw_head_q,tf.transpose(w_head_k))
-    BD =tf.matmul(rw_head_q,tf.transpose(r_head_k))
-    print(AC.shape)
-    print(BD.shape)
-    attn_score = (AC+BD) * scale
-    #attn_mask_t = attn_mask[:, :, None, None]
-    #attn_score = attn_score * (1 - attn_mask_t) - 1e30 * attn_mask_t
 
-    attn_prob = tf.nn.softmax(attn_score, 1)
+        rw_head_q = w_head_q
 
-    attn_vec = tf.matmul(attn_prob,w_head_v)
-    #size_t = tf.shape(attn_vec)
-    #attn_vec = tf.reshape(attn_vec, [size_t[0], size_t[1], n_head * d_head])
+       # AC = tf.einsum('ib,jb->ij', rw_head_q, w_head_k)
+        print(rw_head_q.shape)
+        print(tf.transpose(w_head_k).shape)
 
-    attn_out = tf.layers.dense(attn_vec, d_model, use_bias=False,activation=tf.nn.leaky_relu)
-    output = tf.contrib.layers.layer_norm(attn_out + cat, begin_norm_axis=-1)
-    return output
+        AC =tf.matmul(rw_head_q,tf.transpose(w_head_k))
+        BD =tf.matmul(rw_head_q,tf.transpose(r_head_k))
+        print(AC.shape)
+        print(BD.shape)
+        attn_score = (AC+BD) * scale
+        attn_prob = tf.nn.softmax(attn_score, 1)
+
+        attn_vec = tf.matmul(attn_prob, w_head_v)
+        # size_t = tf.shape(attn_vec)
+        # attn_vec = tf.reshape(attn_vec, [size_t[0], size_t[1], n_head * d_head])
+
+        attn_out = tf.layers.dense(attn_vec, d_model, use_bias=False, activation=tf.nn.leaky_relu)
+        output = tf.contrib.layers.layer_norm(attn_out + cat, begin_norm_axis=-1)
+    else:
+        w = tf.expand_dims(w, axis=0)
+        qlen = tf.shape(w)[0]
+        bsz = tf.shape(w)[1]
+
+        cat = tf.concat([mems, w],
+                        0) if mems is not None and mems.shape.ndims > 1 else w
+        w_heads = tf.layers.dense(cat, 3 * n_head * d_head, use_bias=False)
+
+        w_head_q, w_head_k, w_head_v = tf.split(w_heads, 3, -1)
+        w_head_q = w_head_q[-qlen:]
+
+        klen = tf.shape(w_head_k)[0]
+
+        w_head_q = tf.reshape(w_head_q, [qlen, bsz, n_head, d_head])
+        w_head_k = tf.reshape(w_head_k, [klen, bsz, n_head, d_head])
+        w_head_v = tf.reshape(w_head_v, [klen, bsz, n_head, d_head])
+
+        rw_head_q = w_head_q
+
+        AC = tf.einsum('ibnd,jbnd->ijbn', rw_head_q, w_head_k)
+
+
+        attn_score = (AC) * scale
+
+       # w_heads = tf.layers.dense(cat, 3 * n_head * d_head, use_bias=False)
+       # w_head_q, w_head_k, w_head_v = tf.split(w_heads, 3, -1)
+       # rw_head_q = w_head_q
+       # AC =tf.matmul(rw_head_q,tf.transpose(w_head_k))
+       # attn_score = (AC) * scale
+
+
+
+        attn_prob = tf.nn.softmax(attn_score, 1)
+
+        #attn_vec = tf.matmul(attn_prob,w_head_v)
+        attn_vec = tf.einsum('ijbn,jbnd->ibnd', attn_prob, w_head_v)
+        size_t = tf.shape(attn_vec)
+        attn_vec = tf.reshape(attn_vec, [size_t[0], size_t[1], n_head * d_head])
+
+        attn_out = tf.layers.dense(attn_vec, d_model, use_bias=False,activation=tf.nn.leaky_relu)
+        output = tf.contrib.layers.layer_norm(attn_out + cat, begin_norm_axis=-1)
+    return output[0]
 
 class strategy_pool(object):
     def __init__(self,folder_path,node_num):
@@ -333,6 +373,8 @@ class feature_item(object):
         self.folder_path = folder_path
         self.strategy_pool = strategy_pool(folder_path,self.nb_nodes)
 
+        self.mems=[np.zeros([2, self.nb_nodes, 64], dtype=np.float32) for layer in range(3)]
+
 
     def set_session_and_network(self,sess,place_gnn):
         self.sess =sess
@@ -350,7 +392,8 @@ class feature_item(object):
         outputs = self.place_gnn.get_replica_num_prob_and_entropy(
             ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
             bias_in=self.biases,
-            nb_nodes=self.nb_nodes)
+            nb_nodes=self.nb_nodes,
+            mems=self.mems)
 
         for i in range(sample_times):
             replica_num = list()
@@ -437,14 +480,15 @@ class feature_item(object):
 
 
         while tr_step * batch_size < tr_size:
-            new_loss=self.place_gnn.learn(ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
+            new_loss,self.mems=self.place_gnn.learn(ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
                             bias_in=self.biases,
                             nb_nodes=self.nb_nodes,
                             replica_num_array=np.array(replica_n_hot_nums),
                             sample_ps_or_reduce = np.array(ps_or_reduces),
                             sample_device_choice = np.array(device_choices),
                             time_ratio = (np.array(rewards)-float(self.average_reward)),
-                            coef_entropy=co_entropy)
+                            coef_entropy=co_entropy,
+                            mems = self.mems)
             tr_step += 1
         times = _reward*_reward
         if epoch % show_interval == 0:
@@ -610,6 +654,7 @@ class new_place_GNN():
             self.replica_num_array = tf.placeholder(dtype=tf.float32, shape=(None,None,len(devices)),name="replica_num_array")
             self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(None,),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
+            self.mems = [tf.placeholder(tf.float32,[2, None, 64]) for _ in range(3)]
 
         logits = model.inference(self.ftr_in, 64, self.nb_node, self.is_train,
                                  self.attn_drop, self.ffd_drop,
@@ -636,11 +681,12 @@ class new_place_GNN():
             self.entropy = -(tf.reduce_mean(self.entropy) + sum / len(devices))
         else:
             self.device_choices = list()
-            for i in range(6):
+            for i in range(3):
                 output = rel_multihead_attn(
                     w=log_resh,
                     r = self.bias_in,
                     d_model=64,
+                    mems=self.mems[i],
                     n_head=10,
                     d_head=50,
                     nb_nodes=self.nb_node)
@@ -689,28 +735,41 @@ class new_place_GNN():
     def get_a_cell(self):
         return tf.nn.rnn_cell.BasicLSTMCell(num_units=64)
 
-    def learn(self,ftr_in,bias_in,nb_nodes,replica_num_array,sample_ps_or_reduce,sample_device_choice,time_ratio,coef_entropy):
-        loss,_ = self.sess.run([self.loss,self.train_op],
-                     feed_dict={
-                         self.ftr_in: ftr_in,
-                         self.bias_in:bias_in,
-                         self.nb_node:nb_nodes,
-                         self.is_train: True,
-                         self.attn_drop: 0.1, self.ffd_drop: 0.1, self.replica_num_array: replica_num_array,
-                         self.sample_ps_or_reduce:sample_ps_or_reduce,
-                         self.sample_device_choice:sample_device_choice,
-                         self.time_ratio:time_ratio, self.coef_entropy: coef_entropy})
-        return loss
-    def get_replica_num_prob_and_entropy(self,ftr_in,bias_in,nb_nodes):
+    def learn(self,ftr_in,bias_in,nb_nodes,replica_num_array,sample_ps_or_reduce,sample_device_choice,time_ratio,coef_entropy,mems):
+        feed_dict = {}
+        feed_dict[self.ftr_in]=ftr_in
+        feed_dict[self.bias_in]=bias_in
+        feed_dict[self.nb_node]=nb_nodes
+        feed_dict[self.is_train]=True
+        feed_dict[self.attn_drop]=0.1
+        feed_dict[self.ffd_drop]=0.1
+        feed_dict[self.replica_num_array]=replica_num_array
+        feed_dict[self.sample_ps_or_reduce]=sample_ps_or_reduce
+        feed_dict[self.sample_device_choice]=sample_device_choice
+        feed_dict[self.time_ratio]=time_ratio
+        feed_dict[self.coef_entropy]=coef_entropy
+        for item1,item2 in zip(self.mems,mems):
+            feed_dict[item1]=item2
+        loss,mems,_ = self.sess.run([self.loss,self.mems,self.train_op],
+                     feed_dict=feed_dict)
+        return loss,mems
+    def get_replica_num_prob_and_entropy(self,ftr_in,bias_in,nb_nodes,mems):
         fetch_list =[item for item in self.device_choices]
         fetch_list.append(self.ps_or_reduce)
         fetch_list.append(self.entropy)
-        outputs = self.sess.run(fetch_list, feed_dict={
-            self.ftr_in: ftr_in,
-            self.bias_in: bias_in,
-            self.nb_node:nb_nodes,
-            self.is_train: True,
-            self.attn_drop: 0.1, self.ffd_drop: 0.1})
+
+
+        feed_dict = {}
+        feed_dict[self.ftr_in]=ftr_in
+        feed_dict[self.bias_in]=bias_in
+        feed_dict[self.nb_node]=nb_nodes
+        feed_dict[self.is_train]=True
+        feed_dict[self.attn_drop]=0.1
+        feed_dict[self.ffd_drop]=0.1
+        for item1,item2 in zip(self.mems,mems):
+            feed_dict[item1]=item2
+
+        outputs = self.sess.run(fetch_list, feed_dict=feed_dict)
         return outputs
 
 
