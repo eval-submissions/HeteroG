@@ -12,13 +12,17 @@ import os
 sys.path.append('../')
 from profiler import Profiler
 
+config_dict =dict()
+if os.path.exists("config.txt"):
+    with open("config.txt", "r") as f:
+        config_dict = json.load(f)
 
-devices = (
+devices=config_dict.get("devices", [
     "/job:tge/replica:0/task:0/device:GPU:0",
     "/job:tge/replica:0/task:0/device:GPU:1",
     "/job:tge/replica:0/task:1/device:GPU:0",
     "/job:tge/replica:0/task:1/device:GPU:1"
-)
+])
 def model_fn(model_name=None):
     if model_name=="vgg19":
         from tensorflow.contrib.slim.nets import vgg

@@ -56,12 +56,12 @@ print('nonlinearity: ' + str(nonlinearity))
 print('model: ' + str(model))
 feature_folders = ["data/graph1","data/graph2","data/graph3","data/graph4","data/graph5","data/graph6"]
 sample_times = 3
-devices = (
+devices=config_dict.get("devices", [
     "/job:tge/replica:0/task:0/device:GPU:0",
     "/job:tge/replica:0/task:0/device:GPU:1",
     "/job:tge/replica:0/task:1/device:GPU:0",
     "/job:tge/replica:0/task:1/device:GPU:1"
-)
+])
 show_interval = 3
 
 

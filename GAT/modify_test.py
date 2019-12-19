@@ -20,7 +20,12 @@ if os.path.exists("config.txt"):
     with open("config.txt", "r") as f:
         config_dict = json.load(f)
 
-
+devices=config_dict.get("devices", [
+    "/job:tge/replica:0/task:0/device:GPU:0",
+    "/job:tge/replica:0/task:0/device:GPU:1",
+    "/job:tge/replica:0/task:1/device:GPU:0",
+    "/job:tge/replica:0/task:1/device:GPU:1"
+])
 class Environment(object):
     def __init__(self,gdef_path,devices,folder):
 
@@ -73,12 +78,7 @@ class Environment(object):
                 cost = list(np.array(items[-len(devices):]))
                 name_cost_dict[name] = cost
         return name_cost_dict
-devices = (
-    "/job:tge/replica:0/task:0/device:GPU:0",
-    "/job:tge/replica:0/task:0/device:GPU:1",
-    "/job:tge/replica:0/task:1/device:GPU:0",
-    "/job:tge/replica:0/task:1/device:GPU:1"
-)
+
 env = Environment(prefix+"/graph.pbtxt",devices,prefix)
 dataset = load_cora(prefix,NewWhiteSpaceTokenizer())
 index_id_dict = dataset.network.get_indexer(N_TYPE_NODE).index_id_dict
