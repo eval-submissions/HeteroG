@@ -108,30 +108,40 @@ def generate_edge_file(gdef,folder):
 
 
 
-def generate_feature_file(gdef,folder):
+def generate_feature_file(gdef,folder,profile_file):
     item_list=[]
     if os.path.exists("op_type_dict.json"):
         with open("op_type_dict.json", "r") as f:
             op_type_dict=json.load(f)
     else:
         op_type_dict = dict()
-    profiler = Profiler(gdef)
+    if profile_file==None:
+        profiler = Profiler(gdef)
+    else:
+        with open(profile_file, "r") as f:
+            tmp = f.readlines()
+            tmp = map(lambda x: x.split(" ", 1), tmp)
+            name_cost_dict = {item[0]:item[1] for item in tmp}
     for i,nodedef in enumerate(gdef.node):
 
         if op_type_dict.get(nodedef.op,-1)==-1:
             op_type_dict[nodedef.op] = len(op_type_dict.keys())
         times = ''
-        for i in range(len(devices)):
-            if nodedef.op!="Placeholder":
-                try:
-                    time = profiler.profile(nodedef.name,'/gpu:0')
-                except Exception as ex:
-                    print(sys.stderr, 'profile error: ', ex)
-                    print(nodedef)
+        if profile_file==None:
+            for i in range(len(devices)):
+                if nodedef.op!="Placeholder":
+                    try:
+                        time = profiler.profile(nodedef.name,'/gpu:0')
+                    except Exception as ex:
+                        print(sys.stderr, 'profile error: ', ex)
+                        print(nodedef)
+                        time = 0
+                else:
                     time = 0
-            else:
-                time = 0
-            times+=str(int(time*(1+i*0.6)))+" "
+                times+=str(int(time*(1+i*0.6)))+" "
+        else:
+            times = name_cost_dict[nodedef.name]
+
         item_list.append("{} {} {}".format(nodedef.name, op_type_dict[nodedef.op],times))
 
     with open(folder+"docs.txt","w") as f:
