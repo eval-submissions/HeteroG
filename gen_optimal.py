@@ -3,18 +3,14 @@ import tensorflow as tf
 
 def model_fn():
     x = tf.placeholder(tf.float32, shape=(256, 102400))
-    y = tf.placeholder(tf.float32, shape=(256, 100))
-    w1 = tf.Variable(tf.random_normal([102400, 2560]))
-    h = tf.matmul(x, w1) # 256, 2560
-    w2 = tf.Variable(tf.random_normal([2560, 100]))
-    o = tf.matmul(h, w2) # 256, 100
-    l = tf.reduce_sum(o - y) # 256, 100
-    go = l * o # 256, 100
-    gw2 = tf.matmul(tf.transpose(h), go) # 2560, 100
-    gh = tf.matmul(go, tf.transpose(w2)) # 256, 2560
-    gw1 = tf.matmul(tf.transpose(x), gh) # 102400, 2560
+    y = tf.placeholder(tf.float32, shape=(256, 1024))
+    w = tf.Variable(tf.random_normal([102400, 1024]))
+    o = tf.matmul(x, w)
+    l = tf.reduce_sum(y - o)
+    go = l * o
+    gw = tf.matmul(tf.transpose(x), go)
     opt = tf.train.GradientDescentOptimizer(0.2)
-    opt = opt.apply_gradients([(gw2, w2), (gw1, w1)])
+    opt = opt.apply_gradients([(gw, w)])
     return opt
 
 opt = model_fn()

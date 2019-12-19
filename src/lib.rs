@@ -7,19 +7,19 @@
 use oh_my_rust::*;
 use protobuf::{Message, parse_from_bytes};
 
-mod proto;
-mod graph;
-mod strategy;
-mod polishing;
-mod scheduler;
+pub mod proto;
+pub mod graph;
+pub mod strategy;
+pub mod polishing;
+pub mod scheduler;
 
 // reason for this additional abstraction layer: trait object still requires specifying associate types. a Bundle groups a strategy and the graph together to remove the need.
-trait AbstractBundle {
+pub trait AbstractBundle {
     fn plan_and_compile(&mut self, target: &mut graph::Target);
     fn build_graph(&mut self, iter: &[crate::proto::node_def::NodeDef]);
 }
 
-struct TheBundle<NEX: Default, TEX: Default, S: strategy::Strategy<NEX=NEX, TEX=TEX>> {
+pub struct TheBundle<NEX: Default, TEX: Default, S: strategy::Strategy<NEX=NEX, TEX=TEX>> {
     strategy: S,
     graph: Option<Box<graph::Graph<NEX, TEX>>> // NOTE: we keep the graph in box since there are pointers inside nodes that refers to the graph. TODO: use Pin for the box to gurarantee that they are not moved
 }

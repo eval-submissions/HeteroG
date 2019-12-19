@@ -24,9 +24,9 @@ import tge
 options = [[0, 1], [1, 0], [0, 2], [2, 0], [1, 1]]
 
 import sys
-dec = [int(x) for x in sys.argv[1].split('_')] # first two are 0 and 1, remainings are 0-4
+dec = [int(x) for x in sys.argv[1].split('_')] # first one is 0 or 1, remainings are 0-4
 ngiven = len(dec)
-i = 2
+i = 1
 j = 0
 
 p = []
@@ -44,7 +44,7 @@ for node in gdef.node:
 
 best = 2147483647
 
-assert j == 2
+assert j == 1
 
 while True:
     # test current
