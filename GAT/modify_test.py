@@ -26,6 +26,8 @@ devices=config_dict.get("devices", [
     "/job:tge/replica:0/task:1/device:GPU:0",
     "/job:tge/replica:0/task:1/device:GPU:1"
 ])
+device_mems=config_dict.get("device_mems", [16*10e9,16*10e9,16*10e9,16*10e9])
+
 class Environment(object):
     def __init__(self,gdef_path,devices,folder):
 
@@ -41,7 +43,7 @@ class Environment(object):
 
     def get_reward(self,strategy,index_id_dict):
         if self.strategy_reward_dict.get(str(strategy),None):
-            reward= self.strategy_reward_dict.get(str(strategy))
+            time= self.strategy_reward_dict.get(str(strategy))
         else:
             bandwidth = config_dict.get("bandwidth",None)
             if bandwidth==None:
@@ -50,10 +52,15 @@ class Environment(object):
             else:
                 intra = bandwidth[0]
                 inter = bandwidth[1]
-            reward = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).set_bandwidth(intra,inter).evaluate(self.name_cost_dict,self.folder+"/modified_strategy.json")
+            time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).set_bandwidth(intra,inter).evaluate(self.name_cost_dict,self.folder+"/modified_strategy.json")
+            time = time_mem_tuple[0]
+            mem_list = time_mem_tuple[1]
+            time = float(time) / (10 ** 6)
+            if any(np.array(mem_list) > np.array(device_mems)):
+                time = time * 10000
             #reward = np.sum(strategy*strategy)
-            self.strategy_reward_dict[str(strategy)]=reward
-        return np.float32(reward/(10**6))
+            self.strategy_reward_dict[str(strategy)]=time
+        return np.float32(time)
 
     def directly_get_reward(self,strategy_dict):
         bandwidth = config_dict.get("bandwidth", None)

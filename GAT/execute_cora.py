@@ -64,7 +64,7 @@ devices=config_dict.get("devices", [
 ])
 show_interval = 3
 
-
+device_mems=config_dict.get("device_mems", [16*10e9,16*10e9,16*10e9,16*10e9])
 def rel_multihead_attn(w, r,d_model,mems,
                        n_head, d_head, nb_nodes,scope='rel_attn'):
     scale = 1 / (d_head ** 0.5)
@@ -327,9 +327,15 @@ class Environment(object):
         else:
             intra = bandwidth[0]
             inter = bandwidth[1]
-        time = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom(strategy).set_bandwidth(intra,inter).evaluate(self.name_cost_dict)
+        time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom(strategy).set_bandwidth(intra,inter).evaluate(self.name_cost_dict)
+        time = time_mem_tuple[0]
+        mem_list = time_mem_tuple[1]
         time = float(time)/(10**6)
+
+        if any(np.array(mem_list) > np.array(device_mems)):
+            time = time*10000
         #reward = np.sum(strategy*strategy)
+
         if time<self.best_time:
             self.best_time = time
             self.best_strategy = strategy
