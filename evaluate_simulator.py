@@ -20,8 +20,8 @@ init = tf.global_variables_initializer()
 gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
 
 devices = (
-    "/job:tge/replica:0/task:0/device:GPU:0",
-    "/job:tge/replica:0/task:0/device:GPU:1"
+    "/GPU:0",
+    "/GPU:1"
 )
 
 import tge
@@ -47,7 +47,7 @@ init = graph.get_operation_by_name("import/init/replica_0")
 data = { x: np.random.uniform(size=(64, 224, 224, 3)), y: np.random.uniform(size=(64, 1000)) }
 config = tf.ConfigProto(allow_soft_placement=True)#log_device_placement=True)
 
-sess = tf.Session(server.target, config=config)
+sess = tf.Session(None, config=config)
 sess.run(init)
 sess.run(opt, data)
 
@@ -64,7 +64,7 @@ gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
 
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
-    .set_bandwidth(intra=100000, inter=1000)
+    .set_bandwidth(intra=100000, inter=100000)
     .evaluate({ node.name: [np.random.randint(0, 1000)] * len(devices) for node in gdef.node })
 )
 print("simulated: {}".format(g[0]))
