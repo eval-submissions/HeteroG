@@ -181,7 +181,7 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
             for node_id in self.controls.iter() {
                 let dep_node = &self.graph().nodes[*node_id];
                 for i in 0..dep_node.form.ndev() {
-                    node.input.push(dep_node.replica(i))
+                    node.input.push(format!("^{}", dep_node.replica(i)))
                 }
             }
 
@@ -364,6 +364,10 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
 
     pub fn resplit(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
         assert!(from.valid() && to.valid() && from.is_part() && to.is_part());
+
+        if from.ndev() == to.ndev() { // special case: if the number are the same, just forward. TODO: use replicas on the same device when possible
+            return self.as_form(from, target).to_vec().into_boxed_slice()
+        }
 
         let gcd = { // the number of intermediat concated nodes
             let mut a = from.ndev();

@@ -39,11 +39,10 @@ tf.reset_default_graph()
 tf.import_graph_def(g)
 graph = tf.get_default_graph()
 
-x = graph.get_tensor_by_name("import/Placeholder:0")
-y = graph.get_tensor_by_name("import/Placeholder_1:0")
-opt = graph.get_operation_by_name("import/GradientDescent")
-init = graph.get_operation_by_name("import/init")
-
+x = graph.get_tensor_by_name("import/Placeholder/replica_0:0")
+y = graph.get_tensor_by_name("import/Placeholder_1/replica_0:0")
+opt = graph.get_operation_by_name("import/GradientDescent/replica_0")
+init = graph.get_operation_by_name("import/init/replica_0")
 
 data = { x: np.random.uniform(size=(64, 224, 224, 3)), y: np.random.uniform(size=(64, 1000)) }
 config = tf.ConfigProto(allow_soft_placement=True)#log_device_placement=True)
