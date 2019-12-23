@@ -24,12 +24,15 @@ class Profiler():
         input_dict = { p: np.random.rand(*p.shape.as_list()) for p in placeholders }
 
         run_meta = tf.compat.v1.RunMetadata()
-        run_opt = tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE, output_partition_graphs=True)
+        run_opt = tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)#, output_partition_graphs=True)
         opt = graph.get_operation_by_name('import/GradientDescent')
+        sess.run(opt, feed_dict=input_dict)
         sess.run(opt, options=run_opt, run_metadata=run_meta, feed_dict=input_dict)
 
         result = { x: [float('inf'), 0] for x in self.names }
         for dev in run_meta.step_stats.dev_stats:
+            if 'Kernel' not in dev.device: # TODO: if no GPU data for this op, use the CPU data
+                continue
             for node in dev.node_stats:
                 name = node.node_name.split(':')[0][7:] # remove "import/" prefix
                 if name in result:

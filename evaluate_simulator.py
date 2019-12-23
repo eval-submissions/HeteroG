@@ -1,11 +1,47 @@
+# def model_fn(bsize=None):
+#     from tensorflow.contrib.slim.nets import vgg
+#     x = tf.placeholder(tf.float32, shape=(bsize, 224, 224, 3))
+#     y = tf.placeholder(tf.float32, shape=(bsize, 1000))
+#     output, _ = vgg.vgg_19(x, 1000)
+#     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
+#     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
+#     return optimizer
+
 def model_fn(bsize=None):
-    from tensorflow.contrib.slim.nets import vgg
+    from tensorflow.contrib.slim.nets import resnet_v2
     x = tf.placeholder(tf.float32, shape=(bsize, 224, 224, 3))
     y = tf.placeholder(tf.float32, shape=(bsize, 1000))
-    output, _ = vgg.vgg_19(x, 1000)
+    output, _ = resnet_v2.resnet_v2_101(x, 1000)
+    output = tf.contrib.slim.flatten(output)
     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
     return optimizer
+
+# def model_fn(bsize):
+#     x = tf.placeholder(tf.float32, shape=(bsize, 1024))
+#     y = tf.placeholder(tf.float32, shape=(bsize, 10,))
+#     hidden = tf.contrib.slim.fully_connected(x, 256, activation_fn=tf.nn.softmax)
+#     output = tf.contrib.slim.fully_connected(hidden, 10, activation_fn=tf.nn.softmax)
+#     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
+#     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
+#     return optimizer
+
+# def model_fn(bsize):
+#     slim = tf.contrib.slim
+#     x = tf.placeholder(tf.float32, shape=(bsize, 32, 32, 3))
+#     y = tf.placeholder(tf.float32, shape=(bsize, 1000))
+#     net = slim.conv2d(x, 32, [5, 5])
+#     net = slim.max_pool2d(net, [2, 2], 2)
+#     net = slim.conv2d(net, 64, [5, 5])
+#     net = slim.max_pool2d(net, [2, 2], 2)
+#     net = slim.flatten(net)
+#     net = slim.fully_connected(net, 1024, activation_fn=tf.nn.sigmoid)
+#     net = slim.fully_connected(net, 1000, activation_fn=None)
+#     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=net)
+#     acc = tf.reduce_mean(tf.nn.softmax(net) * y)
+#     optimizer = tf.train.GradientDescentOptimizer(0.001).minimize(tf.reduce_sum(loss))
+#     return optimizer
+
 
 import time
 import numpy as np
@@ -51,20 +87,39 @@ sess = tf.Session(None, config=config)
 sess.run(init)
 sess.run(opt, data)
 
-for i in range(3):
-    tic = time.perf_counter()
-    sess.run(opt, data)
-    toc = time.perf_counter()
-    print("actual {}: {}".format(i, toc - tic))
+# run_meta = tf.compat.v1.RunMetadata()
+# run_opt = tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+# sess.run(opt, data, options=run_opt, run_metadata=run_meta)
+
+# with open("meta_{}".format(i), "w") as fo:
+#     fo.write(pbtf.MessageToString(run_meta))
+
+# tl = timeline.Timeline(run_meta.step_stats)
+# with open("t_{}".format(i), "w") as fo:
+#     fo.write(tl.generate_chrome_trace_format())
+
+tic = time.perf_counter()
+sess.run(opt, data)
+toc = time.perf_counter()
 
 tf.reset_default_graph()
 opt = model_fn(64)
 init = tf.global_variables_initializer()
 gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
 
+from profiler import Profiler
+
+p = Profiler(gdef)
+prof_dict = { node.name: [ p.profile(node.name, device) for device in devices ] for node in gdef.node }
+
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
     .set_bandwidth(intra=100000, inter=100000)
-    .evaluate({ node.name: [np.random.randint(0, 1000)] * len(devices) for node in gdef.node })
+    .evaluate(prof_dict)
 )
+
+print("actual: {}".format(toc - tic))
 print("simulated: {}".format(g[0]))
+
+with open("result", "a") as fo:
+    fo.write("{} {}\n".format(toc - tic, g[0]))
