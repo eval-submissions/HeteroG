@@ -62,6 +62,8 @@ devices=config_dict.get("devices", [
     "/job:tge/replica:0/task:1/device:GPU:0",
     "/job:tge/replica:0/task:1/device:GPU:1"
 ])
+
+max_replica_num = config_dict.get("max_replica_num",len(devices))
 show_interval = 3
 
 device_mems=config_dict.get("device_mems", [16*10e9,16*10e9,16*10e9,16*10e9])
@@ -185,16 +187,16 @@ class strategy_pool(object):
 
         self.rewards = [item["reward"] for item in self.strategies] if len(self.strategies) else [0]
 
-        # data parallel
+        # even data parallel
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
-        device_choice = np.array([np.arange(len(devices)) for i in range(self.node_num)])
+        device_choice = np.array([np.arange(max_replica_num)%(len(devices)) for i in range(self.node_num)])
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
         reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
         if not out_of_memory:
             self.insert(reward, device_choice, ps_or_reduce)
 
         #single gpu
-        device_choice = np.negative(np.ones(shape=(self.node_num, len(devices)), dtype=np.int32))
+        device_choice = np.negative(np.ones(shape=(self.node_num, max_replica_num), dtype=np.int32))
         for item in device_choice:
             item[0] =0
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
@@ -314,7 +316,7 @@ class Environment(object):
         return new_device_array
     def get_reward2(self,device_choice,ps_or_reduce,index_id_dict):
         out_of_memory=False
-        new_device_array = np.zeros(shape=device_choice.shape,dtype=np.int32)
+        new_device_array = np.zeros(shape=(device_choice.shape[0],len(devices)),dtype=np.int32)
         for i in range(device_choice.shape[0]):
             for j in range(device_choice.shape[1]):
                 if device_choice[i,j]!=-1 and device_choice[i,j]!=len(self.devices):
@@ -398,8 +400,7 @@ class feature_item(object):
         self.average_reward=0
         self.best_reward = 1-sys.maxsize
         self.best_replica_num = list()
-        self.best_replica_n_hot_num = np.zeros(shape=(self.nb_nodes, len(devices)), dtype=np.int32)
-        self.best_device_choice = np.zeros(shape=(self.nb_nodes, len(devices)), dtype=np.int32)
+        self.best_device_choice = np.zeros(shape=(self.nb_nodes, max_replica_num), dtype=np.int32)
         self.best_ps_or_reduce = list()
         self.folder_path = folder_path
         self.strategy_pool = strategy_pool(folder_path,self.nb_nodes,self.index_id_dict,self.env)
@@ -428,11 +429,11 @@ class feature_item(object):
 
         for i in range(sample_times):
             replica_num = list()
-            replica_n_hot_num = np.zeros(shape=(self.nb_nodes,len(devices)),dtype=np.int32)
-            device_choice = np.zeros(shape=(self.nb_nodes,len(devices)),dtype=np.int32)
+            replica_n_hot_num = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
+            device_choice = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
             ps_or_reduce=list()
             finished_node = list()
-            for i in range(len(devices)):
+            for i in range(max_replica_num):
                 output = outputs[i]
                 for j,pred in enumerate(output):
                    # pred = pred*0.9+(0.1/pred.size)
@@ -449,7 +450,7 @@ class feature_item(object):
                         device_choice[j,i] = -1
             replica_n_hot_nums.append(replica_n_hot_num)
 
-            for j, pred in enumerate(outputs[len(devices)]):
+            for j, pred in enumerate(outputs[max_replica_num]):
                 #pred = pred * 0.9 + (0.1 / pred.size)
                 index = np.random.choice(pred.size, p=pred)
                 ps_or_reduce.append(index)
@@ -459,7 +460,6 @@ class feature_item(object):
             if _reward>self.best_reward:
                 self.best_reward = _reward
                 self.best_replica_num = replica_num
-                self.best_replica_n_hot_num = replica_n_hot_num
                 self.best_device_choice = device_choice
                 self.best_ps_or_reduce = ps_or_reduce
             if not out_of_memory:
@@ -476,11 +476,11 @@ class feature_item(object):
 
         #sample real distribution
         replica_num = list()
-        replica_n_hot_num = np.zeros(shape=(self.nb_nodes,len(devices)),dtype=np.int32)
-        device_choice = np.zeros(shape=(self.nb_nodes,len(devices)),dtype=np.int32)
+        replica_n_hot_num = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
+        device_choice = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
         ps_or_reduce=list()
         finished_node = list()
-        for i in range(len(devices)):
+        for i in range(max_replica_num):
             output = outputs[i]
             for j,pred in enumerate(output):
                 if j not in finished_node:
@@ -494,7 +494,7 @@ class feature_item(object):
                         replica_n_hot_num[j,i]=1
                 else:
                     device_choice[j,i] = -1
-        for j, pred in enumerate(outputs[len(devices)]):
+        for j, pred in enumerate(outputs[max_replica_num]):
             index = np.random.choice(pred.size, p=pred)
             ps_or_reduce.append(index)
         ps_or_reduce = np.array(ps_or_reduce)
@@ -502,7 +502,6 @@ class feature_item(object):
         if _reward>self.best_reward:
             self.best_reward = _reward
             self.best_replica_num = replica_num
-            self.best_replica_n_hot_num = replica_n_hot_num
             self.best_device_choice = device_choice
             self.best_ps_or_reduce = ps_or_reduce
         if epoch>20:
@@ -571,7 +570,6 @@ class ac_feature_item(object):
         self.average_reward=0
         self.best_reward = 1-sys.maxsize
         self.best_replica_num = list()
-        self.best_replica_n_hot_num = np.zeros(shape=(self.nb_nodes, len(devices)), dtype=np.int32)
         self.best_device_choice = np.zeros(shape=(self.nb_nodes, len(devices)), dtype=np.int32)
         self.best_ps_or_reduce = list()
         self.folder_path = folder_path
@@ -633,7 +631,6 @@ class ac_feature_item(object):
         if _reward>self.best_reward:
             self.best_reward = _reward
             self.best_replica_num = replica_num
-            self.best_replica_n_hot_num = replica_n_hot_num
             self.best_device_choice = device_choice
             self.best_ps_or_reduce = ps_or_reduce
 
@@ -682,8 +679,8 @@ class new_place_GNN():
             self.ffd_drop = tf.placeholder(dtype=tf.float32, shape=(),name="ffd_drop")
             self.is_train = tf.placeholder(dtype=tf.bool, shape=(),name="is_train")
             self.sample_ps_or_reduce = tf.placeholder(dtype=tf.int32, shape=(None,None,),name="sample_ps_or_reduce")
-            self.sample_device_choice = tf.placeholder(dtype=tf.int32, shape=(None,None,len(devices),),name="sample_device_choice")
-            self.replica_num_array = tf.placeholder(dtype=tf.float32, shape=(None,None,len(devices)),name="replica_num_array")
+            self.sample_device_choice = tf.placeholder(dtype=tf.int32, shape=(None,None,max_replica_num,),name="sample_device_choice")
+            self.replica_num_array = tf.placeholder(dtype=tf.float32, shape=(None,None,max_replica_num),name="replica_num_array")
             self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(None,),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
             self.mems = [tf.placeholder(tf.float32,[2, None, 64]) for _ in range(3)]
@@ -696,7 +693,7 @@ class new_place_GNN():
         log_resh = tf.reshape(logits, [-1, 64])
         log_resh = tf.layers.dense(log_resh, units=64, activation=tf.nn.relu)
         if not transformer:
-            self.cell = tf.nn.rnn_cell.MultiRNNCell([self.get_a_cell() for _ in range(len(devices))])
+            self.cell = tf.nn.rnn_cell.MultiRNNCell([self.get_a_cell() for _ in range(max_replica_num)])
             h0 = self.cell.zero_state(self.nb_node, np.float32)
             self.output,self.h = self.cell.call(log_resh, h0)
             self.ps_or_reduce = tf.layers.dense(self.output, units=2, activation=tf.nn.softmax)
@@ -705,12 +702,12 @@ class new_place_GNN():
             out = tf.layers.dense(self.h[0].c, units=len(devices), activation=tf.nn.softmax)
             self.device_choices.append(out)
             sum = sum + tf.reduce_mean(tf.reduce_sum(tf.log(out + np.power(10.0, -9)) * out, 1))
-            for i in range(len(devices)-1):
+            for i in range(max_replica_num-1):
                 out = tf.layers.dense(self.h[i+1].c, units=len(devices)+1, activation=tf.nn.softmax)
                 self.device_choices.append(out)
                 sum = sum+tf.reduce_mean(tf.reduce_sum(tf.log(out + np.power(10.0, -9)) *out, 1))
             self.entropy = tf.reduce_sum(tf.log(self.ps_or_reduce + np.power(10.0, -9)) * self.ps_or_reduce, 1)
-            self.entropy = -(tf.reduce_mean(self.entropy) + sum / len(devices))
+            self.entropy = -(tf.reduce_mean(self.entropy) + sum / max_replica_num)
         else:
             self.device_choices = list()
             for i in range(3):
@@ -722,18 +719,18 @@ class new_place_GNN():
                     n_head=10,
                     d_head=50,
                     nb_nodes=self.nb_node)
-                output = tf.layers.dense(output, len(devices)*(len(devices)+1)+1, activation=tf.nn.relu)
+                output = tf.layers.dense(output, max_replica_num*(len(devices)+1)+1, activation=tf.nn.relu)
             sum=0
             o1 = tf.nn.softmax(output[:,0:len(devices)])
             self.device_choices.append(o1)
             sum = sum + tf.reduce_mean(tf.reduce_sum(tf.log(o1 + np.power(10.0, -9)) * o1, 1))
-            for i in range(1,len(devices)):
+            for i in range(1,max_replica_num):
                 oi = tf.nn.softmax(output[:,i*(len(devices)+1)-1:(i+1)*(len(devices)+1)-1])
                 self.device_choices.append(oi)
                 sum = sum + tf.reduce_mean(tf.reduce_sum(tf.log(oi + np.power(10.0, -9)) * oi, 1))
             self.ps_or_reduce = tf.nn.softmax(output[:,-2:])
             self.entropy = tf.reduce_sum(tf.log(self.ps_or_reduce + np.power(10.0, -9)) * self.ps_or_reduce, 1)
-            self.entropy = -(tf.reduce_mean(self.entropy) + sum / len(devices))
+            self.entropy = -(tf.reduce_mean(self.entropy) + sum / max_replica_num)
 
 
         for i in range(sample_times):
@@ -752,7 +749,7 @@ class new_place_GNN():
             reward += tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * self.time_ratio[i])
 
             #rest device choice n*(m+1)
-            for j in range(1,len(devices)):
+            for j in range(1,max_replica_num):
                 one_hot_sample = tf.one_hot(self.sample_device_choice[i][:,j], len(devices)+1)
                 prob = tf.reduce_sum(self.device_choices[j] * one_hot_sample, 1) * self.replica_num_array[i][:,j]+(1-self.replica_num_array[i][:,j])
                 reward+=tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * self.time_ratio[i])
