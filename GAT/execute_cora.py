@@ -189,16 +189,18 @@ class strategy_pool(object):
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
         device_choice = np.array([np.arange(len(devices)) for i in range(self.node_num)])
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
-        reward = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
-        self.insert(reward, device_choice, ps_or_reduce)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+        if not out_of_memory:
+            self.insert(reward, device_choice, ps_or_reduce)
 
         #single gpu
         device_choice = np.negative(np.ones(shape=(self.node_num, len(devices)), dtype=np.int32))
         for item in device_choice:
             item[0] =0
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
-        reward = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
-        self.insert(reward, device_choice, ps_or_reduce)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+        if not out_of_memory:
+            self.insert(reward, device_choice, ps_or_reduce)
 
         self.rewards = [item["reward"] for item in self.strategies]
 
@@ -311,7 +313,7 @@ class Environment(object):
         new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
         return new_device_array
     def get_reward2(self,device_choice,ps_or_reduce,index_id_dict):
-
+        out_of_memory=False
         new_device_array = np.zeros(shape=device_choice.shape,dtype=np.int32)
         for i in range(device_choice.shape[0]):
             for j in range(device_choice.shape[1]):
@@ -334,9 +336,10 @@ class Environment(object):
 
         if any(np.array(mem_list) > np.array(device_mems)):
             time = time*10000
+            out_of_memory=True
         #reward = np.sum(strategy*strategy)
 
-        if time<self.best_time:
+        if time<self.best_time and out_of_memory==False:
             self.best_time = time
             self.best_strategy = strategy
             with open(self.folder_path+"/best_time.log", "w") as f:
@@ -346,7 +349,7 @@ class Environment(object):
                 tmp["cost"] = self.name_cost_dict
                 json.dump(tmp, f)
 
-        return -np.float32(np.sqrt(time))
+        return -np.float32(np.sqrt(time)),out_of_memory
 
     def get_name_cost_dict(self):
         name_cost_dict = dict()
@@ -444,7 +447,6 @@ class feature_item(object):
                             replica_n_hot_num[j,i]=1
                     else:
                         device_choice[j,i] = -1
-            device_choices.append(device_choice)
             replica_n_hot_nums.append(replica_n_hot_num)
 
             for j, pred in enumerate(outputs[len(devices)]):
@@ -452,19 +454,21 @@ class feature_item(object):
                 index = np.random.choice(pred.size, p=pred)
                 ps_or_reduce.append(index)
             ps_or_reduce = np.array(ps_or_reduce)
-            ps_or_reduces.append(ps_or_reduce)
             cal_entropy = outputs[-1]
-            _reward = self.env.get_reward2( device_choice,ps_or_reduce,self.index_id_dict)
+            _reward,out_of_memory = self.env.get_reward2( device_choice,ps_or_reduce,self.index_id_dict)
             if _reward>self.best_reward:
                 self.best_reward = _reward
                 self.best_replica_num = replica_num
                 self.best_replica_n_hot_num = replica_n_hot_num
                 self.best_device_choice = device_choice
                 self.best_ps_or_reduce = ps_or_reduce
-            rewards.append(_reward)
-
-        index  = rewards.index(max(rewards))
-        self.strategy_pool.insert(rewards[index],device_choices[index],ps_or_reduces[index])
+            if not out_of_memory:
+                rewards.append(_reward)
+                ps_or_reduces.append(ps_or_reduce)
+                device_choices.append(device_choice)
+        if len(rewards):
+            index  = rewards.index(max(rewards))
+            self.strategy_pool.insert(rewards[index],device_choices[index],ps_or_reduces[index])
         pool_strategy = self.strategy_pool.choose_strategy()
         rewards.append(pool_strategy["reward"])
         device_choices.append(pool_strategy["device_choice"])
@@ -494,7 +498,7 @@ class feature_item(object):
             index = np.random.choice(pred.size, p=pred)
             ps_or_reduce.append(index)
         ps_or_reduce = np.array(ps_or_reduce)
-        _reward = self.env.get_reward2( device_choice,ps_or_reduce,self.index_id_dict)
+        _reward,out_of_memory = self.env.get_reward2( device_choice,ps_or_reduce,self.index_id_dict)
         if _reward>self.best_reward:
             self.best_reward = _reward
             self.best_replica_num = replica_num
