@@ -732,8 +732,9 @@ class new_place_GNN():
                     n_head=10,
                     d_head=50,
                     nb_nodes=self.nb_node)
-            sum=0
+            
             '''
+            sum = 0
             o1 = tf.nn.softmax(output[:,0:len(devices)])
             self.device_choices.append(o1)
             sum = sum + tf.reduce_mean(tf.reduce_sum(tf.log(o1 + np.power(10.0, -9)) * o1, 1))
