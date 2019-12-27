@@ -37,8 +37,10 @@ nb_epochs = 100000
 patience = 100
 lr = config_dict.get("learning_rate",0.01)  # learning rate
 l2_coef = 0.0005  # weight decay
-hid_units = [256,256] # numbers of hidden units per each attention head in each layer
-n_heads = [4,4, 6] # additional entry for the output layer
+hid_units = [256,512] # numbers of hidden units per each attention head in each layer
+n_heads = [64,16, 8] # additional entry for the output layer
+place_hid_units=[512,256,256]
+place_n_heads=[4,2, 2,1]
 residual = False
 nonlinearity = tf.nn.elu
 model = SpGAT
@@ -690,9 +692,10 @@ class new_place_GNN():
                                  bias_mat=self.bias_in,
                                  hid_units=hid_units, n_heads=n_heads,
                                  residual=residual, activation=nonlinearity)
-        log_resh = tf.reshape(logits, [-1, 64])
-        log_resh = tf.layers.dense(log_resh, units=64, activation=tf.nn.relu)
+
         if not transformer:
+            log_resh = tf.reshape(logits, [-1, 64])
+            log_resh = tf.layers.dense(log_resh, units=64, activation=tf.nn.relu)
             self.cell = tf.nn.rnn_cell.MultiRNNCell([self.get_a_cell() for _ in range(max_replica_num)])
             h0 = self.cell.zero_state(self.nb_node, np.float32)
             self.output,self.h = self.cell.call(log_resh, h0)
@@ -709,18 +712,28 @@ class new_place_GNN():
             self.entropy = tf.reduce_sum(tf.log(self.ps_or_reduce + np.power(10.0, -9)) * self.ps_or_reduce, 1)
             self.entropy = -(tf.reduce_mean(self.entropy) + sum / max_replica_num)
         else:
+
+            logits=model.inference(logits, 64, self.nb_node, self.is_train,
+                            self.attn_drop, self.ffd_drop,
+                            bias_mat=self.bias_in,
+                            hid_units=place_hid_units, n_heads=place_n_heads,
+                            residual=residual, activation=nonlinearity)
+
             self.device_choices = list()
-            for i in range(3):
+            output = tf.reshape(logits, [-1, 64])
+            output = tf.layers.dense(max_replica_num*(len(devices)+1)+1, units=64, activation=tf.nn.relu)
+            '''
+            for i in range(6):
                 output = rel_multihead_attn(
                     w=log_resh,
                     r = self.bias_in,
-                    d_model=64,
+                    d_model=max_replica_num*(len(devices)+1)+1,
                     mems=self.mems[i],
                     n_head=10,
                     d_head=50,
                     nb_nodes=self.nb_node)
-                output = tf.layers.dense(output, max_replica_num*(len(devices)+1)+1, activation=tf.nn.relu)
             sum=0
+            '''
             o1 = tf.nn.softmax(output[:,0:len(devices)])
             self.device_choices.append(o1)
             sum = sum + tf.reduce_mean(tf.reduce_sum(tf.log(o1 + np.power(10.0, -9)) * o1, 1))
