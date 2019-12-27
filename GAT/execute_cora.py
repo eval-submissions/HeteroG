@@ -713,15 +713,15 @@ class new_place_GNN():
             self.entropy = -(tf.reduce_mean(self.entropy) + sum / max_replica_num)
         else:
 
-            logits=model.inference(logits, 64, self.nb_node, self.is_train,
+            logits=model.inference(logits, max_replica_num*(len(devices)+1)+1, self.nb_node, self.is_train,
                             self.attn_drop, self.ffd_drop,
                             bias_mat=self.bias_in,
                             hid_units=place_hid_units, n_heads=place_n_heads,
                             residual=residual, activation=nonlinearity)
 
             self.device_choices = list()
-            output = tf.reshape(logits, [-1, 64])
-            output = tf.layers.dense(max_replica_num*(len(devices)+1)+1, units=64, activation=tf.nn.relu)
+            output = tf.reshape(logits, [-1, max_replica_num*(len(devices)+1)+1])
+            output = tf.layers.dense(output, units=max_replica_num*(len(devices)+1)+1, activation=tf.nn.relu)
             '''
             for i in range(6):
                 output = rel_multihead_attn(
