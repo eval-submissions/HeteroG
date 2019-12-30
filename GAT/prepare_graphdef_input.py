@@ -9,6 +9,8 @@ from tensorflow.core.framework import node_def_pb2
 import sys
 import json
 import os
+from tensorflow.core.framework import graph_pb2
+import google.protobuf.text_format as pbtf
 sys.path.append('../')
 from profiler import Profiler
 
@@ -150,12 +152,19 @@ def generate_feature_file(gdef,folder,profile_file):
     with open("op_type_dict.json", "w") as f:
         json.dump(op_type_dict,f)
 
-models = ["vgg19","resnet200","resnet50","resnet101","resnet152","inceptionv3"]
+models = ["vgg19","resnet200","resnet50","resnet101","resnet152","inceptionv3","bert"]
 for i in range(len(models)):
     tf.reset_default_graph()
     folder = "data/graph"+str(i+1)+"/"
-    opt = model_fn(models[i])
-    init = tf.global_variables_initializer()
-    gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+    if os.path.exists(folder+"graph.pbtxt"):
+        gdef = graph_pb2.GraphDef()
+        with open(folder+"graph.pbtxt","r")as f:
+            txt = f.read()
+        pbtf.Parse(txt,gdef)
+        tf.import_graph_def(gdef)
+    else:
+        opt = model_fn(models[i])
+        init = tf.global_variables_initializer()
+        gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
     generate_edge_file(gdef,folder)
-    generate_feature_file(gdef,folder)
+    generate_feature_file(gdef,folder,None)
