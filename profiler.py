@@ -9,32 +9,34 @@ class Profiler():
         self.profiled = set()
         self.cache = {} # TODO: persistence? LRU?
 
-    def _profile(self, device):
-        tf.reset_default_graph()
-        tf.import_graph_def(self.graph_def)
-        graph = tf.get_default_graph()
-        for op in graph.get_operations():
-            op._set_device(device)
-        init = graph.get_operation_by_name("import/init")
+    def _profile(self, device, run_meta):
+        if run_meta == None:
+            tf.reset_default_graph()
+            tf.import_graph_def(self.graph_def)
+            graph = tf.get_default_graph()
+            for op in graph.get_operations():
+                op._set_device(device)
+            init = graph.get_operation_by_name("import/init")
 
-        sess = tf.Session(self.target)#, config=tf.ConfigProto(allow_soft_placement=False))
-        sess.run(init)
+            sess = tf.Session(self.target)#, config=tf.ConfigProto(allow_soft_placement=False))
+            sess.run(init)
 
-        placeholders = (node.outputs[0] for node in graph.get_operations() if node.node_def.op == 'Placeholder')
-        input_dict = { p: np.random.rand(*p.shape.as_list()) for p in placeholders }
+            placeholders = (node.outputs[0] for node in graph.get_operations() if node.node_def.op == 'Placeholder')
+            input_dict = { p: np.random.rand(*p.shape.as_list()) for p in placeholders }
 
-        run_meta = tf.compat.v1.RunMetadata()
-        run_opt = tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)#, output_partition_graphs=True)
-        opt = graph.get_operation_by_name('import/GradientDescent')
-        sess.run(opt, feed_dict=input_dict)
-        sess.run(opt, options=run_opt, run_metadata=run_meta, feed_dict=input_dict)
+            run_meta = tf.compat.v1.RunMetadata()
+            run_opt = tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)#, output_partition_graphs=True)
+            # TODO: read sink nodes
+            opt = graph.get_operation_by_name('import/GradientDescent')
+            sess.run(opt, feed_dict=input_dict)
+            sess.run(opt, options=run_opt, run_metadata=run_meta, feed_dict=input_dict)
 
         result = { x: [float('inf'), 0] for x in self.names }
         for dev in run_meta.step_stats.dev_stats:
-            if 'Kernel' not in dev.device: # TODO: if no GPU data for this op, use the CPU data
+            if 'stream:all' not in dev.device: # TODO: if no GPU data for this op, use the CPU data
                 continue
             for node in dev.node_stats:
-                name = node.node_name.split(':')[0][7:] # remove "import/" prefix
+                name = node.node_name.split(':')[0].lstrip('import/')
                 if name in result:
                     result[name][0] = min(result[name][0], node.all_start_micros)
                     result[name][1] = max(result[name][1], node.all_start_micros + node.all_end_rel_micros)
@@ -45,7 +47,7 @@ class Profiler():
 
         self.profiled.add(device)
 
-    def profile(self, node_name, device):
+    def profile(self, node_name, device, run_meta=None):
         if device not in self.profiled:
-            self._profile(device)
+            self._profile(device, run_meta)
         return self.cache.get((node_name, device), 0)
