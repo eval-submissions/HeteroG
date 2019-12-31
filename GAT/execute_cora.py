@@ -536,10 +536,10 @@ class feature_item(object):
             self.best_replica_num = replica_num
             self.best_device_choice = device_choice
             self.best_ps_or_reduce = ps_or_reduce
-        if epoch>20:
-            self.average_reward = (self.average_reward*19+_reward)/20 if not out_of_memory else self.average_reward
-        else:
-            self.average_reward = (self.average_reward * epoch+ _reward) /(epoch+1) if not out_of_memory else self.average_reward
+       # if epoch>20:
+       #     self.average_reward = (self.average_reward*19+_reward)/20 if not out_of_memory else self.average_reward
+       # else:
+       #     self.average_reward = (self.average_reward * epoch+ _reward) /(epoch+1) if not out_of_memory else self.average_reward
 
 
         while tr_step * batch_size < tr_size:
@@ -549,7 +549,7 @@ class feature_item(object):
                             replica_num_array=np.array(replica_n_hot_nums),
                             sample_ps_or_reduce = np.array(ps_or_reduces),
                             sample_device_choice = np.array(device_choices),
-                            time_ratio = (np.array(rewards)-float(self.average_reward)),
+                            time_ratio = (np.array(rewards)-float(np.mean(self.strategy_pool.rewards))),
                             coef_entropy=co_entropy,
                             mems = self.mems)
             tr_step += 1
@@ -557,7 +557,7 @@ class feature_item(object):
         if epoch % show_interval == 0:
             print("[{}] step = {}".format(self.folder_path,epoch))
             print("[{}] time = {}".format(self.folder_path,times))
-            print("[{}] average reward = {}".format(self.folder_path,self.average_reward))
+            print("[{}] average reward = {}".format(self.folder_path,np.mean(self.strategy_pool.rewards)))
             print("[{}] overall entropy:{}".format(self.folder_path,cal_entropy))
             with open(self.folder_path+"/time.log", "a+") as f:
                 f.write(str(times) + ",")
