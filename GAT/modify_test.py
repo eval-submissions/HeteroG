@@ -70,10 +70,15 @@ class Environment(object):
         else:
             intra = bandwidth[0]
             inter = bandwidth[1]
-        time = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom(
+        time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom(
             strategy_dict).set_bandwidth(intra,inter).evaluate(
             self.name_cost_dict,self.folder+"/best_stratey.json")
-        return np.float32(time / (10 ** 6))
+        time = time_mem_tuple[0]
+        mem_list = time_mem_tuple[1]
+        time = float(time) / (10 ** 6)
+        if any(np.array(mem_list) > np.array(device_mems)):
+            time = time * 10000
+        return np.float32(time)
 
     def get_name_cost_dict(self):
         name_cost_dict = dict()
