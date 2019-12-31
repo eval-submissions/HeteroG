@@ -189,9 +189,20 @@ class strategy_pool(object):
 
         self.rewards = [item["reward"] for item in self.strategies] if len(self.strategies) else [0]
 
-        # even data parallel
+        # even data parallel 1
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
         device_choice = np.array([np.arange(max_replica_num)%(len(devices)) for i in range(self.node_num)])
+        ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+        if not out_of_memory:
+            self.insert(reward, device_choice, ps_or_reduce)
+
+        # even data parallel 2
+        #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
+        device_choice = np.negative(np.ones(shape=(self.node_num, max_replica_num), dtype=np.int32))
+        for item in device_choice:
+            for i in range(len(devices)):
+                item[i] =i
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
         reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
         if not out_of_memory:
@@ -203,6 +214,24 @@ class strategy_pool(object):
             item[0] =0
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
         reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+        if not out_of_memory:
+            self.insert(reward, device_choice, ps_or_reduce)
+
+        #model parallel 1
+        device_choice = np.negative(np.ones(shape=(self.node_num, max_replica_num), dtype=np.int32))
+        for i,item in enumerate(device_choice):
+            item[0] = i%(len(devices))
+        ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+        if not out_of_memory:
+            self.insert(reward, device_choice, ps_or_reduce)
+
+        # model parallel 2
+        device_choice = np.negative(np.ones(shape=(self.node_num, max_replica_num), dtype=np.int32))
+        for i, item in enumerate(device_choice):
+            item[0] = i//(len(device_choice)//(len(devices)))
+        ps_or_reduce = np.ones(shape=(self.node_num,), dtype=np.int32)
+        reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
         if not out_of_memory:
             self.insert(reward, device_choice, ps_or_reduce)
 
