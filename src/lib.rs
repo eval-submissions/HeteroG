@@ -6,6 +6,7 @@
 
 use oh_my_rust::*;
 use protobuf::{Message, parse_from_bytes};
+use crate::scheduler::Scheduler;
 
 pub mod proto;
 pub mod graph;
@@ -102,13 +103,6 @@ enum CommunicationMethod {
 //     Box::leak(Box::new(Bundle::from(Box::new(bundle))))
 // }
 
-// #[no_mangle]
-// unsafe extern fn dynamic_programming(profiler: extern fn(*const u8, u32) -> u64) -> *mut Bundle {
-//     let strategy = strategy::DynamicProgrammingEarliestFinishTime::new(profiler);
-//     let bundle = TheBundle::new(strategy);
-//     Box::leak(Box::new(Bundle::from(Box::new(bundle))))
-// }
-
 #[no_mangle]
 unsafe extern fn custom(strategy_data: *const u8, len: u32) -> *mut Bundle {
     let strategy_data = std::str::from_utf8(std::slice::from_raw_parts(strategy_data, len as usize)).unwrap();
@@ -151,7 +145,7 @@ unsafe extern fn evaluate(ctx: *mut Context, profile_data: *const u8, profile_le
     } else {
         Some(std::str::from_utf8(std::slice::from_raw_parts(trace_path, trace_len as usize)).unwrap())
     };
-    scheduler::Scheduler::evaluate(&scheduler, target, tracer.map(|x| std::fs::File::create(x).unwrap()).as_mut(), std::slice::from_raw_parts_mut(memory, target.devices.len()))
+    scheduler.evaluate(target, tracer.map(|x| std::fs::File::create(x).unwrap()).as_mut(), std::slice::from_raw_parts_mut(memory, target.devices.len()))
 }
 
 #[no_mangle]

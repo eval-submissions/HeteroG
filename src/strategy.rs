@@ -22,8 +22,5 @@ pub use trival::NotAtAll;
 // mod heft; // earliest finish time
 // pub use heft::NaiveGreedyEarliestFinishTime;
 
-// mod dp2; // dynamic programming
-// pub use dp2::DynamicProgrammingEarliestFinishTime;
-
 mod custom;
 pub use custom::Custom;

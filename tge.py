@@ -41,7 +41,8 @@ def chain(func):
 # TODO: ensure the calling order - get result only after compiling which in turn after setting strategy.
 # Also, replcaing strategy without compiling causes memory leak on the Rust side.
 class TGE:
-    def __init__(self, graph_def, device_list):
+    def __init__(self, graph_def, device_list, sinks=["GradientDescent"]):
+        self.sinks = sinks
         self.graph_def = graph_def
         self.devices = device_list
         self.flag = 0x03

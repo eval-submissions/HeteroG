@@ -43,11 +43,6 @@ pub fn remove_dangling_nodes(end_points: &[&str], target: &mut Target) {
     target.pb.node = target.pb.node.clone().into_iter().filter(|x| keep.contains(&x.name[..])).collect() // TODO: no clone?
 }
 
-pub fn fix_special_controllers(_target: &mut Target) {
-    // fix the GradientDescent and init controler
-    unimplemented!()
-}
-
 pub fn destructify_names(target: &mut Target) {
     for node in target.pb.node.iter_mut() {
         node.name = node.name.replace('/', "__");

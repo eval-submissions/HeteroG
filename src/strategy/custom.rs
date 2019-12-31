@@ -39,11 +39,11 @@ impl Strategy for Custom {
         for node in graph.nodes.iter_mut() {
             node.extra.is_descendant_of_input = node.inputs.iter().any(|x| {
                 let input = &node.graph().nodes[x.0];
-                input.extra.is_descendant_of_input || input.raw_node.op == "Placeholder"
+                input.extra.is_descendant_of_input || input.raw_node.op == "Placeholder" || input.raw_node.op == "IteratorGetNext"
             });
 
             match &node.raw_node.op[..] {
-                "Placeholder" | "Conv2D" | "MaxPool" | "MatMul" | "Conv2DBackpropInput" | "BiasAdd" => node.get_output(0).extra.has_batch_dimension = true,
+                "Placeholder" | "IteratorGetNext" | "Conv2D" | "MaxPool" | "MatMul" | "Conv2DBackpropInput" | "BiasAdd" => node.get_output(0).extra.has_batch_dimension = true,
                 "Cast" | "ZerosLike" |"GreaterEqual" | "Neg" | "Log1p" | "Exp" |
                 "Squeeze" | "Identity" | "Sigmoid" | "LeakyRelu" | "Relu" | "Tanh" => follow(node, 0, 0),
                 "Add" | "Sub" | "Mul" => any_of(node, &[0, 1], 0),
@@ -104,7 +104,7 @@ impl Strategy for Custom {
 
             match &node.raw_node.op[..] {
                 // TODO: RandomUniform, NoOp
-                "Placeholder" | "NoOp" => node.put_on_devices(&[0]), // ignore decision and put on device 0
+                "Placeholder" | "IteratorGetNext" | "NoOp" => node.put_on_devices(&[0]), // ignore decision and put on device 0
                 "ApplyGradientDescent" | "Assign" => { // ignore decision and put along with the variable
                     let var = &node.graph().nodes[node.inputs[0].0];
                     node.put_on_devices(&var.form.devices);
@@ -129,7 +129,7 @@ impl Strategy for Custom {
                         let member = &mut node.graph().nodes[*member];
                         for (id, index, kind) in member.inputs.iter_mut() {
                             let input = node.graph().nodes[*id].get_output(*index);
-                            if (input.node().raw_node.op == "Placeholder" || input.node().extra.is_descendant_of_input) && (group.contains(id) || input.extra.has_batch_dimension) {
+                            if (input.node().raw_node.op == "Placeholder" || input.node().raw_node.op == "IteratorGetNext" || input.node().extra.is_descendant_of_input) && (group.contains(id) || input.extra.has_batch_dimension) {
                                 *kind = FormKind::Part;
                                 member.form.kind = FormKind::Part;
                             }
