@@ -467,12 +467,10 @@ class feature_item(object):
                 self.best_device_choice = device_choice
                 self.best_ps_or_reduce = ps_or_reduce
             if not out_of_memory:
-                rewards.append(_reward)
-                ps_or_reduces.append(ps_or_reduce)
-                device_choices.append(device_choice)
-        if len(rewards):
-            index  = rewards.index(max(rewards))
-            self.strategy_pool.insert(rewards[index],device_choices[index],ps_or_reduces[index])
+                self.strategy_pool.insert(_reward, device_choice, ps_or_reduce)
+            rewards.append(_reward)
+            ps_or_reduces.append(ps_or_reduce)
+            device_choices.append(device_choice)
         if self.strategy_pool.get_length()>0:
             pool_strategy = self.strategy_pool.choose_strategy()
             rewards.append(pool_strategy["reward"])
@@ -510,9 +508,9 @@ class feature_item(object):
             self.best_device_choice = device_choice
             self.best_ps_or_reduce = ps_or_reduce
         if epoch>20:
-            self.average_reward = (self.average_reward*19+np.mean(rewards))/20
+            self.average_reward = (self.average_reward*19+_reward)/20 if not out_of_memory else self.average_reward
         else:
-            self.average_reward = (self.average_reward * epoch+ np.mean(rewards)) /(epoch+1)
+            self.average_reward = (self.average_reward * epoch+ _reward) /(epoch+1) if not out_of_memory else self.average_reward
 
 
         while tr_step * batch_size < tr_size:
