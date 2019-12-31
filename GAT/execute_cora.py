@@ -207,6 +207,8 @@ class strategy_pool(object):
             self.insert(reward, device_choice, ps_or_reduce)
 
         self.rewards = [item["reward"] for item in self.strategies]
+    def get_length(self):
+        return len(self.strategies)
 
     def get_stratey_list(self,device_choice,ps_or_reduce):
         new_device_array = np.zeros(shape=device_choice.shape,dtype=np.int32)
@@ -471,10 +473,11 @@ class feature_item(object):
         if len(rewards):
             index  = rewards.index(max(rewards))
             self.strategy_pool.insert(rewards[index],device_choices[index],ps_or_reduces[index])
-        pool_strategy = self.strategy_pool.choose_strategy()
-        rewards.append(pool_strategy["reward"])
-        device_choices.append(pool_strategy["device_choice"])
-        ps_or_reduces.append(np.reshape(pool_strategy["ps_or_reduce"],(self.nb_nodes,)))
+        if self.strategy_pool.get_length()>0:
+            pool_strategy = self.strategy_pool.choose_strategy()
+            rewards.append(pool_strategy["reward"])
+            device_choices.append(pool_strategy["device_choice"])
+            ps_or_reduces.append(np.reshape(pool_strategy["ps_or_reduce"],(self.nb_nodes,)))
 
         #sample real distribution
         replica_num = list()
