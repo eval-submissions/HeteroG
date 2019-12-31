@@ -5,11 +5,11 @@ import tensorflow as tf
 import google.protobuf.text_format as pbtf
 from tensorflow.python.client import timeline
 from tensorflow.core.framework import node_def_pb2
-from tensorflow.core.framework import node_def_pb2
 import sys
 import json
 import os
 from tensorflow.core.framework import graph_pb2
+from tensorflow.core.framework import step_stats_pb2
 import google.protobuf.text_format as pbtf
 sys.path.append('../')
 from profiler import Profiler
@@ -112,6 +112,7 @@ def generate_edge_file(gdef,folder):
 
 def generate_feature_file(gdef,folder,profile_file):
     item_list=[]
+    run_metadata=None
     if os.path.exists("op_type_dict.json"):
         with open("op_type_dict.json", "r") as f:
             op_type_dict=json.load(f)
@@ -119,6 +120,12 @@ def generate_feature_file(gdef,folder,profile_file):
         op_type_dict = dict()
     if profile_file==None:
         profiler = Profiler(gdef)
+        if os.path.exists(folder+"run_metadata.pbtxt"):
+            run_metadata = tf.RunMetadata()
+            with open(folder+"run_metadata.pbtxt", "r")as f:
+                txt = f.read()
+            pbtf.Parse(txt, run_metadata)
+
     else:
         with open(profile_file, "r") as f:
             tmp = f.readlines()
@@ -133,7 +140,7 @@ def generate_feature_file(gdef,folder,profile_file):
             for i in range(len(devices)):
                 if nodedef.op!="Placeholder":
                     try:
-                        time = profiler.profile(nodedef.name,'/gpu:0')
+                        time = profiler.profile(nodedef.name,'/gpu:0',run_metadata)
                     except Exception as ex:
                         print(sys.stderr, 'profile error: ', ex)
                         print(nodedef)
