@@ -10,7 +10,7 @@ class Profiler():
         self.cache = {} # TODO: persistence? LRU?
 
     def _profile(self, device, run_meta):
-        if run_meta == None:
+        if run_meta is None:
             tf.reset_default_graph()
             tf.import_graph_def(self.graph_def)
             graph = tf.get_default_graph()
@@ -31,19 +31,21 @@ class Profiler():
             sess.run(opt, feed_dict=input_dict)
             sess.run(opt, options=run_opt, run_metadata=run_meta, feed_dict=input_dict)
 
-        result = { x: [float('inf'), 0] for x in self.names }
+        result = {}
         for dev in run_meta.step_stats.dev_stats:
-            if 'stream:all' not in dev.device: # TODO: if no GPU data for this op, use the CPU data
+            if 'Kernel' not in dev.device: # TODO: if no GPU data for this op, use the CPU data
                 continue
             for node in dev.node_stats:
-                name = node.node_name.split(':')[0].lstrip('import/')
-                if name in result:
-                    result[name][0] = min(result[name][0], node.all_start_micros)
-                    result[name][1] = max(result[name][1], node.all_start_micros + node.all_end_rel_micros)
+                name = node.node_name.split(':')[0]
+                if name[:7] == 'import/':
+                    name = name[7:]
+                if name not in result:
+                    result[name] = [float('inf'), 0]
+                result[name][0] = min(result[name][0], node.all_start_micros)
+                result[name][1] = max(result[name][1], node.all_start_micros + node.all_end_rel_micros)
 
         for name, [start, end] in result.items():
-            if end > start:
-                self.cache[(name, device)] = end - start
+            self.cache[(name, device)] = end - start
 
         self.profiled.add(device)
 

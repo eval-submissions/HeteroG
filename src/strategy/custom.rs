@@ -35,7 +35,7 @@ impl Strategy for Custom {
     /// 3. if all nodes in a group are replicated, use split, otherwise all replications are cache.
     #[allow(clippy::cognitive_complexity)]
     fn plan(&mut self, graph: &mut Graph, target: &mut Target) {
-        // mark batch splittablity
+        // mark batch splittability
         for node in graph.nodes.iter_mut() {
             node.extra.is_descendant_of_input = node.inputs.iter().any(|x| {
                 let input = &node.graph().nodes[x.0];

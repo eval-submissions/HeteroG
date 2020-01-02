@@ -8,14 +8,19 @@ use crate::strategy::Strategy;
 
 pub struct Graph<NEX: Default, TEX: Default> {
     pub nodes: Vec<Node<NEX, TEX>>, // This vector is partial ordered: inputs are guarenteed to appear ealier than descendents
+    pub sinks: Vec<String>, // sink nodes
     pub name_dict: std::collections::BTreeMap<String, usize>
 }
 
 impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
-    pub fn new(nodes: &[NodeDef]) -> Box<Self> {
+    pub fn new(nodes: &[NodeDef], sinks: &[String]) -> Box<Self> {
         task!("building graph of {} nodes...", nodes.len());
 
-        let mut g = Box::new(Graph { nodes: Vec::with_capacity(nodes.len()), name_dict: BTreeMap::new() });
+        let mut g = Box::new(Graph {
+            nodes: Vec::with_capacity(nodes.len()),
+            sinks: sinks.collect(),
+            name_dict: BTreeMap::new()
+        });
 
         // no always optimal, but good enough since the input is actually mostly ordered
         let mut queue: std::collections::VecDeque::<_> = nodes.iter().collect();

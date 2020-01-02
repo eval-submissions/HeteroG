@@ -22,7 +22,7 @@ pub trait AbstractBundle {
 
 pub struct TheBundle<NEX: Default, TEX: Default, S: strategy::Strategy<NEX=NEX, TEX=TEX>> {
     strategy: S,
-    graph: Option<Box<graph::Graph<NEX, TEX>>> // NOTE: we keep the graph in box since there are pointers inside nodes that refers to the graph. TODO: use Pin for the box to gurarantee that they are not moved
+    graph: Option<Box<graph::Graph<NEX, TEX>>> // NOTE: we keep the graph in box since there are pointers inside nodes that refers to the graph. TODO: use Pin for the box to guarantee that they are not moved
 }
 
 impl<NEX: Default, TEX: Default, S: strategy::Strategy<NEX=NEX, TEX=TEX>> TheBundle<NEX, TEX, S> {
@@ -48,7 +48,7 @@ type Topology = (Box<[u64]>, Box<[Box<[usize]>]>);
 struct Context(Bundle, graph::Target);
 
 #[no_mangle]
-unsafe extern fn tge(bundle: *mut Bundle, topo: *mut Topology, pb: *const u8, pb_len: u32, devices: *const u8, devices_len: u32) -> *mut Context {
+unsafe extern fn tge(bundle: *mut Bundle, topo: *mut Topology, pb: *const u8, pb_len: u32, devices: *const u8, devices_len: u32, sink: *const u8, sink_len: u32) -> *mut Context {
     let pb = std::slice::from_raw_parts(pb, pb_len as usize);
     let g: proto::graph::GraphDef = parse_from_bytes(pb).unwrap();
     (&mut *bundle).build_graph(&g.node);
@@ -155,5 +155,5 @@ unsafe extern fn read_and_destroy(ctx: *mut Context, dest: *mut u8) {
     target.pb.write_to_writer(&mut ptr).unwrap();
 }
 
-// TODO: better error handling: return NULL or -1 rather than panicing
+// TODO: better error handling: return NULL or -1 rather than panicking
 // TODO: properly exposing the polishing methods: maybe add a bits flag to compile and use keyword arguments on the python side
