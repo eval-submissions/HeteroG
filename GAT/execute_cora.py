@@ -370,7 +370,7 @@ class Environment(object):
         time = float(time)/(10**6)
 
         if any(np.array(mem_list) > np.array(device_mems)):
-            time = time*10000
+            time = time*10
             out_of_memory=True
         #reward = np.sum(strategy*strategy)
 
@@ -541,7 +541,7 @@ class feature_item(object):
        # else:
        #     self.average_reward = (self.average_reward * epoch+ _reward) /(epoch+1) if not out_of_memory else self.average_reward
 
-
+        avg = float(np.mean(self.strategy_pool.rewards))
         while tr_step * batch_size < tr_size:
             new_loss,self.mems=self.place_gnn.learn(ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
                             bias_in=self.biases,
@@ -549,7 +549,7 @@ class feature_item(object):
                             replica_num_array=np.array(replica_n_hot_nums),
                             sample_ps_or_reduce = np.array(ps_or_reduces),
                             sample_device_choice = np.array(device_choices),
-                            time_ratio = (np.array(rewards)-float(np.mean(self.strategy_pool.rewards))),
+                            time_ratio = (np.array(rewards)-avg),
                             coef_entropy=co_entropy,
                             mems = self.mems)
             tr_step += 1
