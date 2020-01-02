@@ -18,6 +18,7 @@ pub mod scheduler;
 pub trait AbstractBundle {
     fn plan_and_compile(&mut self, target: &mut graph::Target);
     fn build_graph(&mut self, nodes: &[crate::proto::node_def::NodeDef], sinks: Box<[String]>);
+    fn get_sinks(&self) -> &[String];
 }
 
 pub struct TheBundle<NEX: Default, TEX: Default, S: strategy::Strategy<NEX=NEX, TEX=TEX>> {
@@ -39,6 +40,10 @@ impl<NEX: Default, TEX: Default, S: strategy::Strategy<NEX=NEX, TEX=TEX>> Abstra
 
     fn build_graph(&mut self, nodes: &[crate::proto::node_def::NodeDef], sinks: Box<[String]>) {
         self.graph = Some(graph::Graph::<NEX, TEX>::new(nodes, sinks))
+    }
+
+    fn get_sinks(&self) -> &[String] {
+        &self.graph.as_ref().unwrap().sinks
     }
 }
 
@@ -129,7 +134,10 @@ unsafe extern fn compile(ctx: *mut Context, pflag: u8) -> u32 {
     if pflag & 0x01 != 0 { polishing::remove_colocation_hint(target); }
     if pflag & 0x02 != 0 { polishing::remove_shape_hint(target); }
     if pflag & 0x04 != 0 { polishing::destructify_names(target); }
-    if pflag & 0x08 != 0 { polishing::remove_dangling_nodes(&["GradientDescent/replica_0"], target); }
+    if pflag & 0x08 != 0 {
+        let sinks: Vec<_> = bundle.get_sinks().iter().map(|x| format!("{}, {}", x, "/replica_0")).collect();
+        polishing::remove_dangling_nodes(&sinks.iter().map(|x| &x[..]).collect::<Vec<_>>(), target);
+    }
     target.pb.compute_size()
 }
 

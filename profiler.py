@@ -2,9 +2,10 @@ import numpy as np
 import tensorflow as tf
 
 class Profiler():
-    def __init__(self, graph_def, target=None):
+    def __init__(self, graph_def, target=None, sinks=["GradientDescent"]):
         self.graph_def = graph_def
         self.names = { node.name for node in graph_def.node }
+        self.sinks = sinks
         self.target = target
         self.profiled = set()
         self.cache = {} # TODO: persistence? LRU?
@@ -26,8 +27,7 @@ class Profiler():
 
             run_meta = tf.compat.v1.RunMetadata()
             run_opt = tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)#, output_partition_graphs=True)
-            # TODO: read sink nodes
-            opt = graph.get_operation_by_name('import/GradientDescent')
+            opt = [graph.get_operation_by_name('import/' + x) for x in self.sinks]
             sess.run(opt, feed_dict=input_dict)
             sess.run(opt, options=run_opt, run_metadata=run_meta, feed_dict=input_dict)
 

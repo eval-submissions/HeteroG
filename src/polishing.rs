@@ -19,7 +19,7 @@ pub fn remove_shape_hint(target: &mut Target) {
 }
 
 pub fn remove_dangling_nodes(end_points: &[&str], target: &mut Target) {
-    // note: dont forget control dependency
+    // note: don't forget control dependency
     let dict: std::collections::BTreeMap<_, Vec<_>> = target.pb.node.iter().map(|node| {
         (&node.name[..], node.input.iter().map(|x| {
             if x.starts_with('^') {

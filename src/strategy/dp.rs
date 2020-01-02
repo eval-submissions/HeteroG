@@ -13,6 +13,8 @@ type Tensor = crate::graph::Tensor<(), ()>;
 /// aggressively replicate all nodes for data-parallel and use CPU 0 for reduce
 pub struct DataParallelOneForAll;
 
+// TODO: search sinks nodes rather than GradientDescent magic name
+
 impl Strategy for DataParallelOneForAll {
     type NEX = ();
     type TEX = ();
