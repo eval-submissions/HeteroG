@@ -5,7 +5,7 @@ PROFILER_T = ctypes.CFUNCTYPE(ctypes.c_uint64, ctypes.POINTER(ctypes.c_char), ct
 
 libtge = ctypes.cdll.LoadLibrary("./libtge.so")
 
-libtge.tge.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32]
+libtge.tge.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32]
 libtge.tge.restype = ctypes.c_void_p
 
 libtge.topology.argtypes = [ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32]
@@ -53,8 +53,9 @@ class TGE:
     @chain
     def compile(self):
         graph_raw = self.graph_def.SerializeToString()
-        device_raw = ' '.join(self.devices).encode('ascii')
-        tge = libtge.tge(self.strategy, self.get_topology(), graph_raw, len(graph_raw), device_raw, len(device_raw))
+        devices_raw = ' '.join(self.devices).encode('ascii')
+        sinks_raw = ' '.join(self.sinks).encode('ascii')
+        tge = libtge.tge(self.strategy, self.get_topology(), graph_raw, len(graph_raw), devices_raw, len(devices_raw), sinks_raw, len(sinks_raw))
         size = libtge.compile(tge, self.flag)
         buf = ctypes.create_string_buffer(size)
         libtge.read_and_destroy(tge, buf)
@@ -63,12 +64,13 @@ class TGE:
 
     def evaluate(self, profile_dict, trace_path=""):
         graph_raw = self.graph_def.SerializeToString()
-        device_raw = ' '.join(self.devices).encode('ascii')
+        devices_raw = ' '.join(self.devices).encode('ascii')
         profile_raw = ''
         for name, times in profile_dict.items():
             profile_raw += ' '.join([name, *map(str, times)]) + '\n'
         profile_raw = profile_raw.encode('ascii')
-        tge = libtge.tge(self.strategy, self.get_topology(), graph_raw, len(graph_raw), device_raw, len(device_raw))
+        sinks_raw = ' '.join(self.sinks).encode('ascii')
+        tge = libtge.tge(self.strategy, self.get_topology(), graph_raw, len(graph_raw), devices_raw, len(devices_raw), sinks_raw, len(sinks_raw))
         size = libtge.compile(tge, self.flag | 0x08)
         trace_path = trace_path.encode('ascii')
         memory = (ctypes.c_uint64 * len(self.devices))(*[0 for x in self.devices])

@@ -8,21 +8,17 @@ use crate::strategy::Strategy;
 
 pub struct Graph<NEX: Default, TEX: Default> {
     pub nodes: Vec<Node<NEX, TEX>>, // This vector is partial ordered: inputs are guarenteed to appear ealier than descendents
-    pub sinks: Vec<String>, // sink nodes
+    pub sinks: Box<[String]>, // sink nodes
     pub name_dict: std::collections::BTreeMap<String, usize>
 }
 
 impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
-    pub fn new(nodes: &[NodeDef], sinks: &[String]) -> Box<Self> {
+    pub fn new(nodes: &[NodeDef], sinks: Box<[String]>) -> Box<Self> {
         task!("building graph of {} nodes...", nodes.len());
 
-        let mut g = Box::new(Graph {
-            nodes: Vec::with_capacity(nodes.len()),
-            sinks: sinks.collect(),
-            name_dict: BTreeMap::new()
-        });
+        let mut g = Box::new(Graph { nodes: Vec::with_capacity(nodes.len()), sinks, name_dict: BTreeMap::new() });
 
-        // no always optimal, but good enough since the input is actually mostly ordered
+        // not always optimal, but good enough since the input is actually mostly ordered
         let mut queue: std::collections::VecDeque::<_> = nodes.iter().collect();
         'outer: while let Some(node_def) = queue.pop_front() {
             for input in node_def.input.iter() {
@@ -456,10 +452,10 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
 
         let index = self.index;
 
-        for (i, device_id) in from.devices.iter().copied().enumerate() {
+        for (i, device_id) in from.devices.iter().enumerate() {
             let mut nccl = self.node().make_node("NcclAllReduce".to_string());
             nccl.name += &format!("/{}_{}/aux_nccl_{}", index, to.code(), i);
-            nccl.device = target.devices[device_id].clone();
+            nccl.device = target.devices[*device_id].clone();
             nccl.attr.insert("reduction".into(), AttrValue::new().apply(|x| x.set_s(b"sum".to_vec())));
             nccl.attr.insert("T".into(), get_dtype(&self.node().raw_node));
             nccl.attr.insert("num_devices".into(), AttrValue::new().apply(|x| x.set_i(from.ndev().try_into().unwrap())));

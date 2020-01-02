@@ -10,6 +10,8 @@ use crate::proto::attr_value::{AttrValue, AttrValue_oneof_value};
 use crate::proto::node_def::NodeDef;
 use crate::proto::tensor::TensorProto;
 
+const LATENCY: u64 = 12;
+
 // todo: split scheduling and simulating. logging and memory calculation are simulation
 pub trait Scheduler {
     /// `memory` should be alredy zero-initialized and be at least as long as target.device
@@ -154,7 +156,7 @@ impl Scheduler for TensorFlowLikeScheduler {
                     TaskType::Transfering { size, path } => {
                         let est = path.iter().fold(time, |max, link| cmp::max(max, link_avaliable_time[*link]));
                         let bandwidth = path.iter().fold(std::u64::MAX, |min, link| cmp::min(min, target.links[*link]));
-                        let eft = est + size / bandwidth;
+                        let eft = est + size / bandwidth + LATENCY;
 
                         for link in path {
                             link_avaliable_time[*link] = eft
