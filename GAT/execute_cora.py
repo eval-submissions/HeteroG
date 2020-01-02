@@ -203,6 +203,7 @@ class strategy_pool(object):
         for item in device_choice:
             for i in range(len(devices)):
                 item[i] =i
+            item[len(devices)]=len(devices)
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
         reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
         if not out_of_memory:
@@ -212,6 +213,7 @@ class strategy_pool(object):
         device_choice = np.negative(np.ones(shape=(self.node_num, max_replica_num), dtype=np.int32))
         for item in device_choice:
             item[0] =0
+            item[1] = len(devices)
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
         reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
         if not out_of_memory:
@@ -221,6 +223,7 @@ class strategy_pool(object):
         device_choice = np.negative(np.ones(shape=(self.node_num, max_replica_num), dtype=np.int32))
         for i,item in enumerate(device_choice):
             item[0] = i%(len(devices))
+            item[1] = len(devices)
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
         reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
         if not out_of_memory:
@@ -230,6 +233,7 @@ class strategy_pool(object):
         device_choice = np.negative(np.ones(shape=(self.node_num, max_replica_num), dtype=np.int32))
         for i, item in enumerate(device_choice):
             item[0] = i//(len(device_choice)//(len(devices)))
+            item[1] = len(devices)
         ps_or_reduce = np.ones(shape=(self.node_num,), dtype=np.int32)
         reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
         if not out_of_memory:
