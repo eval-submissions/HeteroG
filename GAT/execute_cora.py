@@ -262,22 +262,30 @@ class strategy_pool(object):
                 f.write("\nstrategy"+str(i)+":\n")
                 f.write(str(self.strategies[np.random.randint(len(self.strategies))]["strategy_list"]))
 
+    def get_replica_masks(self,device_choice):
+        masks = np.zeros(shape=device_choice.shape)
+        for i in range(masks.shape[0]):
+            for j in range(masks.shape[1]):
+                masks[i,j] = 0 if device_choice[i,j]==-1 else 1
+        return masks
 
     def insert(self,reward,device_choice,ps_or_reduce):
         strategy_list = self.get_stratey_list(device_choice, ps_or_reduce)
+        replica_mask = self.get_replica_masks(device_choice)
         if len(self.strategies)<20:
             for strategy in self.strategies:
                 exist_device_choice = (strategy["device_choice"])
                 diff_list = [0 if all(device_choice[i]==exist_device_choice[i]) else 1 for i in range(len(device_choice))]
                 if sum(diff_list)/len(diff_list)<0.01:
                     if reward>strategy["reward"]:
-                        self.strategies.append({"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
+                        self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
                         self.strategies.remove(strategy)
                         self.save_strategy_pool()
                         self.rewards = [item["reward"] for item in self.strategies]
                     return
-            self.strategies.append({"strategy_list": strategy_list, "reward": reward, "device_choice": device_choice,
-                                    "ps_or_reduce": ps_or_reduce})
+            self.strategies.append({"replica_mask": replica_mask, "strategy_list": strategy_list, "reward": reward,
+                                    "device_choice": device_choice, "ps_or_reduce": ps_or_reduce})
+
             self.save_strategy_pool()
             self.rewards.append(reward)
         elif len(self.strategies)<200 and reward>np.mean(self.rewards):
@@ -286,13 +294,14 @@ class strategy_pool(object):
                 diff_list = [0 if all(device_choice[i]==exist_device_choice[i]) else 1 for i in range(len(device_choice))]
                 if sum(diff_list)/len(diff_list)<0.01:
                     if reward>strategy["reward"]:
-                        self.strategies.append({"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
+                        self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
                         self.strategies.remove(strategy)
                         self.save_strategy_pool()
                         self.rewards = [item["reward"] for item in self.strategies]
                     return
-            self.strategies.append({"strategy_list": strategy_list, "reward": reward, "device_choice": device_choice,
-                                    "ps_or_reduce": ps_or_reduce})
+            self.strategies.append({"replica_mask": replica_mask, "strategy_list": strategy_list, "reward": reward,
+                                    "device_choice": device_choice, "ps_or_reduce": ps_or_reduce})
+
             self.save_strategy_pool()
             self.rewards.append(reward)
         elif len(self.strategies)>=200 and reward>np.mean(self.rewards):
@@ -301,15 +310,16 @@ class strategy_pool(object):
                 diff_list = [0 if all(device_choice[i]==exist_device_choice[i]) else 1 for i in range(len(device_choice))]
                 if sum(diff_list)/len(diff_list)<0.01:
                     if reward>strategy["reward"]:
-                        self.strategies.append({"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
+                        self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
                         self.strategies.remove(strategy)
                         self.save_strategy_pool()
                         self.rewards = [item["reward"] for item in self.strategies]
                     return
             index = self.rewards.index(min(self.rewards))
             self.strategies.remove(self.strategies[index])
-            self.strategies.append({"strategy_list": strategy_list, "reward": reward, "device_choice": device_choice,
-                                    "ps_or_reduce": ps_or_reduce})
+            self.strategies.append({"replica_mask": replica_mask, "strategy_list": strategy_list, "reward": reward,
+                                    "device_choice": device_choice, "ps_or_reduce": ps_or_reduce})
+
             self.save_strategy_pool()
             self.rewards = [item["reward"] for item in self.strategies]
 
@@ -417,7 +427,7 @@ class feature_item(object):
 
         self.nb_nodes = feature_matrix.shape[0]
         self.ft_size = feature_matrix.shape[1]
-
+        #self.batch_size = feature_matrix[0][-1]
 
         self.biases = process.preprocess_adj_bias(adj)
 
@@ -454,7 +464,7 @@ class feature_item(object):
 
         tr_step = 0
         tr_size = self.features.shape[0]
-        replica_n_hot_nums = list()
+        replica_masks = list()
         device_choices = list()
         rewards = list()
         ps_or_reduces=list()
@@ -466,7 +476,7 @@ class feature_item(object):
 
         for i in range(sample_times):
             replica_num = list()
-            replica_n_hot_num = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
+            replica_mask = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
             device_choice = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
             ps_or_reduce=list()
             finished_node = list()
@@ -479,13 +489,12 @@ class feature_item(object):
                         if index==len(devices):
                             finished_node.append(j)
                             device_choice[j, i] = index
-                            replica_n_hot_num[j,i]=1
+                            replica_mask[j,i]=1
                         else:
                             device_choice[j,i] = index
-                            replica_n_hot_num[j,i]=1
+                            replica_mask[j,i]=1
                     else:
                         device_choice[j,i] = -1
-            replica_n_hot_nums.append(replica_n_hot_num)
 
             for j, pred in enumerate(outputs[max_replica_num]):
                 #pred = pred * 0.9 + (0.1 / pred.size)
@@ -504,15 +513,16 @@ class feature_item(object):
             rewards.append(_reward)
             ps_or_reduces.append(ps_or_reduce)
             device_choices.append(device_choice)
+            replica_masks.append(replica_mask)
         if self.strategy_pool.get_length()>0:
             pool_strategy = self.strategy_pool.choose_strategy()
             rewards.append(pool_strategy["reward"])
             device_choices.append(pool_strategy["device_choice"])
             ps_or_reduces.append(np.reshape(pool_strategy["ps_or_reduce"],(self.nb_nodes,)))
-
+            replica_masks.append(pool_strategy["replica_mask"])
         #sample real distribution
         replica_num = list()
-        replica_n_hot_num = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
+        replica_mask = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
         device_choice = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
         ps_or_reduce=list()
         finished_node = list()
@@ -524,10 +534,10 @@ class feature_item(object):
                     if index==len(devices):
                         finished_node.append(j)
                         device_choice[j, i] = index
-                        replica_n_hot_num[j,i]=1
+                        replica_mask[j,i]=1
                     else:
                         device_choice[j,i] = index
-                        replica_n_hot_num[j,i]=1
+                        replica_mask[j,i]=1
                 else:
                     device_choice[j,i] = -1
         for j, pred in enumerate(outputs[max_replica_num]):
@@ -550,7 +560,7 @@ class feature_item(object):
             new_loss,self.mems=self.place_gnn.learn(ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
                             bias_in=self.biases,
                             nb_nodes=self.nb_nodes,
-                            replica_num_array=np.array(replica_n_hot_nums),
+                            replica_num_array=np.array(replica_masks),
                             sample_ps_or_reduce = np.array(ps_or_reduces),
                             sample_device_choice = np.array(device_choices),
                             time_ratio = (np.array(rewards)-avg)/np.abs(avg),
@@ -781,7 +791,7 @@ class new_place_GNN():
             self.entropy = -(tf.reduce_mean(self.entropy) + sum / max_replica_num)
 
 
-        for i in range(sample_times):
+        for i in range(sample_times+1):
             one_hot_sample = tf.one_hot(self.sample_ps_or_reduce[i], 2)
             print("one_hot_sample.shape")
             print(one_hot_sample.shape)
@@ -803,7 +813,7 @@ class new_place_GNN():
                 reward+=tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * self.time_ratio[i])
 
 
-        reward = reward/sample_times + self.coef_entropy * self.entropy
+        reward = reward/(sample_times+1) + self.coef_entropy * self.entropy
         self.loss = -reward
         self.train_op = model.training(self.loss, lr, l2_coef)
 
