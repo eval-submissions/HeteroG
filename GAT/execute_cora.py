@@ -240,7 +240,7 @@ class strategy_pool(object):
         return len(self.strategies)
 
     def get_stratey_list(self,device_choice,ps_or_reduce):
-        new_device_array = np.zeros(shape=device_choice.shape,dtype=np.int32)
+        new_device_array = np.zeros(shape=(device_choice.shape[0],len(devices)),dtype=np.int32)
         for i in range(device_choice.shape[0]):
             for j in range(device_choice.shape[1]):
                 if device_choice[i,j]!=-1 and device_choice[i,j]!=len(devices):
