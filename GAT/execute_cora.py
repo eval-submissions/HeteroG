@@ -69,6 +69,29 @@ max_replica_num = config_dict.get("max_replica_num",len(devices))
 show_interval = 3
 
 device_mems=config_dict.get("device_mems", [16*10e9,16*10e9,16*10e9,16*10e9])
+
+def find_index(array, item):
+    for idx, val in np.ndenumerate(array):
+        if val == item:
+            return idx
+    return len(array)
+def post_process_device_choice(device_choice,replica_mask,batch_size):
+    for i,item in enumerate(device_choice):
+        replica_num = find_index(item,len(devices))
+        while(batch_size%replica_num):
+            replica_num-=1
+        if replica_num<device_choice.shape[1]:
+            device_choice[i][replica_num]=len(devices)
+            if replica_num < device_choice.shape[1]-1:
+                device_choice[i][replica_num+1:] = -1
+                replica_mask[i][replica_num+1:] = 0
+    return device_choice,replica_mask
+
+
+
+
+
+
 def rel_multihead_attn(w, r,d_model,mems,
                        n_head, d_head, nb_nodes,scope='rel_attn'):
     scale = 1 / (d_head ** 0.5)
@@ -175,7 +198,7 @@ def rel_multihead_attn(w, r,d_model,mems,
     return output[0]
 
 class strategy_pool(object):
-    def __init__(self,folder_path,node_num,index_id_dict,env):
+    def __init__(self,folder_path,node_num,index_id_dict,env,batch_size):
         self.folder_path = folder_path
         self.node_num = node_num
         self.index_id_dict = index_id_dict
@@ -188,14 +211,17 @@ class strategy_pool(object):
             self.strategies = list()
 
         self.rewards = [item["reward"] for item in self.strategies] if len(self.strategies) else [0]
+        self.batch_size = batch_size
 
         # even data parallel 1
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
         device_choice = np.array([np.arange(max_replica_num)%(len(devices)) for i in range(self.node_num)])
+        replica_mask=self.get_replica_masks(device_choice)
+        device_choice,replica_mask = post_process_device_choice(device_choice,replica_mask,self.batch_size)
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
         reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
         if not out_of_memory:
-            self.insert(reward, device_choice, ps_or_reduce)
+            self.insert(reward, device_choice, replica_mask,ps_or_reduce)
 
         # even data parallel 2
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
@@ -204,40 +230,48 @@ class strategy_pool(object):
             for i in range(len(devices)):
                 item[i] =i
             item[len(devices)]=len(devices)
+        replica_mask=self.get_replica_masks(device_choice)
+        device_choice,replica_mask = post_process_device_choice(device_choice,replica_mask,self.batch_size)
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
         reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
         if not out_of_memory:
-            self.insert(reward, device_choice, ps_or_reduce)
+            self.insert(reward, device_choice, replica_mask,ps_or_reduce)
 
         #single gpu
         device_choice = np.negative(np.ones(shape=(self.node_num, max_replica_num), dtype=np.int32))
         for item in device_choice:
             item[0] =0
             item[1] = len(devices)
+        replica_mask=self.get_replica_masks(device_choice)
+        device_choice,replica_mask = post_process_device_choice(device_choice,replica_mask,self.batch_size)
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
         reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
         if not out_of_memory:
-            self.insert(reward, device_choice, ps_or_reduce)
+            self.insert(reward, device_choice, replica_mask,ps_or_reduce)
 
         #model parallel 1
         device_choice = np.negative(np.ones(shape=(self.node_num, max_replica_num), dtype=np.int32))
         for i,item in enumerate(device_choice):
             item[0] = i%(len(devices))
             item[1] = len(devices)
+        replica_mask=self.get_replica_masks(device_choice)
+        device_choice,replica_mask = post_process_device_choice(device_choice,replica_mask,self.batch_size)
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
         reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
         if not out_of_memory:
-            self.insert(reward, device_choice, ps_or_reduce)
+            self.insert(reward, device_choice, replica_mask,ps_or_reduce)
 
         # model parallel 2
         device_choice = np.negative(np.ones(shape=(self.node_num, max_replica_num), dtype=np.int32))
         for i, item in enumerate(device_choice):
             item[0] = i//(len(device_choice)//(len(devices)))
             item[1] = len(devices)
+        replica_mask=self.get_replica_masks(device_choice)
+        device_choice,replica_mask = post_process_device_choice(device_choice,replica_mask,self.batch_size)
         ps_or_reduce = np.ones(shape=(self.node_num,), dtype=np.int32)
         reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
         if not out_of_memory:
-            self.insert(reward, device_choice, ps_or_reduce)
+            self.insert(reward, device_choice, replica_mask,ps_or_reduce)
 
         self.rewards = [item["reward"] for item in self.strategies]
     def get_length(self):
@@ -267,11 +301,10 @@ class strategy_pool(object):
         for i in range(masks.shape[0]):
             for j in range(masks.shape[1]):
                 masks[i,j] = 0 if device_choice[i,j]==-1 else 1
-        return masks.tolist()
+        return masks
 
-    def insert(self,reward,device_choice,ps_or_reduce):
+    def insert(self,reward,device_choice,replica_mask,ps_or_reduce):
         strategy_list = self.get_stratey_list(device_choice, ps_or_reduce)
-        replica_mask = self.get_replica_masks(device_choice)
         if len(self.strategies)<20:
             for strategy in self.strategies:
                 exist_device_choice = (strategy["device_choice"])
@@ -316,7 +349,7 @@ class strategy_pool(object):
                         self.rewards = [item["reward"] for item in self.strategies]
                     return
             index = self.rewards.index(min(self.rewards))
-            self.strategies.remove(self.strategies[index])
+            self.strategies.pop(index)
             self.strategies.append({"replica_mask": replica_mask, "strategy_list": strategy_list, "reward": reward,
                                     "device_choice": device_choice, "ps_or_reduce": ps_or_reduce})
 
@@ -421,7 +454,7 @@ class feature_item(object):
 
         self.nb_nodes = feature_matrix.shape[0]
         self.ft_size = feature_matrix.shape[1]
-        #self.batch_size = feature_matrix[0][-1]
+        self.batch_size = feature_matrix[0][-1]
 
         self.biases = process.preprocess_adj_bias(adj)
 
@@ -444,7 +477,7 @@ class feature_item(object):
         self.best_device_choice = np.zeros(shape=(self.nb_nodes, max_replica_num), dtype=np.int32)
         self.best_ps_or_reduce = list()
         self.folder_path = folder_path
-        self.strategy_pool = strategy_pool(folder_path,self.nb_nodes,self.index_id_dict,self.env)
+        self.strategy_pool = strategy_pool(folder_path,self.nb_nodes,self.index_id_dict,self.env,self.batch_size)
 
         self.mems=[np.zeros([2, self.nb_nodes, 64], dtype=np.float32) for layer in range(3)]
 
@@ -489,6 +522,7 @@ class feature_item(object):
                             replica_mask[j,i]=1
                     else:
                         device_choice[j,i] = -1
+            device_choice, replica_mask = post_process_device_choice(device_choice, replica_mask, self.batch_size)
 
             for j, pred in enumerate(outputs[max_replica_num]):
                 #pred = pred * 0.9 + (0.1 / pred.size)
@@ -534,6 +568,7 @@ class feature_item(object):
                         replica_mask[j,i]=1
                 else:
                     device_choice[j,i] = -1
+        device_choice,replica_mask = post_process_device_choice(device_choice,replica_mask,self.batch_size)
         for j, pred in enumerate(outputs[max_replica_num]):
             index = np.random.choice(pred.size, p=pred)
             ps_or_reduce.append(index)
