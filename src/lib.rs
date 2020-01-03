@@ -150,7 +150,7 @@ unsafe extern fn evaluate(ctx: *mut Context, profile_data: *const u8, profile_le
         let line = line.split_ascii_whitespace().collect::<Vec<_>>();
         let name = line[0].to_string();
         let nrep = line[1].parse().unwrap();
-        let times = line[1..].iter().map(|x| x.parse().unwrap()).collect();
+        let times = line[2..].iter().map(|x| x.parse().unwrap()).collect();
         let v = profile_dict.entry(name).or_default();
         let pos = v.binary_search_by_key(&nrep, |x| x.0).unwrap_or_else(|e| e);
         v.insert(pos, (nrep, times))

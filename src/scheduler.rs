@@ -167,8 +167,12 @@ impl Scheduler for TensorFlowLikeScheduler {
                     }
                     TaskType::Transfering { size, path } => {
                         let est = path.iter().fold(time, |max, link| cmp::max(max, link_avaliable_time[*link]));
-                        let bandwidth = path.iter().fold(std::u64::MAX, |min, link| cmp::min(min, target.links[*link]));
-                        let eft = est + size / bandwidth + LATENCY;
+                        let eft = est + if !path.is_empty() {
+                            let bandwidth = path.iter().fold(std::u64::MAX, |min, link| cmp::min(min, target.links[*link]));
+                            size / bandwidth + LATENCY
+                        } else {
+                            0
+                        };
 
                         for link in path {
                             link_avaliable_time[*link] = eft
@@ -194,6 +198,7 @@ impl Scheduler for TensorFlowLikeScheduler {
                             let bandwidth = path.iter().fold(std::u64::MAX, |min, link| cmp::min(min, target.links[*link]));
                             let duration = size / bandwidth;
                             if duration != 0 {
+                                let duration = duration + LATENCY;
                                 for link in *path {
                                     writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"transfer\", \"ph\": \"B\", \"ts\": {}, \"pid\": 1, \"tid\": {} }},", id, eft - duration, link).expect("fail to write log");
                                     writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"transfer\", \"ph\": \"E\", \"ts\": {}, \"pid\": 1, \"tid\": {} }},", id, eft, link).expect("fail to write log");

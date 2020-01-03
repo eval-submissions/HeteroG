@@ -65,7 +65,7 @@ import tge
 # options = [[0, 1], [1, 0], [0, 2], [2, 0], [1, 1]]
 # strategy = { node.name: [np.random.randint(0, 2)] + options[np.random.randint(0, len(options))] for node in gdef.node }
 
-strategy = { node.name: [0, 3, 1] for node in gdef.node }
+strategy = { node.name: [0, 1, 0] for node in gdef.node }
 
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
