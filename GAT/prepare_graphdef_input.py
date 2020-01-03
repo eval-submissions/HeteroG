@@ -159,7 +159,7 @@ def generate_feature_file(folder,index):
                     print(sys.stderr, 'profile error: ', ex)
                     print(nodedef)
                     time = 0
-                new_time = int(time*(1+i*0.6))
+                new_time = int(time*(1+i*0.1))
                 item=final_dict.get((nodedef.name,replica_num[replica_times]),None)
                 if item==None:
                     final_dict[(nodedef.name,replica_num[replica_times])]=list()

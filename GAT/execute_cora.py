@@ -76,6 +76,24 @@ def find_index(array, item):
             return idx
     return len(array)
 def post_process_device_choice(device_choice,replica_mask,batch_size):
+
+    def func1(item1,item2):
+        replica_num = find_index(item1, len(devices))
+        while(batch_size%replica_num):
+            replica_num-=1
+        if replica_num<len(item1):
+            item1[replica_num]=len(devices)
+            if replica_num < len(item1)-1:
+                item1[replica_num+1:] = -1
+        return item1
+    def func2(item1,item2):
+        replica_num = find_index(item1, len(devices))
+        if replica_num < len(item1)-1:
+            item2[replica_num + 1:] = 0
+        return item2
+    device_choice=np.array(list(map(func1,device_choice,replica_mask)))
+    replica_mask = np.array(list(map(func2,device_choice,replica_mask)))
+    '''
     for i,item in enumerate(device_choice):
         replica_num = find_index(item,len(devices))
         while(batch_size%replica_num):
@@ -85,6 +103,7 @@ def post_process_device_choice(device_choice,replica_mask,batch_size):
             if replica_num < device_choice.shape[1]-1:
                 device_choice[i][replica_num+1:] = -1
                 replica_mask[i][replica_num+1:] = 0
+    '''
     return device_choice,replica_mask
 
 
