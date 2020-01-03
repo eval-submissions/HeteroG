@@ -267,7 +267,7 @@ class strategy_pool(object):
         for i in range(masks.shape[0]):
             for j in range(masks.shape[1]):
                 masks[i,j] = 0 if device_choice[i,j]==-1 else 1
-        return masks
+        return masks.tolist()
 
     def insert(self,reward,device_choice,ps_or_reduce):
         strategy_list = self.get_stratey_list(device_choice, ps_or_reduce)
