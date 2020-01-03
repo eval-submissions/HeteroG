@@ -401,14 +401,8 @@ class Environment(object):
         return -np.float32(np.sqrt(time)),out_of_memory
 
     def get_name_cost_dict(self):
-        name_cost_dict = dict()
-        with open(self.folder_path+"/docs.txt", "r") as f:
-            for line in f.readlines():
-                line = line.strip()
-                items = line.split(" ")
-                name = items[0]
-                cost = list(np.array(items[-len(devices):]))
-                name_cost_dict[name] = cost
+        with open(self.folder_path+"/cost.pkl", "rb") as f:
+            name_cost_dict = pkl.load(f)
         return name_cost_dict
 
 
