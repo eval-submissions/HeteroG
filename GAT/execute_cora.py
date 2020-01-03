@@ -71,7 +71,7 @@ show_interval = 3
 device_mems=config_dict.get("device_mems", [16*10e9,16*10e9,16*10e9,16*10e9])
 
 def find_index(array, item):
-    for idx, val in np.ndenumerate(array):
+    for idx, val in enumerate(array):
         if val == item:
             return idx
     return len(array)
@@ -264,7 +264,7 @@ class strategy_pool(object):
         # model parallel 2
         device_choice = np.negative(np.ones(shape=(self.node_num, max_replica_num), dtype=np.int32))
         for i, item in enumerate(device_choice):
-            item[0] = i//(len(device_choice)//(len(devices)))
+            item[0] = int(i//(len(device_choice)/(len(devices))))
             item[1] = len(devices)
         replica_mask=self.get_replica_masks(device_choice)
         device_choice,replica_mask = post_process_device_choice(device_choice,replica_mask,self.batch_size)
@@ -306,13 +306,13 @@ class strategy_pool(object):
     def insert(self,reward,device_choice,replica_mask,ps_or_reduce):
         strategy_list = self.get_stratey_list(device_choice, ps_or_reduce)
         if len(self.strategies)<20:
-            for strategy in self.strategies:
+            for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
                 diff_list = [0 if all(device_choice[i]==exist_device_choice[i]) else 1 for i in range(len(device_choice))]
                 if sum(diff_list)/len(diff_list)<0.01:
                     if reward>strategy["reward"]:
                         self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
-                        self.strategies.remove(strategy)
+                        self.strategies.pop(j)
                         self.save_strategy_pool()
                         self.rewards = [item["reward"] for item in self.strategies]
                     return
@@ -322,13 +322,13 @@ class strategy_pool(object):
             self.save_strategy_pool()
             self.rewards.append(reward)
         elif len(self.strategies)<200 and reward>np.mean(self.rewards):
-            for strategy in self.strategies:
+            for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
                 diff_list = [0 if all(device_choice[i]==exist_device_choice[i]) else 1 for i in range(len(device_choice))]
                 if sum(diff_list)/len(diff_list)<0.01:
                     if reward>strategy["reward"]:
                         self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
-                        self.strategies.remove(strategy)
+                        self.strategies.pop(j)
                         self.save_strategy_pool()
                         self.rewards = [item["reward"] for item in self.strategies]
                     return
@@ -338,13 +338,13 @@ class strategy_pool(object):
             self.save_strategy_pool()
             self.rewards.append(reward)
         elif len(self.strategies)>=200 and reward>np.mean(self.rewards):
-            for strategy in self.strategies:
+            for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
                 diff_list = [0 if all(device_choice[i]==exist_device_choice[i]) else 1 for i in range(len(device_choice))]
                 if sum(diff_list)/len(diff_list)<0.01:
                     if reward>strategy["reward"]:
                         self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
-                        self.strategies.remove(strategy)
+                        self.strategies.pop(j)
                         self.save_strategy_pool()
                         self.rewards = [item["reward"] for item in self.strategies]
                     return
@@ -361,7 +361,7 @@ class strategy_pool(object):
         return self.strategies[index]
 
 class Environment(object):
-    def __init__(self,gdef_path,devices,folder_path):
+    def __init__(self,gdef_path,devices,folder_path,batch_size):
 
         self.gdef = graph_pb2.GraphDef()
         with open(gdef_path,"r")as f:
@@ -372,6 +372,7 @@ class Environment(object):
         self.best_time = sys.maxsize
         self.best_strategy = dict()
         self.strategy_time_dict=dict()
+        self.batch_size = batch_size
 
         if os.path.exists(folder_path+"/best_time.log"):
             with open(folder_path+"/best_time.log", "r") as f:
@@ -428,7 +429,13 @@ class Environment(object):
                 tmp = dict()
                 tmp["time"] = time
                 tmp["strategy"] = self.best_strategy
-                tmp["cost"] = self.name_cost_dict
+                cost_dict=dict()
+                for key, value in self.name_cost_dict.items():
+                    name = key[0]
+                    batch_size=key[1]
+                    if batch_size==self.batch_size:
+                        cost_dict[name] = value
+                tmp["cost"] = cost_dict
                 json.dump(tmp, f)
 
         return -np.float32(np.sqrt(time)),out_of_memory
@@ -470,7 +477,7 @@ class feature_item(object):
         self.test_mask = test_mask[np.newaxis]
 
 
-        self.env = Environment(folder_path+"/graph.pbtxt",devices,folder_path)
+        self.env = Environment(folder_path+"/graph.pbtxt",devices,folder_path,self.batch_size)
         self.average_reward=0
         self.best_reward = 1-sys.maxsize
         self.best_replica_num = list()
@@ -537,7 +544,7 @@ class feature_item(object):
                 self.best_device_choice = device_choice
                 self.best_ps_or_reduce = ps_or_reduce
             if not out_of_memory:
-                self.strategy_pool.insert(_reward, device_choice, ps_or_reduce)
+                self.strategy_pool.insert(_reward, device_choice, replica_mask,ps_or_reduce)
             rewards.append(_reward)
             ps_or_reduces.append(ps_or_reduce)
             device_choices.append(device_choice)
