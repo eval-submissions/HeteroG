@@ -11,6 +11,7 @@ import os
 from tensorflow.core.framework import graph_pb2
 from tensorflow.core.framework import step_stats_pb2
 import google.protobuf.text_format as pbtf
+import pickle as pkl
 sys.path.append('../')
 from profiler import Profiler
 
@@ -159,7 +160,11 @@ def generate_feature_file(folder,index):
                     print(nodedef)
                     time = 0
                 new_time = int(time*(1+i*0.6))
-                final_dict.get((nodedef.name,replica_num[replica_times]),list()).append(new_time)
+                item=final_dict.get((nodedef.name,replica_num[replica_times]),None)
+                if item==None:
+                    final_dict[(nodedef.name,replica_num[replica_times])]=list()
+                    item = final_dict[(nodedef.name,replica_num[replica_times])]
+                item.append(new_time)
                 times+=str(new_time)+" "
             times_dict[nodedef.name] = times
 
@@ -172,6 +177,8 @@ def generate_feature_file(folder,index):
         f.writelines(item_list)
     with open("op_type_dict.json", "w") as f:
         json.dump(op_type_dict,f)
+    with open(folder+"cost.pkl", "wb") as f:
+        pkl.dump(final_dict,f)
 
 models = ["vgg19","resnet200","resnet50","resnet101","resnet152","inceptionv3","bert"]
 for i in range(len(models)):
