@@ -7,6 +7,7 @@
 use oh_my_rust::*;
 use protobuf::{Message, parse_from_bytes};
 use crate::scheduler::Scheduler;
+use std::collections::BTreeMap;
 
 pub mod proto;
 pub mod graph;
@@ -144,12 +145,16 @@ unsafe extern fn compile(ctx: *mut Context, pflag: u8) -> u32 {
 #[no_mangle]
 unsafe extern fn evaluate(ctx: *mut Context, profile_data: *const u8, profile_len: u32, trace_path: *const u8, trace_len: u32, memory: *mut u64) -> u64 {
     let profile_str = std::str::from_utf8(std::slice::from_raw_parts(profile_data, profile_len as usize)).unwrap();
-    let profile_dict: std::collections::BTreeMap<String, Vec<u64>> = profile_str.lines().map(|line| {
+    let mut profile_dict: BTreeMap<String, Vec<(usize, Vec<u64>)>> = BTreeMap::new();
+    for line in profile_str.lines() {
         let line = line.split_ascii_whitespace().collect::<Vec<_>>();
         let name = line[0].to_string();
+        let nrep = line[1].parse().unwrap();
         let times = line[1..].iter().map(|x| x.parse().unwrap()).collect();
-        (name, times)
-    }).collect();
+        let v = profile_dict.entry(name).or_default();
+        let pos = v.binary_search_by_key(&nrep, |x| x.0).unwrap_or_else(|e| e);
+        v.insert(pos, (nrep, times))
+    };
     let Context(_bundle, target) = &mut *ctx;
     let scheduler = scheduler::TensorFlowLikeScheduler::new(profile_dict);
     let tracer = if trace_len == 0 {

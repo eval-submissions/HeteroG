@@ -118,7 +118,7 @@ with open("model.pb", "w") as fo:
 from profiler import Profiler
 
 p = Profiler(gdef)
-prof_dict = { node.name: [ p.profile(node.name, device) for device in devices ] for node in gdef.node }
+prof_dict = { (node.name, 1): [ p.profile(node.name, device) for device in devices ] for node in gdef.node }
 
 g = (tge.TGE(gdef, devices)
     .custom(strategy)

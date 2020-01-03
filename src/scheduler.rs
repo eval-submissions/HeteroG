@@ -14,16 +14,17 @@ const LATENCY: u64 = 12;
 
 // todo: split scheduling and simulating. logging and memory calculation are simulation
 pub trait Scheduler {
-    /// `memory` should be alredy zero-initialized and be at least as long as target.device
+    /// `memory` should be already zero-initialized and be at least as long as target.device
     fn evaluate<W: std::io::Write>(&self, target: &Target, trace: Option<&mut W>, memory: &mut [u64]) -> u64;
 }
 
 pub struct TensorFlowLikeScheduler {
-    profile_dict: BTreeMap<String, Vec<u64>>
+    /// the value is a binary sorted array contains replica_number and the time required on each device given replicated by that number
+    profile_dict: BTreeMap<String, Vec<(usize, Vec<u64>)>>
 }
 
 impl TensorFlowLikeScheduler {
-    pub fn new(profile_dict: BTreeMap<String, Vec<u64>>) -> Self {
+    pub fn new(profile_dict: BTreeMap<String, Vec<(usize, Vec<u64>)>>) -> Self {
         Self { profile_dict }
     }
 
@@ -31,12 +32,23 @@ impl TensorFlowLikeScheduler {
         let origin_name = node.attr.get("_tge_origin")?.get_s();
         // technically we do not need to extract the form if we use a profiler since it will be reflected by the input size.
         let form = Form::from_code(std::str::from_utf8(node.attr.get("_tge_form")?.get_s()).ok()?);
-        let time = self.profile_dict.get(&String::from_utf8(origin_name.to_vec()).unwrap()).map(|x| x[device_id]);
-        if form.is_part() {
-            time.map(|x| x / form.ndev() as u64)
+        let nrep = if form.is_part() {
+            form.ndev()
         } else {
-            time
-        }
+            1
+        };
+
+        let prof = self.profile_dict.get(&String::from_utf8(origin_name.to_vec()).unwrap())?;
+        let time = match prof.binary_search_by_key(&nrep, |x| x.0) {
+            Ok(i) => prof[i].1[device_id],
+            Err(i) => if i >= prof.len() { // TODO: proper linear interpolation
+                prof[i - 1].1[device_id]
+            } else {
+                prof[i].1[device_id]
+            }
+        };
+
+        Some(time)
     }
 }
 
