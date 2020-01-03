@@ -13,6 +13,7 @@ from tensorflow.core.framework import graph_pb2
 import copy
 import sys
 import json
+import pickle as pkl
 sys.path.append('../')
 import tge
 prefix=sys.argv[1]
@@ -63,14 +64,8 @@ class Environment(object):
         return np.float32(time)
 
     def get_name_cost_dict(self):
-        name_cost_dict = dict()
-        with open(self.folder+"/docs.txt", "r") as f:
-            for line in f.readlines():
-                line = line.strip()
-                items = line.split(" ")
-                name = items[0]
-                cost = list(np.array(items[-len(devices):]))
-                name_cost_dict[name] = cost
+        with open(self.folder+"/cost.pkl", "rb") as f:
+            name_cost_dict = pkl.load(f)
         return name_cost_dict
 
 env = Environment(prefix+"/graph.pbtxt",devices,prefix)

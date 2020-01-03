@@ -14,6 +14,7 @@ import sys
 import json
 sys.path.append('../')
 import tge
+import pickle as pkl
 prefix=sys.argv[1]
 config_dict =dict()
 if os.path.exists("config.txt"):
@@ -81,14 +82,8 @@ class Environment(object):
         return np.float32(time)
 
     def get_name_cost_dict(self):
-        name_cost_dict = dict()
-        with open(self.folder+"/docs.txt", "r") as f:
-            for line in f.readlines():
-                line = line.strip()
-                items = line.split(" ")
-                name = items[0]
-                cost = list(np.array(items[-len(devices):]))
-                name_cost_dict[name] = cost
+        with open(self.folder+"/cost.pkl", "rb") as f:
+            name_cost_dict = pkl.load(f)
         return name_cost_dict
 
 env = Environment(prefix+"/graph.pbtxt",devices,prefix)
