@@ -25,51 +25,51 @@ devices=config_dict.get("devices", [
     "/job:tge/replica:0/task:1/device:GPU:0",
     "/job:tge/replica:0/task:1/device:GPU:1"
 ])
-def model_fn(model_name=None):
+def model_fn(model_name,batch_size):
     if model_name=="vgg19":
         from tensorflow.contrib.slim.nets import vgg
-        x = tf.placeholder(tf.float32, shape=(64, 224, 224, 3))
-        y = tf.placeholder(tf.float32, shape=(64,1000))
+        x = tf.placeholder(tf.float32, shape=(batch_size, 224, 224, 3))
+        y = tf.placeholder(tf.float32, shape=(batch_size,1000))
         output, _ = vgg.vgg_19(x, 1000)
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
         optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
         return optimizer
     elif model_name=="resnet200":
         from tensorflow.contrib.slim.nets import resnet_v2
-        x = tf.placeholder(tf.float32, shape=(64, 224, 224, 3))
-        y = tf.placeholder(tf.float32, shape=(64,1,1, 1000))
+        x = tf.placeholder(tf.float32, shape=(batch_size, 224, 224, 3))
+        y = tf.placeholder(tf.float32, shape=(batch_size,1,1, 1000))
         output, _ = resnet_v2.resnet_v2_200(x, 1000)
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
         optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
         return optimizer
     elif model_name=="resnet101":
         from tensorflow.contrib.slim.nets import resnet_v2
-        x = tf.placeholder(tf.float32, shape=(64, 224, 224, 3))
-        y = tf.placeholder(tf.float32, shape=(64,1,1, 1000))
+        x = tf.placeholder(tf.float32, shape=(batch_size, 224, 224, 3))
+        y = tf.placeholder(tf.float32, shape=(batch_size,1,1, 1000))
         output, _ = resnet_v2.resnet_v2_101(x, 1000)
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
         optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
         return optimizer
     elif model_name=="resnet152":
         from tensorflow.contrib.slim.nets import resnet_v2
-        x = tf.placeholder(tf.float32, shape=(64, 224, 224, 3))
-        y = tf.placeholder(tf.float32, shape=(64,1,1, 1000))
+        x = tf.placeholder(tf.float32, shape=(batch_size, 224, 224, 3))
+        y = tf.placeholder(tf.float32, shape=(batch_size,1,1, 1000))
         output, _ = resnet_v2.resnet_v2_152(x, 1000)
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
         optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
         return optimizer
     elif model_name=="resnet50":
         from tensorflow.contrib.slim.nets import resnet_v2
-        x = tf.placeholder(tf.float32, shape=(64, 224, 224, 3))
-        y = tf.placeholder(tf.float32, shape=(64,1,1, 1000))
+        x = tf.placeholder(tf.float32, shape=(batch_size, 224, 224, 3))
+        y = tf.placeholder(tf.float32, shape=(batch_size,1,1, 1000))
         output, _ = resnet_v2.resnet_v2_152(x, 1000)
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
         optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
         return optimizer
     elif model_name=="inceptionv3":
         from tensorflow.contrib.slim.nets import inception_v3
-        x = tf.placeholder(tf.float32, shape=(64, 224, 224, 3))
-        y = tf.placeholder(tf.float32, shape=(64, 1000))
+        x = tf.placeholder(tf.float32, shape=(batch_size, 224, 224, 3))
+        y = tf.placeholder(tf.float32, shape=(batch_size, 1000))
         output, _ = inception_v3.inception_v3(x, 1000)
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
         optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
@@ -107,50 +107,64 @@ def generate_edge_file(gdef,folder):
 
 
 
+def generate_feature_file(folder,index):
+    batch_size=48
+    final_dict=dict()
+    if os.path.exists(folder+"graph.pbtxt"):
+        gdef = graph_pb2.GraphDef()
+        with open(folder+"graph.pbtxt","r")as f:
+            txt = f.read()
+        pbtf.Parse(txt,gdef)
+        tf.import_graph_def(gdef)
+    else:
+        opt = model_fn(models[index],batch_size)
+        init = tf.global_variables_initializer()
+        gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
 
-
-
-def generate_feature_file(gdef,folder,profile_file):
-    item_list=[]
-    run_metadata=None
+    generate_edge_file(gdef,folder)
     if os.path.exists("op_type_dict.json"):
         with open("op_type_dict.json", "r") as f:
             op_type_dict=json.load(f)
     else:
         op_type_dict = dict()
-    if profile_file==None:
-        profiler = Profiler(gdef)
-        if os.path.exists(folder+"run_metadata.pbtxt"):
+
+    profiler = Profiler(gdef)
+    replica_num = [1,2,3,4,6,8,12]
+    item_list=[]
+    times_dict=dict()
+    for replica_times in range(len(replica_num)):
+        tf.reset_default_graph()
+        run_metadata = None
+        run_meta_file_name = "run_metadata"+str(replica_num[replica_times])+".pbtxt"
+        if os.path.exists(folder+run_meta_file_name):
             run_metadata = tf.RunMetadata()
-            with open(folder+"run_metadata.pbtxt", "r")as f:
+            with open(folder+run_meta_file_name, "r")as f:
                 txt = f.read()
             pbtf.Parse(txt, run_metadata)
-
-    else:
-        with open(profile_file, "r") as f:
-            tmp = f.readlines()
-            tmp = map(lambda x: x.split(" ", 1), tmp)
-            name_cost_dict = {item[0]:item[1] for item in tmp}
-    for i,nodedef in enumerate(gdef.node):
-
-        if op_type_dict.get(nodedef.op,-1)==-1:
-            op_type_dict[nodedef.op] = len(op_type_dict.keys())
-        times = ''
-        if profile_file==None:
-            for i in range(len(devices)):
-                if nodedef.op!="Placeholder":
-                    try:
-                        time = profiler.profile(nodedef.name,'/gpu:0',run_metadata)
-                    except Exception as ex:
-                        print(sys.stderr, 'profile error: ', ex)
-                        print(nodedef)
-                        time = 0
-                else:
-                    time = 0
-                times+=str(int(time*(1+i*0.6)))+" "
         else:
-            times = name_cost_dict[nodedef.name]
+            opt = model_fn(models[index],batch_size/replica_num[replica_times])
+            init = tf.global_variables_initializer()
+            gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+            profiler = Profiler(gdef)
+        for i,nodedef in enumerate(gdef.node):
+            times = times_dict.get(nodedef.name,'')
+            if op_type_dict.get(nodedef.op,-1)==-1:
+                op_type_dict[nodedef.op] = len(op_type_dict.keys())
 
+            for i in range(len(devices)):
+                try:
+                    time = profiler.profile(nodedef.name,'/gpu:0',run_metadata)
+                except Exception as ex:
+                    print(sys.stderr, 'profile error: ', ex)
+                    print(nodedef)
+                    time = 0
+                new_time = int(time*(1+i*0.6))
+                final_dict.get((nodedef.name,replica_num[replica_times]),list()).append(new_time)
+                times+=str(new_time)+" "
+            times_dict[nodedef.name] = times
+
+    for i, nodedef in enumerate(gdef.node):
+        times = times_dict[nodedef.name]
         item_list.append("{} {} {}".format(nodedef.name, op_type_dict[nodedef.op],times))
 
     with open(folder+"docs.txt","w") as f:
@@ -163,15 +177,4 @@ models = ["vgg19","resnet200","resnet50","resnet101","resnet152","inceptionv3","
 for i in range(len(models)):
     tf.reset_default_graph()
     folder = "data/graph"+str(i+1)+"/"
-    if os.path.exists(folder+"graph.pbtxt"):
-        gdef = graph_pb2.GraphDef()
-        with open(folder+"graph.pbtxt","r")as f:
-            txt = f.read()
-        pbtf.Parse(txt,gdef)
-        tf.import_graph_def(gdef)
-    else:
-        opt = model_fn(models[i])
-        init = tf.global_variables_initializer()
-        gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
-    generate_edge_file(gdef,folder)
-    generate_feature_file(gdef,folder,None)
+    generate_feature_file(folder,i)
