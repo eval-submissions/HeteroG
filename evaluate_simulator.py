@@ -111,16 +111,14 @@ toc = time.perf_counter()
 
 from profiler import Profiler
 prof_dict = {}
-for nrep in range(1, BATCHSIZE//2):
-    if BATCHSIZE % (nrep * len(devices)) == 0:
-        print("=== {} ===".format(nrep))
-        tf.reset_default_graph()
-        opt = model_fn(BATCHSIZE // nrep)
-        init = tf.global_variables_initializer()
-        gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
-        p = Profiler(gdef)
-        for node in gdef.node:
-            prof_dict[(node.name, nrep)] = [ p.profile(node.name, device) for device in devices ]
+for nrep in (1, 2, 3, 4, 6, 8, 12):
+    tf.reset_default_graph()
+    opt = model_fn(BATCHSIZE // nrep)
+    init = tf.global_variables_initializer()
+    gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+    p = Profiler(gdef)
+    for node in gdef.node:
+        prof_dict[(node.name, nrep)] = [ p.profile(node.name, device) for device in devices ]
 
 tf.reset_default_graph()
 opt = model_fn(BATCHSIZE)
@@ -132,7 +130,7 @@ with open("model.pb", "w") as fo:
 
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
-    .set_bandwidth(intra=2809.87, inter=2809.87)
+    .set_bandwidth(intra=2810, inter=2810)
     .evaluate(prof_dict, "simulated.json")
 )
 
