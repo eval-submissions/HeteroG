@@ -21,6 +21,10 @@ sys.path.append('../')
 import tge
 import json
 import pickle as pkl
+import multiprocessing
+from multiprocessing import Pool
+
+num_cores = multiprocessing.cpu_count()
 
 checkpt_file = 'pre_trained/cora/mod_cora.ckpt'
 _dataset = 'cora'
@@ -77,6 +81,7 @@ def find_index(array, item):
     return len(array)
 def post_process_device_choice(device_choice,replica_mask,batch_size):
 
+    #post process and align to batch size
     def func1(item1,item2):
         replica_num = find_index(item1, len(devices))
         while(batch_size%replica_num):
@@ -416,11 +421,20 @@ class Environment(object):
         return new_device_array
     def get_reward2(self,device_choice,ps_or_reduce,index_id_dict):
         out_of_memory=False
-        new_device_array = np.zeros(shape=(device_choice.shape[0],len(devices)),dtype=np.int32)
+        #new_device_array = np.zeros(shape=(device_choice.shape[0],len(devices)),dtype=np.int32)
+        def func(item):
+            new_device_array = np.zeros(shape=(len(devices)),dtype=np.int32)
+            for j in range(len(item)):
+                if item[j]!=-1 and item[j]!=len(devices):
+                    new_device_array[item[j]]+=1
+            return new_device_array
+        '''
         for i in range(device_choice.shape[0]):
             for j in range(device_choice.shape[1]):
                 if device_choice[i,j]!=-1 and device_choice[i,j]!=len(self.devices):
                     new_device_array[i,device_choice[i,j]]+=1
+        '''
+        new_device_array = np.array(list(map(func,device_choice)))
         ps_or_reduce = np.reshape(ps_or_reduce, (ps_or_reduce.shape[0], 1))
         new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
         strategy = {index_id_dict[index]:new_device_array[index].tolist() for index in range(new_device_array.shape[0])}
@@ -464,6 +478,9 @@ class Environment(object):
             name_cost_dict = pkl.load(f)
         return name_cost_dict
 
+
+def sample_func1(output):
+    return np.array(list(map(lambda x: np.random.choice(x.size, p=x), output)))
 
 
 class feature_item(object):
@@ -529,10 +546,17 @@ class feature_item(object):
 
         for i in range(sample_times):
             replica_num = list()
-            replica_mask = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
+            replica_mask = np.ones(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
             device_choice = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
             ps_or_reduce=list()
             finished_node = list()
+
+            start = time.time()
+            with Pool(num_cores) as p:
+                device_choice = np.array(list(p.map(sample_func1, outputs[0:max_replica_num])))
+            device_choice = np.transpose(device_choice)
+            print("map time:",time.time()-start)
+            start = time.time()
             for i in range(max_replica_num):
                 output = outputs[i]
                 for j,pred in enumerate(output):
@@ -548,13 +572,17 @@ class feature_item(object):
                             replica_mask[j,i]=1
                     else:
                         device_choice[j,i] = -1
+            print("for loop time:",time.time()-start)
             device_choice, replica_mask = post_process_device_choice(device_choice, replica_mask, self.batch_size)
+            ps_or_reduce = np.array(list(map(lambda x: np.random.choice(x.size, p=x),outputs[max_replica_num])))
 
+            '''
             for j, pred in enumerate(outputs[max_replica_num]):
-                #pred = pred * 0.9 + (0.1 / pred.size)
+                #pred = pred * 0.9 + (0.1 / pred.size)shi
                 index = np.random.choice(pred.size, p=pred)
                 ps_or_reduce.append(index)
             ps_or_reduce = np.array(ps_or_reduce)
+            '''
             cal_entropy = outputs[-1]
             _reward,out_of_memory = self.env.get_reward2( device_choice,ps_or_reduce,self.index_id_dict)
             if _reward>self.best_reward:
@@ -576,10 +604,11 @@ class feature_item(object):
             replica_masks.append(pool_strategy["replica_mask"])
         #sample real distribution
         replica_num = list()
-        replica_mask = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
+        replica_mask = np.ones(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
         device_choice = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
         ps_or_reduce=list()
         finished_node = list()
+        '''
         for i in range(max_replica_num):
             output = outputs[i]
             for j,pred in enumerate(output):
@@ -594,11 +623,18 @@ class feature_item(object):
                         replica_mask[j,i]=1
                 else:
                     device_choice[j,i] = -1
+        '''
+        device_choice = np.array(list(map(func1, outputs[0:max_replica_num])))
+        device_choice = np.transpose(device_choice)
+
         device_choice,replica_mask = post_process_device_choice(device_choice,replica_mask,self.batch_size)
+        '''
         for j, pred in enumerate(outputs[max_replica_num]):
             index = np.random.choice(pred.size, p=pred)
             ps_or_reduce.append(index)
         ps_or_reduce = np.array(ps_or_reduce)
+        '''
+        ps_or_reduce=np.array(list(map(lambda x: np.random.choice(x.size, p=x), outputs[max_replica_num])))
         _reward,out_of_memory = self.env.get_reward2( device_choice,ps_or_reduce,self.index_id_dict)
         if _reward>self.best_reward:
             self.best_reward = _reward
