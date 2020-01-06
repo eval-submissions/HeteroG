@@ -167,10 +167,29 @@ def generate_feature_file(folder,index):
                 item.append(new_time)
                 times+=str(new_time)+" "
             times_dict[nodedef.name] = times
-
+    name_list = [nodedef.name for nodedef in gdef.node]
     for i, nodedef in enumerate(gdef.node):
+        size=0
+        for j,input in enumerate(nodedef.input):
+            if ":" in input:
+                index = int(input.split(":")[1])
+                input = input.split(":")[0]
+            else:
+                index=0
+
+            if input[0]=="^":
+                continue
+            else:
+                input_node_idx = name_list.index(input)
+                #output_node_idx = i
+                input_nodedef = gdef.node[input_node_idx]
+                output_shape = input_nodedef.attr["_output_shapes"].list.shape[index]
+                local_size=1
+                for dim in output_shape.dim:
+                    local_size*=dim.size
+                size+=local_size
         times = times_dict[nodedef.name]
-        item_list.append("{} {} {} {}".format(nodedef.name, op_type_dict[nodedef.op],times,batch_size))
+        item_list.append("{} {} {} {} {}".format(nodedef.name, op_type_dict[nodedef.op],times,size,batch_size))
 
     with open(folder+"docs.txt","w") as f:
         item_list = ["\n"+item if i!=0 else item for i,item in enumerate(item_list)]
