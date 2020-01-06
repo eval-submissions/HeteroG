@@ -9,12 +9,12 @@ use crate::proto::tensor::TensorProto;
 pub trait Strategy {
     type NEX: Default;
     type TEX: Default;
-    /// make the plan, setting the neccesary fields for nodes and tensors and create the aux nodes on target
+    /// make the plan, setting the necessary fields for nodes and tensors and create the aux nodes on target
     fn plan(&mut self, graph: &mut Graph<Self::NEX, Self::TEX>, target: &mut Target);
 }
 
-mod trival;
-pub use trival::NotAtAll;
+mod trivial;
+pub use trivial::NotAtAll;
 
 // mod dp; // data parallel
 // pub use dp::{DataParallelOneForAll, DataParallelNccl, DataParallelRing};

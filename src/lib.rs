@@ -132,9 +132,9 @@ unsafe extern fn custom(strategy_data: *const u8, len: u32) -> *mut Bundle {
 unsafe extern fn compile(ctx: *mut Context, pflag: u8) -> u32 {
     let Context(bundle, target) = &mut *ctx;
     bundle.plan_and_compile(target);
-    if pflag & 0x01 != 0 { polishing::remove_colocation_hint(target); }
+    if pflag & 0x01 != 0 { polishing::remove_collocation_hint(target); }
     if pflag & 0x02 != 0 { polishing::remove_shape_hint(target); }
-    if pflag & 0x04 != 0 { polishing::destructify_names(target); }
+    if pflag & 0x04 != 0 { polishing::destruct_names(target); }
     if pflag & 0x08 != 0 {
         let sinks: Vec<_> = bundle.get_sinks().iter().map(|x| format!("{}/replica_0", x)).collect();
         polishing::remove_dangling_nodes(&sinks.iter().map(|x| &x[..]).collect::<Vec<_>>(), target);

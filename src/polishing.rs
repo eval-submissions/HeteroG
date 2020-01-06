@@ -2,7 +2,7 @@ use oh_my_rust::*;
 use crate::graph::*;
 
 // if we do not remove these, we need to modify this field so that it has the correct node name of replicated operators
-pub fn remove_colocation_hint(target: &mut Target) {
+pub fn remove_collocation_hint(target: &mut Target) {
     for node in target.pb.node.iter_mut() {
         if let Some(x) = node.attr.get_mut("_class") {
             if let Some(crate::proto::attr_value::AttrValue_oneof_value::list(ref mut list)) = &mut x.value {
@@ -43,7 +43,7 @@ pub fn remove_dangling_nodes(end_points: &[&str], target: &mut Target) {
     target.pb.node = target.pb.node.clone().into_iter().filter(|x| keep.contains(&x.name[..])).collect() // TODO: no clone?
 }
 
-pub fn destructify_names(target: &mut Target) {
+pub fn destruct_names(target: &mut Target) {
     for node in target.pb.node.iter_mut() {
         node.name = node.name.replace('/', "__");
         for input in node.input.iter_mut() {

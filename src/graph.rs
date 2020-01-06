@@ -7,7 +7,7 @@ use std::convert::TryInto;
 use crate::strategy::Strategy;
 
 pub struct Graph<NEX: Default, TEX: Default> {
-    pub nodes: Vec<Node<NEX, TEX>>, // This vector is partial ordered: inputs are guarenteed to appear ealier than descendents
+    pub nodes: Vec<Node<NEX, TEX>>, // This vector is partial ordered: inputs are guaranteed to appear ealier than descendents
     pub sinks: Box<[String]>, // sink nodes
     pub name_dict: std::collections::BTreeMap<String, usize>
 }
@@ -445,7 +445,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
     }
 
     pub fn all_reduce_nccl(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
-        // to all_sum n tensors (can be on the same devie), one should have n NcclAllReduce nodes with the same shared_name attr
+        // to all_sum n tensors (can be on the same device), one should have n NcclAllReduce nodes with the same shared_name attr
         // each node have only *one* input, and should be on the same device of the input. The output of these nodes will be the same
 
         assert!(from.valid() && to.valid() && from.is_part() && to.is_full() && from.devices == to.devices);

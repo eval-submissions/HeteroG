@@ -100,7 +100,7 @@ type TensorBuf = (usize, usize, usize); // id, index, gpu
 // track all tensors, have two fields: activate (the transfer op that receives it) and deactivate (list of ops that use it)
 // implementation: transfer task save activate tensor id, tensors is an array contains sizes and ref counts, computation save deactivate tensor id
 // consume memory when the activate op is finished, and deactivate when all deactivate ops are done
-// TODO: ensure every tensor being transfered, even if the path is empty
+// TODO: ensure every tensor being transferred, even if the path is empty
 
 impl Scheduler for TensorFlowLikeScheduler {
     fn evaluate<W: std::io::Write>(&self, target: &Target, mut tracer: Option<&mut W>, max_memory: &mut [u64]) -> u64 {
@@ -150,8 +150,8 @@ impl Scheduler for TensorFlowLikeScheduler {
         let mut time = 0;
         let mut ongoing_tasks = BinaryHeap::new();
         let mut ready_list: VecDeque<_> = tasks.iter().enumerate().filter(|(_, task)| task.wait_for.is_empty()).map(|(i, _)| i).collect(); // TODO: find the nodes that actually need to be runned (can lead to the terminating node), or assume the DAG is already pruned.
-        let mut gpu_avaliable_time = vec![0; target.devices.len()];
-        let mut link_avaliable_time = vec![0; target.links.len()];
+        let mut gnu_available_time = vec![0; target.devices.len()];
+        let mut link_available_time = vec![0; target.links.len()];
         let mut current_memory = max_memory.to_vec();
 
         loop {
@@ -160,21 +160,22 @@ impl Scheduler for TensorFlowLikeScheduler {
                 let task = &mut tasks[task_id];
                 match task.content {
                     TaskType::Computation { id: node_id, gpu } => {
-                        debug!("{:?} {:?} {:?} {:?} {:?}", gpu, gpu_avaliable_time[gpu], time, nodes[node_id].name, self.profile(&nodes[node_id], gpu).unwrap_or(0));
-                        let eft = cmp::max(gpu_avaliable_time[gpu], time) + self.profile(&nodes[node_id], gpu).unwrap_or(0);
-                        gpu_avaliable_time[gpu] = eft;
+                        debug!("{:?} {:?} {:?} {:?} {:?}", gpu, gnu_available_time[gpu], time, nodes[node_id].name, self.profile(&nodes[node_id], gpu).unwrap_or(0));
+                        let eft = cmp::max(gnu_available_time[gpu], time) + self.profile(&nodes[node_id], gpu).unwrap_or(0);
+                        gnu_available_time[gpu] = eft;
                         ongoing_tasks.push(OngoingTask { id: task_id, eft });
                     }
                     TaskType::Transfering { size, path } => {
-                        let est = path.iter().fold(time, |max, link| cmp::max(max, link_avaliable_time[*link]));
+                        let est = path.iter().fold(time, |max, link| cmp::max(max, link_available_time[*link]));
                         let eft = est + if !path.is_empty() {
-
+                            let bandwidth = path.iter().fold(std::u64::MAX, |min, link| cmp::min(min, target.links[*link]));
+                            size / bandwidth + LATENCY
                         } else {
                             0
                         };
 
                         for link in path {
-                            link_avaliable_time[*link] = eft
+                            link_available_time[*link] = eft
                         }
                         ongoing_tasks.push(OngoingTask { id: task_id, eft });
                     }
@@ -183,7 +184,7 @@ impl Scheduler for TensorFlowLikeScheduler {
 
             // move a time step forward
             if let Some(OngoingTask { id, eft }) = ongoing_tasks.pop() {
-                // print tracing infomation
+                // print tracing information
                 if let Some(tracer) = &mut tracer {
                     match &tasks[id].content {
                         TaskType::Computation { id: node_id, gpu } => {
