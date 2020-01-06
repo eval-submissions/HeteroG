@@ -24,13 +24,10 @@ import pickle as pkl
 import multiprocessing
 from multiprocessing import Pool
 
-num_cores = multiprocessing.cpu_count()
-
 checkpt_file = 'pre_trained/cora/mod_cora.ckpt'
 _dataset = 'cora'
 
-
-config_dict =dict()
+config_dict = dict()
 if os.path.exists("config.txt"):
     with open("config.txt", "r") as f:
         config_dict = json.load(f)
@@ -39,12 +36,12 @@ if os.path.exists("config.txt"):
 batch_size = 1
 nb_epochs = 100000
 patience = 100
-lr = config_dict.get("learning_rate",0.01)  # learning rate
+lr = config_dict.get("learning_rate", 0.01)  # learning rate
 l2_coef = 0.0005  # weight decay
-hid_units = [256,256] # numbers of hidden units per each attention head in each layer
-n_heads = [4,4, 4] # additional entry for the output layer
-place_hid_units=[256,256,256,256]
-place_n_heads=[4,4,2, 2,1]
+hid_units = [256, 256]  # numbers of hidden units per each attention head in each layer
+n_heads = [4, 4, 4]  # additional entry for the output layer
+place_hid_units = [256, 256, 256, 256]
+place_n_heads = [4, 4, 2, 2, 1]
 residual = False
 nonlinearity = tf.nn.elu
 model = SpGAT
@@ -60,60 +57,48 @@ print('nb. attention heads: ' + str(n_heads))
 print('residual: ' + str(residual))
 print('nonlinearity: ' + str(nonlinearity))
 print('model: ' + str(model))
-feature_folders = ["data/graph1","data/graph2","data/graph3","data/graph4","data/graph5","data/graph6"]
+feature_folders = ["data/graph1", "data/graph2", "data/graph3", "data/graph4", "data/graph5", "data/graph6"]
 sample_times = 3
-devices=config_dict.get("devices", [
+devices = config_dict.get("devices", [
     "/job:tge/replica:0/task:0/device:GPU:0",
     "/job:tge/replica:0/task:0/device:GPU:1",
     "/job:tge/replica:0/task:1/device:GPU:0",
     "/job:tge/replica:0/task:1/device:GPU:1"
 ])
 
-max_replica_num = config_dict.get("max_replica_num",len(devices))
+max_replica_num = config_dict.get("max_replica_num", len(devices))
 show_interval = 3
-
-device_mems=config_dict.get("device_mems", [16*10e9,16*10e9,16*10e9,16*10e9])
-
+num_cores = multiprocessing.cpu_count()
+device_mems = config_dict.get("device_mems", [16 * 10e9, 16 * 10e9, 16 * 10e9, 16 * 10e9])
 def find_index(array, item):
     for idx, val in enumerate(array):
         if val == item:
             return idx
     return len(array)
+def post_func1(item):
+    item1=item[:len(item)-1]
+    batch_size = item[-1]
+    replica_num = find_index(item1, len(devices))
+    while(batch_size%replica_num):
+        replica_num-=1
+    if replica_num<len(item1):
+        item1[replica_num]=len(devices)
+        if replica_num < len(item1)-1:
+            item1[replica_num+1:] = -1
+    return item1
+def post_func2(item1):
+    replica_mask = np.ones(shape=len(item1),dtype=np.int32)
+    replica_num = find_index(item1, len(devices))
+    if replica_num < len(item1)-1:
+        replica_mask[replica_num + 1:] = 0
+    return replica_mask
 def post_process_device_choice(device_choice,replica_mask,batch_size):
 
     #post process and align to batch size
-    def func1(item1,item2):
-        replica_num = find_index(item1, len(devices))
-        while(batch_size%replica_num):
-            replica_num-=1
-        if replica_num<len(item1):
-            item1[replica_num]=len(devices)
-            if replica_num < len(item1)-1:
-                item1[replica_num+1:] = -1
-        return item1
-    def func2(item1,item2):
-        replica_num = find_index(item1, len(devices))
-        if replica_num < len(item1)-1:
-            item2[replica_num + 1:] = 0
-        return item2
-    device_choice=np.array(list(map(func1,device_choice,replica_mask)))
-    replica_mask = np.array(list(map(func2,device_choice,replica_mask)))
-    '''
-    for i,item in enumerate(device_choice):
-        replica_num = find_index(item,len(devices))
-        while(batch_size%replica_num):
-            replica_num-=1
-        if replica_num<device_choice.shape[1]:
-            device_choice[i][replica_num]=len(devices)
-            if replica_num < device_choice.shape[1]-1:
-                device_choice[i][replica_num+1:] = -1
-                replica_mask[i][replica_num+1:] = 0
-    '''
+    new_batch_size=np.ones(shape=(device_choice.shape[0],1)) * batch_size
+    device_choice=np.array(list(global_pool.map(post_func1,np.concatenate((device_choice,new_batch_size),axis=1))),dtype=np.int32)
+    replica_mask = np.array(list(global_pool.map(post_func2,device_choice)),dtype=np.int32)
     return device_choice,replica_mask
-
-
-
-
 
 
 def rel_multihead_attn(w, r,d_model,mems,
@@ -239,7 +224,7 @@ class strategy_pool(object):
 
         # even data parallel 1
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
-        device_choice = np.array([np.arange(max_replica_num)%(len(devices)) for i in range(self.node_num)])
+        device_choice = np.array([np.arange(max_replica_num)%(len(devices)) for i in range(self.node_num)],dtype=np.int32)
         replica_mask=self.get_replica_masks(device_choice)
         device_choice,replica_mask = post_process_device_choice(device_choice,replica_mask,self.batch_size)
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
@@ -321,7 +306,7 @@ class strategy_pool(object):
                 f.write(str(self.strategies[np.random.randint(len(self.strategies))]["strategy_list"]))
 
     def get_replica_masks(self,device_choice):
-        masks = np.zeros(shape=device_choice.shape)
+        masks = np.zeros(shape=device_choice.shape,dtype=np.int32)
         for i in range(masks.shape[0]):
             for j in range(masks.shape[1]):
                 masks[i,j] = 0 if device_choice[i,j]==-1 else 1
@@ -383,9 +368,14 @@ class strategy_pool(object):
     def choose_strategy(self):
         index = np.random.randint(0,len(self.strategies))
         return self.strategies[index]
-
+def reward_func(item):
+    new_device_array = np.zeros(shape=(len(devices)),dtype=np.int32)
+    for j in range(len(item)):
+        if item[j]!=-1 and item[j]!=len(devices):
+            new_device_array[item[j]]+=1
+    return new_device_array
 class Environment(object):
-    def __init__(self,gdef_path,devices,folder_path,batch_size):
+    def __init__(self,gdef_path,devices,folder_path,batch_size,pool):
 
         self.gdef = graph_pb2.GraphDef()
         with open(gdef_path,"r")as f:
@@ -397,6 +387,7 @@ class Environment(object):
         self.best_strategy = dict()
         self.strategy_time_dict=dict()
         self.batch_size = batch_size
+        self.pool = pool
 
         if os.path.exists(folder_path+"/best_time.log"):
             with open(folder_path+"/best_time.log", "r") as f:
@@ -409,32 +400,18 @@ class Environment(object):
         self.devices =devices
         self.name_cost_dict = self.get_name_cost_dict()
         self._tge = tge.TGE(self.gdef, devices)
-    def get_stratey_array(self,device_choice,ps_or_reduce):
 
-        new_device_array = np.zeros(shape=device_choice.shape,dtype=np.int32)
-        for i in range(device_choice.shape[0]):
-            for j in range(device_choice.shape[1]):
-                if device_choice[i,j]!=-1 and device_choice[i,j]!=len(self.devices):
-                    new_device_array[i,device_choice[i,j]]+=1
-        ps_or_reduce = np.reshape(ps_or_reduce, (ps_or_reduce.shape[0], 1))
-        new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
-        return new_device_array
     def get_reward2(self,device_choice,ps_or_reduce,index_id_dict):
         out_of_memory=False
         #new_device_array = np.zeros(shape=(device_choice.shape[0],len(devices)),dtype=np.int32)
-        def func(item):
-            new_device_array = np.zeros(shape=(len(devices)),dtype=np.int32)
-            for j in range(len(item)):
-                if item[j]!=-1 and item[j]!=len(devices):
-                    new_device_array[item[j]]+=1
-            return new_device_array
+
         '''
         for i in range(device_choice.shape[0]):
             for j in range(device_choice.shape[1]):
                 if device_choice[i,j]!=-1 and device_choice[i,j]!=len(self.devices):
                     new_device_array[i,device_choice[i,j]]+=1
         '''
-        new_device_array = np.array(list(map(func,device_choice)))
+        new_device_array = np.array(list(self.pool.map(reward_func,device_choice)))
         ps_or_reduce = np.reshape(ps_or_reduce, (ps_or_reduce.shape[0], 1))
         new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
         strategy = {index_id_dict[index]:new_device_array[index].tolist() for index in range(new_device_array.shape[0])}
@@ -481,10 +458,11 @@ class Environment(object):
 
 def sample_func1(output):
     return np.array(list(map(lambda x: np.random.choice(x.size, p=x), output)))
-
+def random_func1(item):
+    return  np.random.choice(item.size, p=item)
 
 class feature_item(object):
-    def __init__(self,folder_path):
+    def __init__(self,folder_path,pool):
         self.dataset = load_cora(folder_path,NewWhiteSpaceTokenizer())
         adj = self.dataset.adj_matrix(sparse=True)
         feature_matrix, feature_masks = self.dataset.feature_matrix(bag_of_words=False, sparse=False)
@@ -512,8 +490,8 @@ class feature_item(object):
         self.val_mask = val_mask[np.newaxis]
         self.test_mask = test_mask[np.newaxis]
 
-
-        self.env = Environment(folder_path+"/graph.pbtxt",devices,folder_path,self.batch_size)
+        self.pool = pool
+        self.env = Environment(folder_path+"/graph.pbtxt",devices,folder_path,self.batch_size,self.pool)
         self.average_reward=0
         self.best_reward = 1-sys.maxsize
         self.best_replica_num = list()
@@ -545,18 +523,17 @@ class feature_item(object):
             mems=self.mems)
 
         for i in range(sample_times):
+            start = time.time()
             replica_num = list()
             replica_mask = np.ones(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
             device_choice = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
             ps_or_reduce=list()
             finished_node = list()
 
-            start = time.time()
-            with Pool(num_cores) as p:
-                device_choice = np.array(list(p.map(sample_func1, outputs[0:max_replica_num])))
+            device_choice = np.array(list(self.pool.map(sample_func1, outputs[0:max_replica_num])))
             device_choice = np.transpose(device_choice)
-            print("map time:",time.time()-start)
-            start = time.time()
+
+            '''
             for i in range(max_replica_num):
                 output = outputs[i]
                 for j,pred in enumerate(output):
@@ -572,9 +549,9 @@ class feature_item(object):
                             replica_mask[j,i]=1
                     else:
                         device_choice[j,i] = -1
-            print("for loop time:",time.time()-start)
+            '''
             device_choice, replica_mask = post_process_device_choice(device_choice, replica_mask, self.batch_size)
-            ps_or_reduce = np.array(list(map(lambda x: np.random.choice(x.size, p=x),outputs[max_replica_num])))
+            ps_or_reduce = np.array(list(self.pool.map(random_func1,outputs[max_replica_num])))
 
             '''
             for j, pred in enumerate(outputs[max_replica_num]):
@@ -584,7 +561,11 @@ class feature_item(object):
             ps_or_reduce = np.array(ps_or_reduce)
             '''
             cal_entropy = outputs[-1]
+            print("----prepare input time:",time.time()-start)
+            start = time.time()
             _reward,out_of_memory = self.env.get_reward2( device_choice,ps_or_reduce,self.index_id_dict)
+            print("----compute reward time:",time.time()-start)
+            start = time.time()
             if _reward>self.best_reward:
                 self.best_reward = _reward
                 self.best_replica_num = replica_num
@@ -596,18 +577,15 @@ class feature_item(object):
             ps_or_reduces.append(ps_or_reduce)
             device_choices.append(device_choice)
             replica_masks.append(replica_mask)
+            print("----post process time:",time.time()-start)
+            start = time.time()
         if self.strategy_pool.get_length()>0:
             pool_strategy = self.strategy_pool.choose_strategy()
             rewards.append(pool_strategy["reward"])
             device_choices.append(pool_strategy["device_choice"])
             ps_or_reduces.append(np.reshape(pool_strategy["ps_or_reduce"],(self.nb_nodes,)))
             replica_masks.append(pool_strategy["replica_mask"])
-        #sample real distribution
-        replica_num = list()
-        replica_mask = np.ones(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
-        device_choice = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
-        ps_or_reduce=list()
-        finished_node = list()
+
         '''
         for i in range(max_replica_num):
             output = outputs[i]
@@ -624,23 +602,6 @@ class feature_item(object):
                 else:
                     device_choice[j,i] = -1
         '''
-        device_choice = np.array(list(map(func1, outputs[0:max_replica_num])))
-        device_choice = np.transpose(device_choice)
-
-        device_choice,replica_mask = post_process_device_choice(device_choice,replica_mask,self.batch_size)
-        '''
-        for j, pred in enumerate(outputs[max_replica_num]):
-            index = np.random.choice(pred.size, p=pred)
-            ps_or_reduce.append(index)
-        ps_or_reduce = np.array(ps_or_reduce)
-        '''
-        ps_or_reduce=np.array(list(map(lambda x: np.random.choice(x.size, p=x), outputs[max_replica_num])))
-        _reward,out_of_memory = self.env.get_reward2( device_choice,ps_or_reduce,self.index_id_dict)
-        if _reward>self.best_reward:
-            self.best_reward = _reward
-            self.best_replica_num = replica_num
-            self.best_device_choice = device_choice
-            self.best_ps_or_reduce = ps_or_reduce
        # if epoch>20:
        #     self.average_reward = (self.average_reward*19+_reward)/20 if not out_of_memory else self.average_reward
        # else:
@@ -1109,9 +1070,10 @@ class critic():
         return outputs
 '''
 def architecture_three():
+    global  global_pool
     models = list()
     for feature_folder in feature_folders:
-        models.append(feature_item(folder_path=feature_folder))
+        models.append(feature_item(feature_folder,global_pool))
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
@@ -1130,7 +1092,9 @@ def architecture_three():
         for epoch in range(nb_epochs):
 
             for model in models:
+                _start= time.time()
                 model.sample_and_train(epoch)
+                print("sample time:",time.time()-_start)
 
             if epoch % show_interval == 0:
                 saver.save(sess, checkpt_file)
@@ -1167,4 +1131,16 @@ def actor_critic():
 
         sess.close()
 '''
-architecture_three()
+import signal
+def handler(signum, frame):
+    global  global_pool
+    global_pool.close()
+    global_pool.join()
+    sys.exit()
+
+if __name__ == '__main__':
+
+
+    global_pool = Pool(num_cores)
+    signal.signal(signal.SIGINT, handler)
+    architecture_three()
