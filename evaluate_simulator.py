@@ -51,6 +51,8 @@ from tensorflow.python.client import timeline
 
 from utils import write_tensorboard, setup_workers
 
+BATCHSIZE=48
+
 opt = model_fn(None)
 init = tf.global_variables_initializer()
 gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
@@ -65,7 +67,7 @@ import tge
 # options = [[0, 1], [1, 0], [0, 2], [2, 0], [1, 1]]
 # strategy = { node.name: [np.random.randint(0, 2)] + options[np.random.randint(0, len(options))] for node in gdef.node }
 
-strategy = { node.name: [0, 1, 0] for node in gdef.node }
+strategy = { node.name: [0, 1, 1] for node in gdef.node }
 
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
@@ -82,7 +84,7 @@ y = graph.get_tensor_by_name("import/Placeholder_1/replica_0:0")
 opt = graph.get_operation_by_name("import/GradientDescent/replica_0")
 init = graph.get_operation_by_name("import/init/replica_0")
 
-data = { x: np.random.uniform(size=(64, 224, 224, 3)), y: np.random.uniform(size=(64, 1000)) }
+data = { x: np.random.uniform(size=(BATCHSIZE, 224, 224, 3)), y: np.random.uniform(size=(BATCHSIZE, 1000)) }
 config = tf.ConfigProto(allow_soft_placement=True)#log_device_placement=True)
 
 sess = tf.Session(None, config=config)
@@ -107,22 +109,30 @@ tic = time.perf_counter()
 sess.run(opt, data)
 toc = time.perf_counter()
 
+from profiler import Profiler
+prof_dict = {}
+for nrep in range(1, BATCHSIZE//2):
+    if BATCHSIZE % (nrep * len(devices)) == 0:
+        print("=== {} ===".format(nrep))
+        tf.reset_default_graph()
+        opt = model_fn(BATCHSIZE // nrep)
+        init = tf.global_variables_initializer()
+        gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+        p = Profiler(gdef)
+        for node in gdef.node:
+            prof_dict[(node.name, nrep)] = [ p.profile(node.name, device) for device in devices ]
+
 tf.reset_default_graph()
-opt = model_fn(64)
+opt = model_fn(BATCHSIZE)
 init = tf.global_variables_initializer()
 gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
 
 with open("model.pb", "w") as fo:
     fo.write(pbtf.MessageToString(gdef))
 
-from profiler import Profiler
-
-p = Profiler(gdef)
-prof_dict = { (node.name, 1): [ p.profile(node.name, device) for device in devices ] for node in gdef.node }
-
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
-    .set_bandwidth(intra=6000, inter=6000)
+    .set_bandwidth(intra=2809.87, inter=2809.87)
     .evaluate(prof_dict, "simulated.json")
 )
 
