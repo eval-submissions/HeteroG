@@ -1135,7 +1135,6 @@ def actor_critic():
 import signal
 def handler(signum, frame):
     global  global_pool
-    global_pool.close()
     global_pool.terminate()
     sys.exit()
 
