@@ -1142,4 +1142,6 @@ if __name__ == '__main__':
 
     global_pool = Pool(num_cores)
     signal.signal(signal.SIGINT, handler)
+    signal.signal(signal.SIGTERM, handler)
+
     architecture_three()
