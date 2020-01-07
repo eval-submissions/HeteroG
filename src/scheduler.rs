@@ -32,9 +32,6 @@ impl TensorFlowLikeScheduler {
         let origin_name = node.attr.get("_tge_origin")?.get_s();
         // technically we do not need to extract the form if we use a profiler since it will be reflected by the input size.
         let form = Form::from_code(std::str::from_utf8(node.attr.get("_tge_form")?.get_s()).ok()?);
-
-        info!("{} {}", node.name, form.code());
-
         let nrep = if form.is_part() {
             form.ndev()
         } else {
