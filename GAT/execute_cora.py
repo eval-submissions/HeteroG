@@ -222,7 +222,7 @@ class strategy_pool(object):
         else:
             self.strategies = list()
 
-        self.rewards = [item["reward"] for item in self.strategies] if len(self.strategies) else [0]
+        self.rewards = [item["reward"] for item in self.strategies] if len(self.strategies) else [-sys.maxsize]
         self.batch_size = batch_size
 
         # even data parallel 1
@@ -312,6 +312,7 @@ class strategy_pool(object):
 
     def insert(self,reward,device_choice,replica_mask,ps_or_reduce):
         strategy_list = self.get_stratey_list(device_choice, ps_or_reduce)
+        '''
         if len(self.strategies)<20:
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
@@ -328,7 +329,8 @@ class strategy_pool(object):
 
             self.save_strategy_pool()
             self.rewards.append(reward)
-        elif len(self.strategies)<200 and reward>np.mean(self.rewards):
+        '''
+        if len(self.strategies)<200 and reward>np.max(self.rewards):
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
                 diff_list = list(global_pool.map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
@@ -344,7 +346,7 @@ class strategy_pool(object):
 
             self.save_strategy_pool()
             self.rewards.append(reward)
-        elif len(self.strategies)>=200 and reward>np.mean(self.rewards):
+        elif len(self.strategies)>=200 and reward>np.max(self.rewards):
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
                 #diff_list = [0 if all(device_choice[i]==exist_device_choice[i]) else 1 for i in range(len(device_choice))]
