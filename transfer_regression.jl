@@ -3,6 +3,7 @@ using JsonBuilder
 
 Boilerplate.setup_repl().web_display(echarts=true).load_std().load_snippets()
 
+# 1080ti
 a = [[1,413],
 [2,645],
 [3,1216],
@@ -22,6 +23,9 @@ a = [[1,413],
 [40,12710],
 [48,19271]]
 
+# v100 nvlink, raw bandwidth: 9.23 (p2p disable) 24.12 (p2p enable)
+
+
 X = map(car, a)
 X = [X X]
 X[:, 2] .= 1
@@ -30,7 +34,7 @@ X\y
 
 plot(@json """{
     backgroundColor: 'transparent',
-    title: { text: 'Transfer Time' },
+    title: { text: 'NV Link' },
     xAxis: { type: 'value' },
     yAxis: { type: 'value' },
     legend: { width: 400 },

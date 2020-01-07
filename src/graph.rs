@@ -179,10 +179,13 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
             }).collect();
 
             // 3. add control dependencies
-            for node_id in self.controls.iter() {
-                let dep_node = &self.graph().nodes[*node_id];
-                for i in 0..dep_node.form.ndev() {
-                    node.input.push(format!("^{}", dep_node.replica(i)))
+            if self.raw_node.op == "NoOp" { // TODO: what's the consequence?
+                for node_id in self.controls.iter() {
+                    let dep_node = &self.graph().nodes[*node_id];
+
+                    for i in 0..dep_node.form.ndev() {
+                        node.input.push(format!("^{}", dep_node.replica(i)))
+                    }
                 }
             }
 

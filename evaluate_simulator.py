@@ -75,6 +75,9 @@ g = (tge.TGE(gdef, devices)
     .get_result()
 )
 
+with open("modified.pb", "w") as fo:
+    fo.write(pbtf.MessageToString(g))
+
 tf.reset_default_graph()
 tf.import_graph_def(g)
 graph = tf.get_default_graph()
