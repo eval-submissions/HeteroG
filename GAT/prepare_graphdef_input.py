@@ -189,7 +189,7 @@ def generate_feature_file(folder,index):
                     local_size*=dim.size
                 size+=local_size
         times = times_dict[nodedef.name]
-        item_list.append("{} {} {} {} {}".format(nodedef.name, op_type_dict[nodedef.op],times,size,batch_size))
+        item_list.append("{} {} {}{} {}".format(nodedef.name, op_type_dict[nodedef.op],times,size,batch_size))
 
     with open(folder+"docs.txt","w") as f:
         item_list = ["\n"+item if i!=0 else item for i,item in enumerate(item_list)]
