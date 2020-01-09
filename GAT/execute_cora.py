@@ -330,7 +330,7 @@ class strategy_pool(object):
             self.save_strategy_pool()
             self.rewards.append(reward)
         '''
-        if len(self.strategies)<200 and reward>np.max(self.rewards):
+        if len(self.strategies)<200 and reward>np.mean(self.rewards):
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
                 diff_list = list(global_pool.map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
@@ -346,7 +346,7 @@ class strategy_pool(object):
 
             self.save_strategy_pool()
             self.rewards.append(reward)
-        elif len(self.strategies)>=200 and reward>np.max(self.rewards):
+        elif len(self.strategies)>=200 and reward>np.mean(self.rewards):
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
                 #diff_list = [0 if all(device_choice[i]==exist_device_choice[i]) else 1 for i in range(len(device_choice))]
@@ -503,6 +503,7 @@ class feature_item(object):
         self.dataset = load_cora(folder_path,NewWhiteSpaceTokenizer())
         adj = self.dataset.adj_matrix(sparse=True)
         feature_matrix, feature_masks = self.dataset.feature_matrix(bag_of_words=False, sparse=False)
+        self.batch_size = int(feature_matrix[0,-1])
 
         feature_matrix = StandardScaler().fit_transform(feature_matrix)
 
@@ -512,7 +513,7 @@ class feature_item(object):
 
         self.nb_nodes = feature_matrix.shape[0]
         self.ft_size = feature_matrix.shape[1]
-        self.batch_size = feature_matrix[0][-1]
+
 
         self.biases = process.preprocess_adj_bias(adj)
 
@@ -844,7 +845,7 @@ class new_place_GNN():
             self.entropy = -(tf.reduce_mean(self.entropy) + sum / max_replica_num)
 
 
-        for i in range(sample_times+1):
+        for i in range(sample_times):
             one_hot_sample = tf.one_hot(self.sample_ps_or_reduce[i], 2)
             print("one_hot_sample.shape")
             print(one_hot_sample.shape)
