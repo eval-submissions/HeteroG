@@ -615,7 +615,7 @@ class feature_item(object):
                             replica_num_array=np.array(self.replica_masks),
                             sample_ps_or_reduce = np.array(self.ps_or_reduces),
                             sample_device_choice = np.array(self.device_choices),
-                            time_ratio = (np.array(self.rewards)-avg)/np.abs(avg),
+                            time_ratio = (np.array(self.rewards)-avg)*10,
                             coef_entropy=co_entropy,
                             mems = self.mems)
             tr_step += 1
