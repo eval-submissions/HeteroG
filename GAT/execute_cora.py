@@ -312,7 +312,7 @@ class strategy_pool(object):
 
     def insert(self,reward,device_choice,replica_mask,ps_or_reduce):
         strategy_list = self.get_stratey_list(device_choice, ps_or_reduce)
-        '''
+
         if len(self.strategies)<20:
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
@@ -329,7 +329,7 @@ class strategy_pool(object):
 
             self.save_strategy_pool()
             self.rewards.append(reward)
-        '''
+
         if len(self.strategies)<200 and reward>np.mean(self.rewards):
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
@@ -426,7 +426,7 @@ class Environment(object):
         time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom(strategy).set_bandwidth(intra,inter).evaluate(self.name_cost_dict)
         time = time_mem_tuple[0]
         mem_list = time_mem_tuple[1]
-        time = float(time)/(10**6)
+        time = float(time)/(10**3)
 
         if any(np.array(mem_list) > np.array(device_mems)):
             time = time*10
@@ -616,7 +616,7 @@ class feature_item(object):
                             replica_num_array=np.array(self.replica_masks),
                             sample_ps_or_reduce = np.array(self.ps_or_reduces),
                             sample_device_choice = np.array(self.device_choices),
-                            time_ratio = (np.array(self.rewards)-avg)*10,
+                            time_ratio = (np.array(self.rewards)-avg),
                             coef_entropy=co_entropy,
                             mems = self.mems)
             tr_step += 1
