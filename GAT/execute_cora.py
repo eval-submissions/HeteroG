@@ -33,15 +33,16 @@ if os.path.exists("config.txt"):
         config_dict = json.load(f)
 
 # training params
+os.environ["CUDA_VISIBLE_DEVICES"]=config_dict.get("CUDA_VISIBLE_DEVICES","0")
 batch_size = 1
 nb_epochs = 100000
 patience = 100
 lr = config_dict.get("learning_rate", 0.01)  # learning rate
-l2_coef = 0.0005  # weight decay
-hid_units = [256, 256]  # numbers of hidden units per each attention head in each layer
+l2_coef = 0  # weight decay
+hid_units = [1024, 1024]  # numbers of hidden units per each attention head in each layer
 n_heads = [4, 4, 4]  # additional entry for the output layer
-place_hid_units = [256, 256, 256, 256]
-place_n_heads = [4, 4, 2, 2, 1]
+place_hid_units = [1024, 1024,256, 256]
+place_n_heads = [4, 4, 2,2, 1]
 residual = False
 nonlinearity = tf.nn.elu
 model = SpGAT
@@ -57,7 +58,7 @@ print('nb. attention heads: ' + str(n_heads))
 print('residual: ' + str(residual))
 print('nonlinearity: ' + str(nonlinearity))
 print('model: ' + str(model))
-feature_folders = ["data/graph1", "data/graph2", "data/graph3", "data/graph4", "data/graph5", "data/graph6"]
+feature_folders = config_dict.get("inputs",["data/graph1", "data/graph2", "data/graph3", "data/graph4", "data/graph5", "data/graph6"])
 sample_times = 3
 devices = config_dict.get("devices", [
     "/job:tge/replica:0/task:0/device:GPU:0",
@@ -470,6 +471,7 @@ class sample_thread(threading.Thread):
         self.item = item
         self.i =i
         self.mutex = mutex
+        self.oom = True
     def set_output(self,outputs):
         self.outputs = outputs
     def run(self):
@@ -490,8 +492,8 @@ class sample_thread(threading.Thread):
             self.item.best_device_choice = device_choice
             self.item.best_ps_or_reduce = ps_or_reduce
         if not out_of_memory:
-
             self.item.strategy_pool.insert(_reward, device_choice, replica_mask, ps_or_reduce)
+            self.oom = False
 
         self.item.rewards[self.i] = _reward
         self.item.ps_or_reduces[self.i] = ps_or_reduce
@@ -540,6 +542,7 @@ class feature_item(object):
 
         self.mems=[np.zeros([2, self.nb_nodes, 64], dtype=np.float32) for layer in range(3)]
         self.mutex = threading.Lock()
+        self.avg = float(np.mean(self.strategy_pool.rewards))
 
     def set_session_and_network(self,sess,place_gnn):
         self.sess =sess
@@ -567,39 +570,6 @@ class feature_item(object):
             thres[i].join()
 
 
-        '''
-        for i in range(sample_times):
-            replica_num = list()
-            replica_mask = np.ones(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
-            device_choice = np.zeros(shape=(self.nb_nodes,max_replica_num),dtype=np.int32)
-            ps_or_reduce=list()
-            finished_node = list()
-
-            device_choice = np.array(list(self.pool.map(sample_func1, outputs[0:max_replica_num])))
-            device_choice = np.transpose(device_choice)
-
-            device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
-            ps_or_reduce = np.array(list(self.pool.map(random_func1,outputs[max_replica_num])))
-
-
-            cal_entropy = outputs[-1]
-
-            _reward,out_of_memory = self.env.get_reward2( device_choice,ps_or_reduce,self.index_id_dict)
-
-            if _reward>self.best_reward:
-                self.best_reward = _reward
-                self.best_replica_num = replica_num
-                self.best_device_choice = device_choice
-                self.best_ps_or_reduce = ps_or_reduce
-            if not out_of_memory:
-                self.strategy_pool.insert(_reward, device_choice, replica_mask,ps_or_reduce)
-            self.rewards[i]=_reward
-            self.ps_or_reduces[i]=ps_or_reduce
-            self.device_choices[i]=device_choice
-            self.replica_masks[i]=replica_mask
-        '''
-
-
         if self.strategy_pool.get_length()>0:
             pool_strategy = self.strategy_pool.choose_strategy()
             self.rewards.append(pool_strategy["reward"])
@@ -608,7 +578,7 @@ class feature_item(object):
             self.replica_masks.append(pool_strategy["replica_mask"])
 
 
-        avg = float(np.mean(self.strategy_pool.rewards))
+
         while tr_step * batch_size < tr_size:
             new_loss,self.mems=self.place_gnn.learn(ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
                             bias_in=self.biases,
@@ -616,10 +586,13 @@ class feature_item(object):
                             replica_num_array=np.array(self.replica_masks),
                             sample_ps_or_reduce = np.array(self.ps_or_reduces),
                             sample_device_choice = np.array(self.device_choices),
-                            time_ratio = (np.array(self.rewards)-avg),
+                            time_ratio = (np.array(self.rewards)-self.avg)/np.abs(self.avg)*1000,
                             coef_entropy=co_entropy,
                             mems = self.mems)
             tr_step += 1
+        for i in range(sample_times):
+            if thres[i].oom == False:
+                self.avg = (self.avg+self.rewards[i])/2
         times = self.rewards[0]*self.rewards[0]
         if epoch % show_interval == 0:
             print("[{}] step = {}".format(self.folder_path,epoch))
@@ -633,138 +606,6 @@ class feature_item(object):
             with open(self.folder_path+"/loss.log", "a+") as f:
                 f.write(str(new_loss) + ",")
 
-
-'''
-class ac_feature_item(object):
-    def __init__(self,folder_path):
-        self.dataset = load_cora(folder_path,NewWhiteSpaceTokenizer())
-        adj = self.dataset.adj_matrix(sparse=True)
-        feature_matrix, feature_masks = self.dataset.feature_matrix(bag_of_words=False, sparse=False)
-
-        feature_matrix = StandardScaler().fit_transform(feature_matrix)
-
-        labels, label_masks = self.dataset.label_list_or_matrix(one_hot=False)
-
-        train_node_indices, test_node_indices, train_masks, test_masks = self.dataset.split_train_and_test(training_rate=0.8)
-        self.features = feature_matrix
-
-        self.nb_nodes = self.features.shape[0]
-
-        self.ft_size = self.features.shape[1]+len(devices)+1
-
-
-        self.biases = process.preprocess_adj_bias(adj)
-
-        train_mask=train_masks
-        val_mask=test_masks
-        test_mask=test_masks
-
-        self.index_id_dict = self.dataset.network.get_indexer(N_TYPE_NODE).index_id_dict
-
-        self.train_mask = train_mask[np.newaxis]
-        self.val_mask = val_mask[np.newaxis]
-        self.test_mask = test_mask[np.newaxis]
-
-
-        self.env = Environment(folder_path+"/graph.pbtxt",devices,folder_path)
-        self.average_reward=0
-        self.best_reward = 1-sys.maxsize
-        self.best_replica_num = list()
-        self.best_device_choice = np.zeros(shape=(self.nb_nodes, len(devices)), dtype=np.int32)
-        self.best_ps_or_reduce = list()
-        self.folder_path = folder_path
-
-        if os.path.exists(folder_path+"/current_state.json"):
-            with open(folder_path+"/current_state.json","r") as f:
-                tmp = json.load(f)
-                self.current_state = np.array(tmp)
-        else:
-            self.current_state = np.ones(shape=(self.nb_nodes,len(devices)+1))
-            with open(folder_path + "/current_state.json", "w") as f:
-                json.dump(self.current_state.tolist(),f)
-
-
-    def set_session_and_network(self,sess,actor,critic):
-        self.sess =sess
-        self.actor = actor
-        self.critic = critic
-
-    def sample_and_train(self,epoch):
-        co_entropy = 1
-        rewards = list()
-
-        replica_num = list()
-        replica_n_hot_num = np.zeros(shape=(self.nb_nodes,len(devices)),dtype=np.int32)
-        device_choice = np.zeros(shape=(self.nb_nodes,len(devices)),dtype=np.int32)
-        ps_or_reduce=list()
-        current_ftr_in = np.concatenate((self.features,self.current_state),axis=1)
-        outputs = self.actor.get_replica_num_prob_and_entropy(ftr_in=current_ftr_in[np.newaxis],
-                                                                  bias_in=self.biases,
-                                                             nb_nodes=self.nb_nodes)
-
-        finished_node = list()
-        for i in range(len(devices)):
-            output = outputs[i]
-            for j,pred in enumerate(output):
-                if j not in finished_node:
-                    index = np.random.choice(pred.size,p=pred)
-                    if index==len(devices):
-                        finished_node.append(j)
-                        device_choice[j, i] = index
-                        replica_n_hot_num[j,i]=1
-                    else:
-                        device_choice[j,i] = index
-                        replica_n_hot_num[j,i]=1
-                else:
-                    device_choice[j,i] = -1
-
-        for j, pred in enumerate(outputs[len(devices)]):
-            index = np.random.choice(pred.size, p=pred)
-            ps_or_reduce.append(index)
-        ps_or_reduce = np.array(ps_or_reduce)
-
-        cal_entropy = outputs[-1]
-        _reward = self.env.get_reward2( device_choice,ps_or_reduce,self.index_id_dict)
-
-        next_state = self.env.get_stratey_array(device_choice, ps_or_reduce)
-        next_ftr_in = np.concatenate((self.features,next_state),axis=1)
-        if _reward>self.best_reward:
-            self.best_reward = _reward
-            self.best_replica_num = replica_num
-            self.best_device_choice = device_choice
-            self.best_ps_or_reduce = ps_or_reduce
-
-
-        rewards.append(_reward)
-        if epoch>20:
-            self.average_reward = (self.average_reward*19+np.mean(rewards))/20
-        else:
-            self.average_reward = (self.average_reward * epoch+ np.mean(rewards)) /(epoch+1)
-
-
-        td_error = self.critic.learn(current_ftr_in[np.newaxis], next_ftr_in[np.newaxis],_reward,self.biases, self.nb_nodes)
-        new_loss=self.actor.learn(ftr_in=current_ftr_in[np.newaxis],
-                        bias_in=self.biases,
-                        nb_nodes=self.nb_nodes,
-                        replica_num_array=np.array(replica_n_hot_num),
-                        sample_ps_or_reduce = np.array(ps_or_reduce),
-                        sample_device_choice = np.array(device_choice),
-                        time_ratio = (td_error),
-                        coef_entropy=co_entropy)
-        times = [item*item for item in rewards]
-        if epoch % show_interval == 0:
-            print("[{}] step = {}".format(self.folder_path,epoch))
-            print("[{}] time = {}".format(self.folder_path,times))
-            print("[{}] average reward = {}".format(self.folder_path,self.average_reward))
-            print("[{}] overall entropy:{}".format(self.folder_path,cal_entropy))
-            with open(self.folder_path+"/time.log", "a+") as f:
-                f.write(str(np.mean(times)) + ",")
-            with open(self.folder_path+"/entropy.log", "a+") as f:
-                f.write(str(cal_entropy) + ",")
-            with open(self.folder_path+"/loss.log", "a+") as f:
-                f.write(str(new_loss) + ",")
-
-'''
 
 class new_place_GNN():
     def __init__(self,sess,ft_size):
@@ -785,15 +626,15 @@ class new_place_GNN():
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
             self.mems = [tf.placeholder(tf.float32,[2, None, 64]) for _ in range(3)]
 
-        logits = model.inference(self.ftr_in, 64, self.nb_node, self.is_train,
+        logits = model.inference(self.ftr_in, 1024, self.nb_node, self.is_train,
                                  self.attn_drop, self.ffd_drop,
                                  bias_mat=self.bias_in,
                                  hid_units=hid_units, n_heads=n_heads,
                                  residual=residual, activation=nonlinearity)
 
         if not transformer:
-            log_resh = tf.reshape(logits, [-1, 64])
-            log_resh = tf.layers.dense(log_resh, units=64, activation=tf.nn.relu)
+            log_resh = tf.reshape(logits, [-1, 1024])
+            log_resh = tf.layers.dense(log_resh, units=1024, activation=tf.nn.relu)
             self.cell = tf.nn.rnn_cell.MultiRNNCell([self.get_a_cell() for _ in range(max_replica_num)])
             h0 = self.cell.zero_state(self.nb_node, np.float32)
             self.output,self.h = self.cell.call(log_resh, h0)
@@ -845,7 +686,7 @@ class new_place_GNN():
             self.entropy = -(tf.reduce_mean(self.entropy) + sum / max_replica_num)
 
 
-        for i in range(sample_times):
+        for i in range(sample_times+1):
             one_hot_sample = tf.one_hot(self.sample_ps_or_reduce[i], 2)
             print("one_hot_sample.shape")
             print(one_hot_sample.shape)
@@ -914,163 +755,6 @@ class new_place_GNN():
         return outputs
 
 
-
-'''
-
-class actor():
-    def __init__(self,sess,ft_size):
-        with tf.name_scope('place_gnn'):
-            self.sess = sess
-
-            self.ftr_in = tf.placeholder(dtype=tf.float32, shape=(batch_size, None, ft_size),name="ftr_in")
-            #self.bias_in = tf.placeholder(dtype=tf.float32, shape=(batch_size, None, None),name="bias_in")
-            self.bias_in = tf.sparse_placeholder(dtype=tf.float32)
-            self.nb_node = tf.placeholder(dtype=tf.int32, shape=(),name="nb_node")
-            self.attn_drop = tf.placeholder(dtype=tf.float32, shape=(),name="attn_drop")
-            self.ffd_drop = tf.placeholder(dtype=tf.float32, shape=(),name="ffd_drop")
-            self.is_train = tf.placeholder(dtype=tf.bool, shape=(),name="is_train")
-            self.sample_ps_or_reduce = tf.placeholder(dtype=tf.int32, shape=(None,),name="sample_ps_or_reduce")
-            self.sample_device_choice = tf.placeholder(dtype=tf.int32, shape=(None,len(devices),),name="sample_device_choice")
-            self.replica_num_array = tf.placeholder(dtype=tf.float32, shape=(None,len(devices)),name="replica_num_array")
-            self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(),name="time_ratio")
-            self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
-
-        logits = model.inference(self.ftr_in, 64, self.nb_node, self.is_train,
-                                 self.attn_drop, self.ffd_drop,
-                                 bias_mat=self.bias_in,
-                                 hid_units=hid_units, n_heads=n_heads,
-                                 residual=residual, activation=nonlinearity)
-        log_resh = tf.reshape(logits, [-1, 64])
-        log_resh = tf.layers.dense(log_resh, units=64, activation=tf.nn.relu)
-        self.cell = tf.nn.rnn_cell.MultiRNNCell([self.get_a_cell() for _ in range(len(devices))])
-        h0 = self.cell.zero_state(self.nb_node, np.float32)
-        self.output,self.h = self.cell.call(log_resh, h0)
-        self.ps_or_reduce = tf.layers.dense(self.output, units=2, activation=tf.nn.softmax)
-        self.device_choices = list()
-        sum=0
-        out = tf.layers.dense(self.h[0].c, units=len(devices), activation=tf.nn.softmax)
-        self.device_choices.append(out)
-        sum = sum + tf.reduce_mean(tf.reduce_sum(tf.log(out + np.power(10.0, -9)) * out, 1))
-        for i in range(len(devices)-1):
-            out = tf.layers.dense(self.h[i+1].c, units=len(devices)+1, activation=tf.nn.softmax)
-            self.device_choices.append(out)
-            sum = sum+tf.reduce_mean(tf.reduce_sum(tf.log(out + np.power(10.0, -9)) *out, 1))
-
-        self.entropy = tf.reduce_sum(tf.log(self.ps_or_reduce + np.power(10.0, -9)) * self.ps_or_reduce, 1)
-        self.entropy = tf.reduce_mean(self.entropy)+sum/len(devices)
-
-        one_hot_sample = tf.one_hot(self.sample_ps_or_reduce, 2)
-        print("one_hot_sample.shape")
-        print(one_hot_sample.shape)
-
-        prob = tf.reduce_sum(self.ps_or_reduce * one_hot_sample, 1)
-        # prob = tf.reduce_prod(peirob)
-        reward = tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * self.time_ratio)
-
-        #first device choice n*m
-        one_hot_sample = tf.one_hot(self.sample_device_choice[:, 0], len(devices))
-        prob = tf.reduce_sum(self.device_choices[0] * one_hot_sample, 1) * self.replica_num_array[:, 0] + (
-                1 - self.replica_num_array[:, 0])
-        reward += tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * self.time_ratio)
-
-        #rest device choice n*(m+1)
-        for j in range(1,len(devices)):
-            one_hot_sample = tf.one_hot(self.sample_device_choice[:,j], len(devices)+1)
-            prob =  tf.reduce_sum(self.device_choices[j] * one_hot_sample, 1) * self.replica_num_array[:,j]+(1-self.replica_num_array[:,j])
-            reward+=tf.reduce_sum(tf.log(prob + np.power(10.0, -9)) * self.time_ratio)
-
-
-        self.loss = -reward #+ self.coef_entropy * self.entropy
-        self.train_op = model.training(self.loss, lr, l2_coef)
-
-
-
-    def get_a_cell(self):
-        return tf.nn.rnn_cell.BasicLSTMCell(num_units=64)
-
-    def learn(self,ftr_in,bias_in,nb_nodes,replica_num_array,sample_ps_or_reduce,sample_device_choice,time_ratio,coef_entropy):
-        loss,_ = self.sess.run([self.loss,self.train_op],
-                     feed_dict={
-                         self.ftr_in: ftr_in,
-                         self.bias_in:bias_in,
-                         self.nb_node:nb_nodes,
-                         self.is_train: True,
-                         self.attn_drop: 0.1, self.ffd_drop: 0.1, self.replica_num_array: replica_num_array,
-                         self.sample_ps_or_reduce:sample_ps_or_reduce,
-                         self.sample_device_choice:sample_device_choice,
-                         self.time_ratio:time_ratio, self.coef_entropy: coef_entropy})
-        return loss
-    def get_replica_num_prob_and_entropy(self,ftr_in,bias_in,nb_nodes):
-        fetch_list =[item for item in self.device_choices]
-        fetch_list.append(self.ps_or_reduce)
-        fetch_list.append(self.entropy)
-        outputs = self.sess.run(fetch_list, feed_dict={
-            self.ftr_in: ftr_in,
-            self.bias_in: bias_in,
-            self.nb_node:nb_nodes,
-            self.is_train: True,
-            self.attn_drop: 0.1, self.ffd_drop: 0.1})
-        return outputs
-class critic():
-    def __init__(self, sess, ft_size):
-        with tf.name_scope('critic'):
-            self.sess = sess
-
-            self.ftr_in = tf.placeholder(dtype=tf.float32, shape=(batch_size, None, ft_size), name="ftr_in")
-            # self.bias_in = tf.placeholder(dtype=tf.float32, shape=(batch_size, None, None),name="bias_in")
-            self.bias_in = tf.sparse_placeholder(dtype=tf.float32)
-            self.nb_node = tf.placeholder(dtype=tf.int32, shape=(), name="nb_node")
-            self.attn_drop = tf.placeholder(dtype=tf.float32, shape=(), name="attn_drop")
-            self.ffd_drop = tf.placeholder(dtype=tf.float32, shape=(), name="ffd_drop")
-            self.is_train = tf.placeholder(dtype=tf.bool, shape=(), name="is_train")
-            self.v_ = tf.placeholder(dtype=tf.float32, shape=(), name="v_next")
-            self.r = tf.placeholder(dtype=tf.float32, shape=(), name='r')
-
-
-        logits = model.inference(self.ftr_in, 64, self.nb_node, self.is_train,
-                                 self.attn_drop, self.ffd_drop,
-                                 bias_mat=self.bias_in,
-                                 hid_units=hid_units, n_heads=n_heads,
-                                 residual=residual, activation=nonlinearity)
-        log_resh = tf.reshape(logits, [-1, 64])
-        log_resh = tf.layers.dense(log_resh, units=1, activation=tf.nn.relu)
-        self.v = tf.reduce_mean(log_resh)
-        self.td_error = self.r+0.9*self.v_-self.v
-        self.loss = tf.square(self.td_error)
-        self.train_op = model.training(self.loss, lr, l2_coef)
-
-    def get_a_cell(self):
-        return tf.nn.rnn_cell.BasicLSTMCell(num_units=64)
-
-    def learn(self, ftr_in, next_ftr_in,reward,bias_in, nb_nodes):
-        next_v = self.sess.run(self.v,feed_dict={
-                                    self.ftr_in: next_ftr_in,
-                                    self.bias_in: bias_in,
-                                    self.nb_node: nb_nodes,
-                                    self.is_train: True,
-                                    self.attn_drop: 0.1, self.ffd_drop: 0.1})
-
-        td_error, _ = self.sess.run([self.td_error, self.train_op],
-                                feed_dict={
-                                    self.ftr_in: ftr_in,
-                                    self.bias_in: bias_in,
-                                    self.nb_node: nb_nodes,
-                                    self.is_train: True,
-                                    self.attn_drop: 0.1, self.ffd_drop: 0.1,self.r:reward,self.v_:next_v})
-        return td_error
-
-    def get_replica_num_prob_and_entropy(self, ftr_in, bias_in, nb_nodes):
-        fetch_list = [item for item in self.device_choices]
-        fetch_list.append(self.ps_or_reduce)
-        fetch_list.append(self.entropy)
-        outputs = self.sess.run(fetch_list, feed_dict={
-            self.ftr_in: ftr_in,
-            self.bias_in: bias_in,
-            self.nb_node: nb_nodes,
-            self.is_train: True,
-            self.attn_drop: 0.1, self.ffd_drop: 0.1})
-        return outputs
-'''
 def architecture_three():
     global  global_pool
     models = list()
@@ -1142,7 +826,7 @@ def handler(signum, frame):
 if __name__ == '__main__':
 
 
-    global_pool = Pool(num_cores)
+    global_pool = Pool(1)
     signal.signal(signal.SIGINT, handler)
     signal.signal(signal.SIGTERM, handler)
 
