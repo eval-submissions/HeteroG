@@ -97,8 +97,8 @@ def post_process_device_choice(device_choice,batch_size):
 
     #post process and align to batch size
     new_batch_size=np.ones(shape=(device_choice.shape[0],1)) * batch_size
-    device_choice=np.array(list(global_pool.map(post_func1,np.concatenate((device_choice,new_batch_size),axis=1))),dtype=np.int32)
-    replica_mask = np.array(list(global_pool.map(post_func2,device_choice)),dtype=np.int32)
+    device_choice=np.array(list(map(post_func1,np.concatenate((device_choice,new_batch_size),axis=1))),dtype=np.int32)
+    replica_mask = np.array(list(map(post_func2,device_choice)),dtype=np.int32)
     return device_choice,replica_mask
 
 
@@ -290,7 +290,7 @@ class strategy_pool(object):
         return len(self.strategies)
 
     def get_stratey_list(self,device_choice,ps_or_reduce):
-        new_device_array = np.array(list(global_pool.map(reward_func,device_choice)),dtype=np.int32)
+        new_device_array = np.array(list(map(reward_func,device_choice)),dtype=np.int32)
         ps_or_reduce = np.reshape(ps_or_reduce, (ps_or_reduce.shape[0], 1))
         new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
         return new_device_array.tolist()
@@ -317,7 +317,7 @@ class strategy_pool(object):
         if len(self.strategies)<20:
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
-                diff_list = list(global_pool.map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
+                diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
                 if sum(diff_list)/len(diff_list)<0.01:
                     if reward>strategy["reward"]:
                         self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
@@ -334,7 +334,7 @@ class strategy_pool(object):
         if len(self.strategies)<200 and reward>np.mean(self.rewards):
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
-                diff_list = list(global_pool.map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
+                diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
                 if sum(diff_list)/len(diff_list)<0.01:
                     if reward>strategy["reward"]:
                         self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
@@ -351,7 +351,7 @@ class strategy_pool(object):
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
                 #diff_list = [0 if all(device_choice[i]==exist_device_choice[i]) else 1 for i in range(len(device_choice))]
-                diff_list = list(global_pool.map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
+                diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
                 if sum(diff_list)/len(diff_list)<0.01:
                     if reward>strategy["reward"]:
                         self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
@@ -413,7 +413,7 @@ class Environment(object):
                 if device_choice[i,j]!=-1 and device_choice[i,j]!=len(self.devices):
                     new_device_array[i,device_choice[i,j]]+=1
         '''
-        new_device_array = np.array(list(self.pool.map(reward_func,device_choice)))
+        new_device_array = np.array(list(map(reward_func,device_choice)))
         ps_or_reduce = np.reshape(ps_or_reduce, (ps_or_reduce.shape[0], 1))
         new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
         strategy = {index_id_dict[index]:new_device_array[index].tolist() for index in range(new_device_array.shape[0])}
@@ -477,11 +477,11 @@ class sample_thread(threading.Thread):
     def run(self):
         replica_num = list()
         replica_mask = np.ones(shape=(self.item.nb_nodes, max_replica_num), dtype=np.int32)
-        device_choice = np.array(list(self.item.pool.map(sample_func1, self.outputs[0:max_replica_num])))
+        device_choice = np.array(list(map(sample_func1, self.outputs[0:max_replica_num])))
         device_choice = np.transpose(device_choice)
 
         device_choice, replica_mask = post_process_device_choice(device_choice, self.item.batch_size)
-        ps_or_reduce = np.array(list(self.item.pool.map(random_func1, self.outputs[max_replica_num])))
+        ps_or_reduce = np.array(list(map(random_func1, self.outputs[max_replica_num])))
 
         self.item.cal_entropy = self.outputs[-1]
         _reward, out_of_memory = self.item.env.get_reward2(device_choice, ps_or_reduce, self.item.index_id_dict)
