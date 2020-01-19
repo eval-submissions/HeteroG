@@ -502,13 +502,13 @@ class sample_thread(threading.Thread):
         self.item.replica_masks[self.i] = replica_mask
         self.mutex.release()
 class feature_item(threading.Thread):
-    def __init__(self,folder_path,pool,mutex):
+    def __init__(self,folder_path,pool,event):
         super(feature_item, self).__init__()
         self.dataset = load_cora(folder_path,NewWhiteSpaceTokenizer())
         adj = self.dataset.adj_matrix(sparse=True)
         feature_matrix, feature_masks = self.dataset.feature_matrix(bag_of_words=False, sparse=False)
         self.batch_size = int(feature_matrix[0,-1])
-        self.large_mutex = mutex
+        self.event = event
         feature_matrix = StandardScaler().fit_transform(feature_matrix)
 
         labels, label_masks = self.dataset.label_list_or_matrix(one_hot=False)
@@ -611,12 +611,10 @@ class feature_item(threading.Thread):
 
     def run(self):
         while True:
-            self.large_mutex.acquire()
-            if self.need_sample:
-                self.sample()
-            else:
-                time.sleep(1)
-            self.large_mutex.release()
+            self.event.wait()
+            self.sample()
+            self.event.clear()
+
     def sample_and_train(self,epoch):
         co_entropy = 0
         thres = []
@@ -828,8 +826,8 @@ def architecture_three():
     global  global_pool
     models = list()
     for feature_folder in feature_folders:
-        mutex = threading.Lock()
-        item = feature_item(feature_folder,global_pool,mutex)
+        event = threading.Event()
+        item = feature_item(feature_folder,global_pool,event)
         item.setDaemon(True)
         models.append(item)
     config = tf.ConfigProto()
@@ -853,15 +851,12 @@ def architecture_three():
             for model in models:
                 _start= time.time()
                 #model.sample_and_train(epoch)
-                model.large_mutex.acquire()
-                model.need_sample=True
-                model.large_mutex.release()
+                model.event.set()
             while True:
+                print("continue")
                 continue_loop=False
                 for model in models:
-                    model.large_mutex.acquire()
-                    continue_loop = continue_loop or (model.need_sample == True)
-                    model.large_mutex.release()
+                    continue_loop = continue_loop or (model.is_set())
                 if not continue_loop:
                     break
 
