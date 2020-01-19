@@ -501,13 +501,14 @@ class sample_thread(threading.Thread):
         self.item.device_choices[self.i] = device_choice
         self.item.replica_masks[self.i] = replica_mask
         self.mutex.release()
-class feature_item(object):
-    def __init__(self,folder_path,pool):
+class feature_item(threading.Thread):
+    def __init__(self,folder_path,pool,mutex):
+        super(feature_item, self).__init__()
         self.dataset = load_cora(folder_path,NewWhiteSpaceTokenizer())
         adj = self.dataset.adj_matrix(sparse=True)
         feature_matrix, feature_masks = self.dataset.feature_matrix(bag_of_words=False, sparse=False)
         self.batch_size = int(feature_matrix[0,-1])
-
+        self.large_mutex = mutex
         feature_matrix = StandardScaler().fit_transform(feature_matrix)
 
         labels, label_masks = self.dataset.label_list_or_matrix(one_hot=False)
@@ -516,7 +517,7 @@ class feature_item(object):
 
         self.nb_nodes = feature_matrix.shape[0]
         self.ft_size = feature_matrix.shape[1]
-
+        self.need_sample = False
 
         self.biases = process.preprocess_adj_bias(adj)
 
@@ -549,6 +550,73 @@ class feature_item(object):
         self.sess =sess
         self.place_gnn = place_gnn
 
+    def sample(self):
+        co_entropy = 0
+        self.thres = []
+        tr_step = 0
+        tr_size = self.features.shape[0]
+        self.replica_masks = [None]*sample_times
+        self.device_choices = [None]*sample_times
+        self.rewards = [None]*sample_times
+        self.ps_or_reduces=[None]*sample_times
+        outputs = self.place_gnn.get_replica_num_prob_and_entropy(
+            ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
+            bias_in=self.biases,
+            nb_nodes=self.nb_nodes,
+            mems=self.mems)
+        for i in range(sample_times):
+            self.thres.append(sample_thread(self, i, self.mutex))
+            self.thres[i].set_output(outputs)
+            self.thres[i].start()
+        for i in range(sample_times):
+            self.thres[i].join()
+        self.need_sample=False
+    def train(self,epoch):
+        tr_step = 0
+        co_entropy = 0
+        tr_size = self.features.shape[0]
+        if self.strategy_pool.get_length()>0:
+            pool_strategy = self.strategy_pool.choose_strategy()
+            self.rewards.append(pool_strategy["reward"])
+            self.device_choices.append(pool_strategy["device_choice"])
+            self.ps_or_reduces.append(np.reshape(pool_strategy["ps_or_reduce"],(self.nb_nodes,)))
+            self.replica_masks.append(pool_strategy["replica_mask"])
+
+        while tr_step * batch_size < tr_size:
+            new_loss,self.mems=self.place_gnn.learn(ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
+                            bias_in=self.biases,
+                            nb_nodes=self.nb_nodes,
+                            replica_num_array=np.array(self.replica_masks),
+                            sample_ps_or_reduce = np.array(self.ps_or_reduces),
+                            sample_device_choice = np.array(self.device_choices),
+                            time_ratio = (np.array(self.rewards)-self.avg),
+                            coef_entropy=co_entropy,
+                            mems = self.mems)
+            tr_step += 1
+        for i in range(sample_times):
+            if self.thres[i].oom == False:
+                self.avg = (self.avg+self.rewards[i])/2
+        times = self.rewards[0]*self.rewards[0]
+        if epoch % show_interval == 0:
+            print("[{}] step = {}".format(self.folder_path,epoch))
+            print("[{}] time = {}".format(self.folder_path,times))
+            print("[{}] average reward = {}".format(self.folder_path,np.mean(self.strategy_pool.rewards)))
+            print("[{}] overall entropy:{}".format(self.folder_path,self.cal_entropy))
+            with open(self.folder_path+"/time.log", "a+") as f:
+                f.write(str(times) + ",")
+            with open(self.folder_path+"/entropy.log", "a+") as f:
+                f.write(str(self.cal_entropy) + ",")
+            with open(self.folder_path+"/loss.log", "a+") as f:
+                f.write(str(new_loss) + ",")
+
+    def run(self):
+        while True:
+            self.large_mutex.acquire()
+            if self.need_sample:
+                self.sample()
+            else:
+                time.sleep(1)
+            self.large_mutex.release()
     def sample_and_train(self,epoch):
         co_entropy = 0
         thres = []
@@ -760,7 +828,10 @@ def architecture_three():
     global  global_pool
     models = list()
     for feature_folder in feature_folders:
-        models.append(feature_item(feature_folder,global_pool))
+        mutex = threading.Lock()
+        item = feature_item(feature_folder,global_pool,mutex)
+        item.setDaemon(True)
+        models.append(item)
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
@@ -768,6 +839,7 @@ def architecture_three():
 
         for model in models:
             model.set_session_and_network(sess,place_gnn)
+            model.start()
 
         saver = tf.train.Saver()
         try:
@@ -780,8 +852,21 @@ def architecture_three():
 
             for model in models:
                 _start= time.time()
-                model.sample_and_train(epoch)
-                print("sample time:",time.time()-_start)
+                #model.sample_and_train(epoch)
+                model.large_mutex.acquire()
+                model.need_sample=True
+                model.large_mutex.release()
+            while True:
+                continue_loop=False
+                for model in models:
+                    model.large_mutex.acquire()
+                    continue_loop = continue_loop or (model.need_sample == True)
+                    model.large_mutex.release()
+                if not continue_loop:
+                    break
+
+            for model in models:
+                model.train(epoch)
 
             if epoch % show_interval == 0:
                 saver.save(sess, checkpt_file)
