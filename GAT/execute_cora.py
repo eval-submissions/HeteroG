@@ -502,13 +502,16 @@ class sample_thread(threading.Thread):
         self.item.replica_masks[self.i] = replica_mask
         self.mutex.release()
 class feature_item(threading.Thread):
-    def __init__(self,folder_path,pool,event):
+    def __init__(self,folder_path,pool,event,event2):
         super(feature_item, self).__init__()
         self.dataset = load_cora(folder_path,NewWhiteSpaceTokenizer())
         adj = self.dataset.adj_matrix(sparse=True)
         feature_matrix, feature_masks = self.dataset.feature_matrix(bag_of_words=False, sparse=False)
         self.batch_size = int(feature_matrix[0,-1])
         self.event = event
+        self.event.set()
+        self.event2 = event2
+        self.event2.clear()
         feature_matrix = StandardScaler().fit_transform(feature_matrix)
 
         labels, label_masks = self.dataset.label_list_or_matrix(one_hot=False)
@@ -570,7 +573,6 @@ class feature_item(threading.Thread):
             self.thres[i].start()
         for i in range(sample_times):
             self.thres[i].join()
-        self.need_sample=False
     def train(self,epoch):
         tr_step = 0
         co_entropy = 0
@@ -614,6 +616,7 @@ class feature_item(threading.Thread):
             self.event.wait()
             self.sample()
             self.event.clear()
+            self.event2.set()
 
     def sample_and_train(self,epoch):
         co_entropy = 0
@@ -827,17 +830,15 @@ def architecture_three():
     models = list()
     for feature_folder in feature_folders:
         event = threading.Event()
-        item = feature_item(feature_folder,global_pool,event)
+        event2 = threading.Event()
+
+        item = feature_item(feature_folder,global_pool,event,event2)
         item.setDaemon(True)
         models.append(item)
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
         place_gnn = new_place_GNN(sess,ft_size=models[0].ft_size)
-
-        for model in models:
-            model.set_session_and_network(sess,place_gnn)
-            model.start()
 
         saver = tf.train.Saver()
         try:
@@ -846,19 +847,20 @@ def architecture_three():
             init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
             sess.run(init_op)
 
+        for model in models:
+            model.set_session_and_network(sess,place_gnn)
+            model.start()
+
         for epoch in range(nb_epochs):
 
             for model in models:
                 _start= time.time()
                 #model.sample_and_train(epoch)
                 model.event.set()
-            while True:
-                print("continue")
-                continue_loop=False
-                for model in models:
-                    continue_loop = continue_loop or (model.is_set())
-                if not continue_loop:
-                    break
+
+            for model in models:
+                model.event2.wait()
+                model.event2.clear()
 
             for model in models:
                 model.train(epoch)
