@@ -21,7 +21,7 @@ sys.path.append('../')
 import tge
 import json
 import pickle as pkl
-import multiprocessing
+import multiprocessing as mp
 from multiprocessing import Pool
 
 checkpt_file = 'pre_trained/cora/mod_cora.ckpt'
@@ -69,7 +69,7 @@ devices = config_dict.get("devices", [
 
 max_replica_num = config_dict.get("max_replica_num", len(devices))
 show_interval = 3
-num_cores = multiprocessing.cpu_count()
+num_cores = mp.cpu_count()
 device_mems = config_dict.get("device_mems", [16 * 10e9, 16 * 10e9, 16 * 10e9, 16 * 10e9])
 def find_index(array, item):
     for idx, val in enumerate(array):
@@ -386,18 +386,16 @@ class Environment(object):
         pbtf.Parse(txt,self.gdef)
         self.folder_path = folder_path
         self.random_strategy=list()
-        self.best_time = sys.maxsize
-        self.best_strategy = dict()
-        self.strategy_time_dict=dict()
+        self.best_strategy = mp.Manager().dict()
+        self.best_strategy["time"] = sys.maxsize
         self.batch_size = batch_size
         self.pool = pool
 
         if os.path.exists(folder_path+"/best_time.log"):
             with open(folder_path+"/best_time.log", "r") as f:
                 tmp = json.load(f)
-                self.best_time = tmp["time"]
-                self.best_strategy = tmp["strategy"]
-                self.strategy_time_dict[str(self.best_strategy)] = self.best_time
+                for key,value in tmp.items():
+                    self.best_strategy[key] = value
 
 
         self.devices =devices
@@ -435,21 +433,19 @@ class Environment(object):
             out_of_memory=True
         #reward = np.sum(strategy*strategy)
 
-        if time<self.best_time and out_of_memory==False:
-            self.best_time = time
-            self.best_strategy = strategy
+        if time<self.best_strategy["time"] and out_of_memory==False:
+            self.best_strategy["time"] = time
+            self.best_strategy["strategy"] = strategy
             with open(self.folder_path+"/best_time.log", "w") as f:
-                tmp = dict()
-                tmp["time"] = time
-                tmp["strategy"] = self.best_strategy
+
                 cost_dict=dict()
                 for key, value in self.name_cost_dict.items():
                     name = key[0]
                     batch_size=key[1]
                     if batch_size==self.batch_size:
                         cost_dict[name] = value
-                tmp["cost"] = cost_dict
-                json.dump(tmp, f)
+                self.best_strategy["cost"] = cost_dict
+                json.dump(self.best_strategy.copy(), f)
 
         return -np.float32(np.sqrt(time)),out_of_memory
 
@@ -548,31 +544,90 @@ class feature_item(threading.Thread):
         self.mems=[np.zeros([2, self.nb_nodes, 64], dtype=np.float32) for layer in range(3)]
         self.mutex = threading.Lock()
         self.avg = float(np.mean(self.strategy_pool.rewards))
+        self.oom = []
 
     def set_session_and_network(self,sess,place_gnn):
         self.sess =sess
         self.place_gnn = place_gnn
 
+    def sample_one_time(self):
+        self.sample()
+        self.proc = mp.Process(target=self.parallel_process_output, args=())
+        self.proc.start()
+    def wait_sample(self):
+        self.proc.join()
+
     def sample(self):
+
+        self.replica_masks = mp.Manager().list()
+        self.device_choices = mp.Manager().list()
+        self.rewards = mp.Manager().list()
+        self.ps_or_reduces = mp.Manager().list()
+        self.oom = mp.Manager().list()
         co_entropy = 0
         self.thres = []
         tr_step = 0
         tr_size = self.features.shape[0]
-        self.replica_masks = [None]*sample_times
-        self.device_choices = [None]*sample_times
-        self.rewards = [None]*sample_times
-        self.ps_or_reduces=[None]*sample_times
-        outputs = self.place_gnn.get_replica_num_prob_and_entropy(
+
+        self.outputs = self.place_gnn.get_replica_num_prob_and_entropy(
             ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
             bias_in=self.biases,
             nb_nodes=self.nb_nodes,
             mems=self.mems)
+
+
+    def parallel_process_output(self):
         for i in range(sample_times):
-            self.thres.append(sample_thread(self, i, self.mutex))
-            self.thres[i].set_output(outputs)
-            self.thres[i].start()
+            device_choice = np.array(list(map(sample_func1, self.outputs[0:max_replica_num])))
+            device_choice = np.transpose(device_choice)
+
+            device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
+            ps_or_reduce = np.array(list(map(random_func1, self.outputs[max_replica_num])))
+            _reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+            if not out_of_memory:
+                self.oom.append(False)
+            else:
+                self.oom.append(True)
+
+            self.rewards.append(_reward)
+            self.ps_or_reduces.append(ps_or_reduce)
+            self.device_choices.append(device_choice)
+            self.replica_masks.append(replica_mask)
+    def post_parallel_process(self):
         for i in range(sample_times):
-            self.thres[i].join()
+            self.cal_entropy = self.outputs[-1]
+            if self.rewards[i] > self.best_reward:
+                self.best_reward = self.rewards[i]
+                self.best_replica_num = list()
+                self.best_device_choice = self.device_choices[i]
+                self.best_ps_or_reduce = self.ps_or_reduces[i]
+            if not self.oom:
+                self.strategy_pool.insert(self.rewards[i], self.device_choices[i], self.replica_masks[i], self.ps_or_reduces[i])
+
+    def process_output(self):
+        for i in range(sample_times):
+            replica_num = list()
+            device_choice = np.array(list(map(sample_func1, self.outputs[0:max_replica_num])))
+            device_choice = np.transpose(device_choice)
+
+            device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
+            ps_or_reduce = np.array(list(map(random_func1, self.outputs[max_replica_num])))
+
+            self.cal_entropy = self.outputs[-1]
+            _reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+            if _reward > self.best_reward:
+                self.best_reward = _reward
+                self.best_replica_num = replica_num
+                self.best_device_choice = device_choice
+                self.best_ps_or_reduce = ps_or_reduce
+            if not out_of_memory:
+                self.strategy_pool.insert(_reward, device_choice, replica_mask, ps_or_reduce)
+                self.oom[i] = False
+
+            self.rewards[i] = _reward
+            self.ps_or_reduces[i] = ps_or_reduce
+            self.device_choices[i] = device_choice
+            self.replica_masks[i] = replica_mask
     def train(self,epoch):
         tr_step = 0
         co_entropy = 0
@@ -596,7 +651,7 @@ class feature_item(threading.Thread):
                             mems = self.mems)
             tr_step += 1
         for i in range(sample_times):
-            if self.thres[i].oom == False:
+            if self.oom[i] == False:
                 self.avg = (self.avg+self.rewards[i])/2
         times = self.rewards[0]*self.rewards[0]
         if epoch % show_interval == 0:
@@ -615,6 +670,7 @@ class feature_item(threading.Thread):
         while True:
             self.event.wait()
             self.sample()
+            self.process_output()
             self.event.clear()
             self.event2.set()
 
@@ -826,8 +882,7 @@ class new_place_GNN():
 
 
 def architecture_three():
-    global  global_pool
-    models = list()
+    global  global_pool,models
     for feature_folder in feature_folders:
         event = threading.Event()
         event2 = threading.Event()
@@ -849,18 +904,23 @@ def architecture_three():
 
         for model in models:
             model.set_session_and_network(sess,place_gnn)
-            model.start()
+            #model.start()
 
         for epoch in range(nb_epochs):
 
             for model in models:
-                _start= time.time()
                 #model.sample_and_train(epoch)
-                model.event.set()
+                #model.event.set()
+                model.sample_one_time()
 
             for model in models:
-                model.event2.wait()
-                model.event2.clear()
+                #model.event2.wait()
+                #model.event2.clear()
+                model.wait_sample()
+            for model in models:
+                #model.event2.wait()
+                #model.event2.clear()
+                model.post_parallel_process()
 
             for model in models:
                 model.train(epoch)
@@ -902,13 +962,17 @@ def actor_critic():
 '''
 import signal
 def handler(signum, frame):
-    global  global_pool
-    global_pool.terminate()
+    global  global_pool,models
+    try:
+        for model in models:
+            model.proc.terminate()
+    except:
+        pass
     sys.exit()
 
 if __name__ == '__main__':
 
-
+    models = list()
     global_pool = Pool(1)
     signal.signal(signal.SIGINT, handler)
     signal.signal(signal.SIGTERM, handler)
