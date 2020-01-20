@@ -56,9 +56,9 @@ class Environment(object):
             time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).set_bandwidth(intra,inter).evaluate(self.name_cost_dict,self.folder+"/modified_strategy.json")
             time = time_mem_tuple[0]
             mem_list = time_mem_tuple[1]
-            time = float(time) / (10 ** 6)
+            time = float(time) / (10 ** 3)
             if any(np.array(mem_list) > np.array(device_mems)):
-                time = time * 10000
+                time = time * 10
             #reward = np.sum(strategy*strategy)
             self.strategy_reward_dict[str(strategy)]=time
         return np.float32(time)
