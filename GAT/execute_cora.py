@@ -314,11 +314,11 @@ class strategy_pool(object):
     def insert(self,reward,device_choice,replica_mask,ps_or_reduce):
         strategy_list = self.get_stratey_list(device_choice, ps_or_reduce)
 
-        if len(self.strategies)<20:
+        if len(self.strategies)<4:
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
                 diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
-                if sum(diff_list)/len(diff_list)<0.01:
+                if sum(diff_list)/len(diff_list)<0.05:
                     if reward>strategy["reward"]:
                         self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
                         self.strategies.pop(j)
@@ -331,11 +331,11 @@ class strategy_pool(object):
             self.save_strategy_pool()
             self.rewards.append(reward)
 
-        if len(self.strategies)<200 and reward>np.mean(self.rewards):
+        elif len(self.strategies)<200 and reward>np.mean(self.rewards):
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
                 diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
-                if sum(diff_list)/len(diff_list)<0.01:
+                if sum(diff_list)/len(diff_list)<0.05:
                     if reward>strategy["reward"]:
                         self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
                         self.strategies.pop(j)
@@ -352,7 +352,7 @@ class strategy_pool(object):
                 exist_device_choice = (strategy["device_choice"])
                 #diff_list = [0 if all(device_choice[i]==exist_device_choice[i]) else 1 for i in range(len(device_choice))]
                 diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
-                if sum(diff_list)/len(diff_list)<0.01:
+                if sum(diff_list)/len(diff_list)<0.05:
                     if reward>strategy["reward"]:
                         self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
                         self.strategies.pop(j)
