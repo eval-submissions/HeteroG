@@ -369,7 +369,7 @@ class strategy_pool(object):
 
     def choose_strategy(self):
         index = np.random.randint(0,len(self.strategies))
-        #index = self.rewards.index(max(self.rewards))
+        index = self.rewards.index(max(self.rewards))
         return self.strategies[index]
 def reward_func(item):
     new_device_array = np.zeros(shape=(len(devices)),dtype=np.int32)
