@@ -249,6 +249,21 @@ class strategy_pool(object):
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce)
 
+
+        # even data parallel 3
+        #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
+        device_choice = np.negative(np.ones(shape=(self.node_num, max_replica_num), dtype=np.int32))
+        for item in device_choice:
+            for i in range(len(devices)):
+                item[i] =i
+            item[len(devices)]=len(devices)
+
+        device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
+        ps_or_reduce = np.zeros(shape=(self.node_num, ), dtype=np.int32)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+        if not out_of_memory:
+            self.insert(reward, device_choice, replica_mask,ps_or_reduce)
+
         #single gpu
         device_choice = np.negative(np.ones(shape=(self.node_num, max_replica_num), dtype=np.int32))
         for item in device_choice:
@@ -317,8 +332,8 @@ class strategy_pool(object):
         if len(self.strategies)<4:
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
-                diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
-                if sum(diff_list)/len(diff_list)<0.05:
+                #diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
+                if False:#sum(diff_list)/len(diff_list)<0.05:
                     if reward>strategy["reward"]:
                         self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
                         self.strategies.pop(j)
@@ -334,8 +349,8 @@ class strategy_pool(object):
         elif len(self.strategies)<200 and reward>np.mean(self.rewards):
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
-                diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
-                if sum(diff_list)/len(diff_list)<0.05:
+                #diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
+                if False:#sum(diff_list)/len(diff_list)<0.05:
                     if reward>strategy["reward"]:
                         self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
                         self.strategies.pop(j)
@@ -350,9 +365,8 @@ class strategy_pool(object):
         elif len(self.strategies)>=200 and reward>np.mean(self.rewards):
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
-                #diff_list = [0 if all(device_choice[i]==exist_device_choice[i]) else 1 for i in range(len(device_choice))]
-                diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
-                if sum(diff_list)/len(diff_list)<0.05:
+                #diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
+                if False:#sum(diff_list)/len(diff_list)<0.05:
                     if reward>strategy["reward"]:
                         self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce})
                         self.strategies.pop(j)
@@ -368,6 +382,7 @@ class strategy_pool(object):
             self.rewards = [item["reward"] for item in self.strategies]
 
     def choose_strategy(self):
+        self.rewards = [item["reward"] for item in self.strategies]
         index = np.random.randint(0,len(self.strategies))
         index = self.rewards.index(max(self.rewards))
         return self.strategies[index]
@@ -601,7 +616,7 @@ class feature_item(threading.Thread):
                 self.best_replica_num = list()
                 self.best_device_choice = self.device_choices[i]
                 self.best_ps_or_reduce = self.ps_or_reduces[i]
-            if not self.oom:
+            if not self.oom[i]:
                 self.strategy_pool.insert(self.rewards[i], self.device_choices[i], self.replica_masks[i], self.ps_or_reduces[i])
 
     def process_output(self):

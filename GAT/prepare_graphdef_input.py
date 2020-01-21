@@ -136,7 +136,7 @@ def generate_feature_file(folder,index):
     for replica_times in range(len(replica_num)):
         tf.reset_default_graph()
         run_metadata = None
-        run_meta_file_name = "run_metadata"+str(replica_num[replica_times])+".pbtxt"
+        run_meta_file_name = "run_metadata"+str(int(batch_size/replica_num[replica_times]))+".pbtxt"
         if os.path.exists(folder+run_meta_file_name):
             run_metadata = tf.RunMetadata()
             with open(folder+run_meta_file_name, "r")as f:
