@@ -29,7 +29,10 @@ devices=config_dict.get("devices", [
     "/job:tge/replica:0/task:1/device:GPU:1"
 ])
 device_mems=config_dict.get("device_mems", [16*10e9,16*10e9,16*10e9,16*10e9])
-
+if prefix=="data/graph7":
+    sink=["group_deps_1","loss/Mean","global_step/add"]
+else:
+    sink=["GradientDescent"]
 class Environment(object):
     def __init__(self,gdef_path,devices,folder):
 
@@ -54,7 +57,7 @@ class Environment(object):
             else:
                 intra = bandwidth[0]
                 inter = bandwidth[1]
-            time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).set_bandwidth(intra,inter).evaluate(self.name_cost_dict,trace)
+            time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices,sink).custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).set_bandwidth(intra,inter).evaluate(self.name_cost_dict,trace)
             time = time_mem_tuple[0]
             mem_list = time_mem_tuple[1]
             time = float(time) / (10 ** 3)
