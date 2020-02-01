@@ -210,6 +210,7 @@ impl Scheduler for TensorFlowLikeScheduler {
                     let (size, ref_count, _) = tensorbufs.get_mut(in_tensor).expect("bug in memory tracking: use freed tensor");
                     if *ref_count == 1 { // free
                         current_memory[in_tensor.2] -= *size;
+                        info!("memory: {} {} -{} {}", in_tensor.2, time, *size, current_memory[in_tensor.2]);
                         tensorbufs.remove(in_tensor);
                     } else {
                         *ref_count -= 1;
@@ -223,6 +224,7 @@ impl Scheduler for TensorFlowLikeScheduler {
                         *activated = true;
                         let gpu = out_tensor.2;
                         current_memory[gpu] += *size;
+                        info!("memory: {} {} +{} {}", out_tensor.2, time, *size, current_memory[out_tensor.2]);
                         max_memory[gpu] = cmp::max(current_memory[gpu], max_memory[gpu]);
                     }
                 }

@@ -33,7 +33,7 @@ class Profiler():
 
         result = {}
         for dev in run_meta.step_stats.dev_stats:
-            if 'Kernel' not in dev.device: # TODO: if no GPU data for this op, use the CPU data
+            if 'Kernel' not in dev.device and 'stream' not in dev.device: # TODO: if no GPU data for this op, use the CPU data
                 continue
             for node in dev.node_stats:
                 name = node.node_name.split(':')[0]
