@@ -59,6 +59,7 @@ print('residual: ' + str(residual))
 print('nonlinearity: ' + str(nonlinearity))
 print('model: ' + str(model))
 feature_folders = config_dict.get("inputs",["data/graph1", "data/graph2", "data/graph3", "data/graph4", "data/graph5", "data/graph6","data/graph7"])
+sink =  config_dict.get("sinks",[["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"],["group_deps_1","loss/Mean","global_step/add"]])
 sample_times = 3
 devices = config_dict.get("devices", [
     "/job:tge/replica:0/task:0/device:GPU:0",
@@ -211,11 +212,12 @@ def comp_fc(item):
     item2 = item[int(len(item)/2):]
     return 0 if all(item1 == item2) else 1
 class strategy_pool(object):
-    def __init__(self,folder_path,node_num,index_id_dict,env,batch_size):
+    def __init__(self,folder_path,node_num,index_id_dict,env,batch_size,sink):
         self.folder_path = folder_path
         self.node_num = node_num
         self.index_id_dict = index_id_dict
         self.env = env
+        self.sink = sink
         if os.path.exists(self.folder_path+"/pool.pkl"):
             with open(self.folder_path+"/pool.pkl","rb") as f:
                 self.strategies= pkl.load(f)
@@ -231,7 +233,7 @@ class strategy_pool(object):
         device_choice = np.array([np.arange(max_replica_num)%(len(devices)) for i in range(self.node_num)],dtype=np.int32)
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce)
 
@@ -245,7 +247,7 @@ class strategy_pool(object):
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce)
 
@@ -260,7 +262,7 @@ class strategy_pool(object):
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.zeros(shape=(self.node_num, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce)
 
@@ -272,7 +274,7 @@ class strategy_pool(object):
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce)
 
@@ -284,7 +286,7 @@ class strategy_pool(object):
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce)
 
@@ -296,7 +298,7 @@ class strategy_pool(object):
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(self.node_num,), dtype=np.int32)
-        reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+        reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce)
 
@@ -417,7 +419,7 @@ class Environment(object):
         self.name_cost_dict = self.get_name_cost_dict()
         self._tge = tge.TGE(self.gdef, devices)
 
-    def get_reward2(self,device_choice,ps_or_reduce,index_id_dict):
+    def get_reward2(self,device_choice,ps_or_reduce,index_id_dict,sink):
         out_of_memory=False
         #new_device_array = np.zeros(shape=(device_choice.shape[0],len(devices)),dtype=np.int32)
 
@@ -438,7 +440,7 @@ class Environment(object):
         else:
             intra = bandwidth[0]
             inter = bandwidth[1]
-        time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices).custom(strategy).set_bandwidth(intra,inter).evaluate(self.name_cost_dict)
+        time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices,sink).custom(strategy).set_bandwidth(intra,inter).evaluate(self.name_cost_dict)
         time = time_mem_tuple[0]
         mem_list = time_mem_tuple[1]
         time = float(time)/(10**3)
@@ -476,44 +478,8 @@ def random_func1(item):
     return  np.random.choice(item.size, p=item)
 import threading
 
-
-class sample_thread(threading.Thread):
-    def __init__(self, item,i,mutex):
-        super(sample_thread, self).__init__()
-        self.item = item
-        self.i =i
-        self.mutex = mutex
-        self.oom = True
-    def set_output(self,outputs):
-        self.outputs = outputs
-    def run(self):
-        replica_num = list()
-        replica_mask = np.ones(shape=(self.item.nb_nodes, max_replica_num), dtype=np.int32)
-        device_choice = np.array(list(map(sample_func1, self.outputs[0:max_replica_num])))
-        device_choice = np.transpose(device_choice)
-
-        device_choice, replica_mask = post_process_device_choice(device_choice, self.item.batch_size)
-        ps_or_reduce = np.array(list(map(random_func1, self.outputs[max_replica_num])))
-
-        self.item.cal_entropy = self.outputs[-1]
-        _reward, out_of_memory = self.item.env.get_reward2(device_choice, ps_or_reduce, self.item.index_id_dict)
-        self.mutex.acquire()
-        if _reward > self.item.best_reward:
-            self.item.best_reward = _reward
-            self.item.best_replica_num = replica_num
-            self.item.best_device_choice = device_choice
-            self.item.best_ps_or_reduce = ps_or_reduce
-        if not out_of_memory:
-            self.item.strategy_pool.insert(_reward, device_choice, replica_mask, ps_or_reduce)
-            self.oom = False
-
-        self.item.rewards[self.i] = _reward
-        self.item.ps_or_reduces[self.i] = ps_or_reduce
-        self.item.device_choices[self.i] = device_choice
-        self.item.replica_masks[self.i] = replica_mask
-        self.mutex.release()
 class feature_item(threading.Thread):
-    def __init__(self,folder_path,pool,event,event2):
+    def __init__(self,folder_path,pool,event,event2,sink):
         super(feature_item, self).__init__()
         self.dataset = load_cora(folder_path,NewWhiteSpaceTokenizer())
         adj = self.dataset.adj_matrix(sparse=True)
@@ -523,6 +489,7 @@ class feature_item(threading.Thread):
         self.event.set()
         self.event2 = event2
         self.event2.clear()
+        self.sink = sink
         feature_matrix = StandardScaler().fit_transform(feature_matrix)
 
         labels, label_masks = self.dataset.label_list_or_matrix(one_hot=False)
@@ -554,7 +521,7 @@ class feature_item(threading.Thread):
         self.best_device_choice = np.zeros(shape=(self.nb_nodes, max_replica_num), dtype=np.int32)
         self.best_ps_or_reduce = list()
         self.folder_path = folder_path
-        self.strategy_pool = strategy_pool(folder_path,self.nb_nodes,self.index_id_dict,self.env,self.batch_size)
+        self.strategy_pool = strategy_pool(folder_path,self.nb_nodes,self.index_id_dict,self.env,self.batch_size,self.sink)
 
         self.mems=[np.zeros([2, self.nb_nodes, 64], dtype=np.float32) for layer in range(3)]
         self.mutex = threading.Lock()
@@ -598,7 +565,7 @@ class feature_item(threading.Thread):
 
             device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
             ps_or_reduce = np.array(list(map(random_func1, self.outputs[max_replica_num])))
-            _reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+            _reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink)
             if not out_of_memory:
                 self.oom.append(False)
             else:
@@ -629,7 +596,7 @@ class feature_item(threading.Thread):
             ps_or_reduce = np.array(list(map(random_func1, self.outputs[max_replica_num])))
 
             self.cal_entropy = self.outputs[-1]
-            _reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict)
+            _reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink)
             if _reward > self.best_reward:
                 self.best_reward = _reward
                 self.best_replica_num = replica_num
@@ -688,64 +655,6 @@ class feature_item(threading.Thread):
             self.process_output()
             self.event.clear()
             self.event2.set()
-
-    def sample_and_train(self,epoch):
-        co_entropy = 0
-        thres = []
-        tr_step = 0
-        tr_size = self.features.shape[0]
-        self.replica_masks = [None]*sample_times
-        self.device_choices = [None]*sample_times
-        self.rewards = [None]*sample_times
-        self.ps_or_reduces=[None]*sample_times
-        outputs = self.place_gnn.get_replica_num_prob_and_entropy(
-            ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
-            bias_in=self.biases,
-            nb_nodes=self.nb_nodes,
-            mems=self.mems)
-        for i in range(sample_times):
-            thres.append(sample_thread(self, i, self.mutex))
-            thres[i].set_output(outputs)
-            thres[i].start()
-        for i in range(sample_times):
-            thres[i].join()
-
-
-        if self.strategy_pool.get_length()>0:
-            pool_strategy = self.strategy_pool.choose_strategy()
-            self.rewards.append(pool_strategy["reward"])
-            self.device_choices.append(pool_strategy["device_choice"])
-            self.ps_or_reduces.append(np.reshape(pool_strategy["ps_or_reduce"],(self.nb_nodes,)))
-            self.replica_masks.append(pool_strategy["replica_mask"])
-
-
-
-        while tr_step * batch_size < tr_size:
-            new_loss,self.mems=self.place_gnn.learn(ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
-                            bias_in=self.biases,
-                            nb_nodes=self.nb_nodes,
-                            replica_num_array=np.array(self.replica_masks),
-                            sample_ps_or_reduce = np.array(self.ps_or_reduces),
-                            sample_device_choice = np.array(self.device_choices),
-                            time_ratio = (np.array(self.rewards)-self.avg),
-                            coef_entropy=co_entropy,
-                            mems = self.mems)
-            tr_step += 1
-        for i in range(sample_times):
-            if thres[i].oom == False:
-                self.avg = (self.avg+self.rewards[i])/2
-        times = self.rewards[0]*self.rewards[0]
-        if epoch % show_interval == 0:
-            print("[{}] step = {}".format(self.folder_path,epoch))
-            print("[{}] time = {}".format(self.folder_path,times))
-            print("[{}] average reward = {}".format(self.folder_path,np.mean(self.strategy_pool.rewards)))
-            print("[{}] overall entropy:{}".format(self.folder_path,self.cal_entropy))
-            with open(self.folder_path+"/time.log", "a+") as f:
-                f.write(str(times) + ",")
-            with open(self.folder_path+"/entropy.log", "a+") as f:
-                f.write(str(self.cal_entropy) + ",")
-            with open(self.folder_path+"/loss.log", "a+") as f:
-                f.write(str(new_loss) + ",")
 
 
 class new_place_GNN():
@@ -898,11 +807,11 @@ class new_place_GNN():
 
 def architecture_three():
     global  global_pool,models
-    for feature_folder in feature_folders:
+    for i,feature_folder in enumerate(feature_folders):
         event = threading.Event()
         event2 = threading.Event()
 
-        item = feature_item(feature_folder,global_pool,event,event2)
+        item = feature_item(feature_folder,global_pool,event,event2,sink[i])
         item.setDaemon(True)
         models.append(item)
     config = tf.ConfigProto()
@@ -919,22 +828,17 @@ def architecture_three():
 
         for model in models:
             model.set_session_and_network(sess,place_gnn)
-            #model.start()
+
 
         for epoch in range(nb_epochs):
 
             for model in models:
-                #model.sample_and_train(epoch)
-                #model.event.set()
+
                 model.sample_one_time()
 
             for model in models:
-                #model.event2.wait()
-                #model.event2.clear()
                 model.wait_sample()
             for model in models:
-                #model.event2.wait()
-                #model.event2.clear()
                 model.post_parallel_process()
 
             for model in models:
@@ -944,37 +848,7 @@ def architecture_three():
                 saver.save(sess, checkpt_file)
 
         sess.close()
-'''
-def actor_critic():
-    models = list()
-    for feature_folder in feature_folders:
-        models.append(ac_feature_item(folder_path=feature_folder))
-    config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True
-    with tf.Session(config=config) as sess:
-        _actor = actor(sess,ft_size=models[0].ft_size)
-        _critic = critic(sess,ft_size=models[0].ft_size)
 
-        for model in models:
-            model.set_session_and_network(sess,_actor,_critic)
-
-        saver = tf.train.Saver()
-        try:
-            saver.restore(sess, checkpt_file)
-        except:
-            init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
-            sess.run(init_op)
-
-        for epoch in range(nb_epochs):
-
-            for model in models:
-                model.sample_and_train(epoch)
-
-            if epoch % show_interval == 0:
-                saver.save(sess, checkpt_file)
-
-        sess.close()
-'''
 import signal
 def handler(signum, frame):
     global  global_pool,models
