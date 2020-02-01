@@ -283,7 +283,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         addn.name += &format!("/{}_{}/aux_sum", self.index, to.code());
         addn.device = target.devices[to.devices[0]].clone();
         addn.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(from.ndev().try_into().unwrap())));
-        addn.attr.insert("T".into(), get_dtype(&self.node().raw_node));
+        addn.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
         addn.input = self.as_form(from, target).iter().cloned().collect();
         for i in 0..from.ndev() {
             set_input_size(&mut addn, i, self.get_size() / from.ndev() as u64)
@@ -315,7 +315,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         concat.input = self.as_form(from, target).iter().cloned().collect();
         concat.input.push(axis.name.clone());
         concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(from.ndev().try_into().unwrap())));
-        concat.attr.insert("T".into(), get_dtype(&self.node().raw_node));
+        concat.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
         concat.attr.insert("Tidx".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
         for i in 0..from.ndev() {
             set_input_size(&mut concat, i, self.get_size() / from.ndev() as u64)
@@ -356,7 +356,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         split.device = target.devices[from.devices[0]].clone();
         split.input.push(dim.name.clone());
         split.input.push(self.as_form(from, target)[0].clone());
-        split.attr.insert("T".into(), get_dtype(&self.node().raw_node));
+        split.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
         split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(to.ndev().try_into().unwrap())));
         set_input_size(&mut split, 1, self.get_size());
 
@@ -406,7 +406,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             concat.input = chunk.iter().cloned().collect();
             concat.input.push(axis.name.clone());
             concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(chunk.len().try_into().unwrap())));
-            concat.attr.insert("T".into(), get_dtype(&self.node().raw_node));
+            concat.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
             concat.attr.insert("Tidx".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
             for j in 0..chunk.len() {
                 set_input_size(&mut concat, j, self.get_size() / from.ndev() as u64)
@@ -433,7 +433,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             split.device = target.devices[*concat_place].clone();
             split.input.push(dim.name.clone());
             split.input.push(concated.clone());
-            split.attr.insert("T".into(), get_dtype(&self.node().raw_node));
+            split.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
             split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(devices.len().try_into().unwrap())));
             set_input_size(&mut split, 1, self.get_size() / gcd as u64);
 
@@ -460,7 +460,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             nccl.name += &format!("/{}_{}/aux_nccl_{}", index, to.code(), i);
             nccl.device = target.devices[*device_id].clone();
             nccl.attr.insert("reduction".into(), AttrValue::new().apply(|x| x.set_s(b"sum".to_vec())));
-            nccl.attr.insert("T".into(), get_dtype(&self.node().raw_node));
+            nccl.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
             nccl.attr.insert("num_devices".into(), AttrValue::new().apply(|x| x.set_i(from.ndev().try_into().unwrap())));
             nccl.attr.insert("shared_name".into(), AttrValue::new().apply(|x| x.set_s(self.original_name().into_bytes())));
             nccl.input.push(format!("{}:{}", self.as_form(from, target)[i], index));
@@ -476,7 +476,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
 
         let devices: Vec<_> = from.devices.iter().map(|id| target.devices[*id].clone()).collect();
         let n = devices.len();
-        let dtype = get_dtype(&self.node().raw_node);
+        let dtype = get_dtype(&self.node().raw_node, self.index);
         let psize = self.get_size() / from.ndev() as u64;
         let list = self.as_form(from, target).to_vec();
 
@@ -670,11 +670,12 @@ fn set_form(node: &mut NodeDef, form_code: &str) {
 }
 
 // TODO: This function is not done. Need to parse ops.pbtxt and follow type or type_attr.
-fn get_dtype(x: &NodeDef) -> AttrValue {
+fn get_dtype(x: &NodeDef, i: usize) -> AttrValue {
     match &x.op[..] {
         "Greater" | "GreaterEqual" => AttrValue::new().apply(|x| x.set_field_type(DataType::DT_BOOL)),
         "Shape" | "ShapeN" => x.attr.get("out_type").cloned().unwrap_or_else(|| AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32))),
         "Cast" => x.attr.get("DstT").cloned().unwrap(),
+        "IteratorGetNext" => AttrValue::new().apply(|v| v.set_field_type(x.attr.get("output_types").unwrap().get_list().get_field_type()[i])),
         _ => x.attr.get("dtype").or_else(|| x.attr.get("T")).unwrap_or_else(|| panic!("cannot determine dtype for {}", x.op)).clone()
     }
 }
