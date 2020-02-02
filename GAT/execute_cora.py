@@ -348,7 +348,7 @@ class strategy_pool(object):
             self.save_strategy_pool()
             self.rewards.append(reward)
 
-        elif len(self.strategies)<200 and reward>np.mean(self.rewards):
+        elif len(self.strategies)<5 and reward>np.mean(self.rewards):
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
                 #diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
@@ -364,7 +364,7 @@ class strategy_pool(object):
 
             self.save_strategy_pool()
             self.rewards.append(reward)
-        elif len(self.strategies)>=200 and reward>np.mean(self.rewards):
+        elif len(self.strategies)>=5 and reward>np.mean(self.rewards):
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
                 #diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
