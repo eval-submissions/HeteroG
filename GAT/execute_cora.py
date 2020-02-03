@@ -59,7 +59,7 @@ print('residual: ' + str(residual))
 print('nonlinearity: ' + str(nonlinearity))
 print('model: ' + str(model))
 feature_folders = config_dict.get("inputs",["data/graph1", "data/graph2", "data/graph3", "data/graph4", "data/graph5", "data/graph6","data/graph7"])
-sink =  config_dict.get("sinks",[["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"],["group_deps_1","loss/Mean","global_step/add"]])
+sinks =  config_dict.get("sinks",[["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"],["group_deps_1","loss/Mean","global_step/add"]])
 sample_times = 3
 devices = config_dict.get("devices", [
     "/job:tge/replica:0/task:0/device:GPU:0",
@@ -395,7 +395,7 @@ def reward_func(item):
             new_device_array[item[j]]+=1
     return new_device_array
 class Environment(object):
-    def __init__(self,gdef_path,devices,folder_path,batch_size,pool):
+    def __init__(self,gdef_path,devices,folder_path,batch_size,pool,sink):
 
         self.gdef = graph_pb2.GraphDef()
         with open(gdef_path,"r")as f:
@@ -408,13 +408,14 @@ class Environment(object):
         self.batch_size = batch_size
         self.pool = pool
         self.devices =devices
+        self.sink =sink
         if os.path.exists(folder_path+"/best_time.log"):
             with open(folder_path+"/best_time.log", "r") as f:
                 tmp = json.load(f)
                 for key,value in tmp.items():
                     self.best_strategy[key] = value
 
-            _tge = tge.TGE(copy.deepcopy(self.gdef), self.devices, sink)
+            _tge = tge.TGE(copy.deepcopy(self.gdef), self.devices, self.sink)
             _tge.custom(self.best_strategy["strategy"]).compile()
             best_graph_def =_tge.get_result()
             with open(self.folder_path+"/best_graph.pbtxt", "w") as f:
@@ -423,7 +424,6 @@ class Environment(object):
 
 
         self.name_cost_dict = self.get_name_cost_dict()
-        self._tge = tge.TGE(self.gdef, devices)
 
     def get_reward2(self,device_choice,ps_or_reduce,index_id_dict,sink,record=False,record_name=None):
         out_of_memory=False
@@ -471,12 +471,12 @@ class Environment(object):
                 self.best_strategy["cost"] = cost_dict
                 json.dump(self.best_strategy.copy(), f)
 
-            best_graph_def = _tge.compile().get_result()
+            best_graph_def = _tge.get_result()
             with open(self.folder_path+"/best_graph.pbtxt", "w") as f:
                 f.write(str(best_graph_def))
 
         if record:
-            record_graph_def = _tge.compile().get_result()
+            record_graph_def = _tge.get_result()
             with open(self.folder_path+"/"+record_name, "w") as f:
                 f.write(str(record_graph_def))
 
@@ -530,7 +530,7 @@ class feature_item(threading.Thread):
         self.test_mask = test_mask[np.newaxis]
 
         self.pool = pool
-        self.env = Environment(folder_path+"/graph.pbtxt",devices,folder_path,self.batch_size,self.pool)
+        self.env = Environment(folder_path+"/graph.pbtxt",devices,folder_path,self.batch_size,self.pool,sink)
         self.average_reward=0
         self.best_reward = 1-sys.maxsize
         self.best_replica_num = list()
@@ -827,7 +827,7 @@ def architecture_three():
         event = threading.Event()
         event2 = threading.Event()
 
-        item = feature_item(feature_folder,global_pool,event,event2,sink[i])
+        item = feature_item(feature_folder,global_pool,event,event2,sinks[i])
         item.setDaemon(True)
         models.append(item)
     config = tf.ConfigProto()
