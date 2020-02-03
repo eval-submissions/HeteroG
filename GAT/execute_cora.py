@@ -262,7 +262,7 @@ class strategy_pool(object):
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.zeros(shape=(self.node_num, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,record=True,record_name="dp_graph.pbtxt")
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce)
 
@@ -274,7 +274,7 @@ class strategy_pool(object):
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(self.node_num, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,record=True,record_name="single_graph.pbtxt")
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce)
 
@@ -407,19 +407,25 @@ class Environment(object):
         self.best_strategy["time"] = sys.maxsize
         self.batch_size = batch_size
         self.pool = pool
-
+        self.devices =devices
         if os.path.exists(folder_path+"/best_time.log"):
             with open(folder_path+"/best_time.log", "r") as f:
                 tmp = json.load(f)
                 for key,value in tmp.items():
                     self.best_strategy[key] = value
 
+            _tge = tge.TGE(copy.deepcopy(self.gdef), self.devices, sink)
+            _tge.custom(self.best_strategy["strategy"]).compile()
+            best_graph_def =_tge.get_result()
+            with open(self.folder_path+"/best_graph.pbtxt", "w") as f:
+                f.write(str(best_graph_def))
 
-        self.devices =devices
+
+
         self.name_cost_dict = self.get_name_cost_dict()
         self._tge = tge.TGE(self.gdef, devices)
 
-    def get_reward2(self,device_choice,ps_or_reduce,index_id_dict,sink):
+    def get_reward2(self,device_choice,ps_or_reduce,index_id_dict,sink,record=False,record_name=None):
         out_of_memory=False
         #new_device_array = np.zeros(shape=(device_choice.shape[0],len(devices)),dtype=np.int32)
 
@@ -440,7 +446,8 @@ class Environment(object):
         else:
             intra = bandwidth[0]
             inter = bandwidth[1]
-        time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices,sink).custom(strategy).set_bandwidth(intra,inter).evaluate(self.name_cost_dict)
+        _tge = tge.TGE(copy.deepcopy(self.gdef), self.devices,sink)
+        time_mem_tuple = _tge.custom(strategy).set_bandwidth(intra,inter).evaluate(self.name_cost_dict)
         time = time_mem_tuple[0]
         mem_list = time_mem_tuple[1]
         time = float(time)/(10**3)
@@ -463,6 +470,15 @@ class Environment(object):
                         cost_dict[name] = value
                 self.best_strategy["cost"] = cost_dict
                 json.dump(self.best_strategy.copy(), f)
+
+            best_graph_def = _tge.compile().get_result()
+            with open(self.folder_path+"/best_graph.pbtxt", "w") as f:
+                f.write(str(best_graph_def))
+
+        if record:
+            record_graph_def = _tge.compile().get_result()
+            with open(self.folder_path+"/"+record_name, "w") as f:
+                f.write(str(record_graph_def))
 
         return -np.float32(np.sqrt(time)),out_of_memory
 
