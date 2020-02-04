@@ -8,6 +8,8 @@ from tensorflow.core.framework import step_stats_pb2
 import google.protobuf.text_format as pbtf
 import pickle as pkl
 import sys
+from tensorflow.python.client import timeline
+
 sys.path.append('../')
 from utils import write_tensorboard, setup_workers
 
@@ -32,8 +34,8 @@ class Activater():
         self.sinks = sinks
         self.target = target
 
-    def activate(self):
-        for i,graph_def in enumerate(self.graph_defs):
+    def activate(self,batch_size):
+        for k,graph_def in enumerate(self.graph_defs):
             tf.reset_default_graph()
             tf.import_graph_def(graph_def)
             graph = tf.get_default_graph()
@@ -43,23 +45,44 @@ class Activater():
             sess = tf.Session(self.target,config=config)#, config=tf.ConfigProto(allow_soft_placement=False))
             sess.run(init)
 
-            placeholders = (node.outputs[0] for node in graph.get_operations() if node.node_def.op == 'Placeholder')
-            input_dict = { p: np.random.rand(*p.shape.as_list()) for p in placeholders }
-            opt = [graph.get_operation_by_name('import/' + x) for x in self.sinks]
-            for i in range(3):  #warm up
+            placeholders = [node.outputs[0] for node in graph.get_operations() if node.node_def.op == 'Placeholder']
+            shapes = [(p.shape.as_list()) for p in placeholders ]
+            for shape in shapes:
+                shape[0]=batch_size
+            input_dict = { p: np.random.rand(*shapes[i]) for i,p in enumerate(placeholders) }
+            opt=[]
+            for sink in self.sinks:
+                for i in range(10):
+                    try:
+                        op=graph.get_operation_by_name('import/' + sink+"/replica_"+str(i))
+                        opt.append(op)
+                    except:
+                        break
+            #opt = [graph.get_operation_by_name('import/' + x) for x in self.sinks]
+            for j in range(3):  #warm up
                 sess.run(opt, feed_dict=input_dict)
             start_time = time.time()
-            for i in range(10):
+            for j in range(10):
                 sess.run(opt,feed_dict=input_dict)
             avg_time = (time.time()-start_time)/10
-            print(self.path[i])
+            print(self.path[k])
             print("average time:",avg_time)
+
+            run_meta = tf.RunMetadata()
+            run_opt = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE, output_partition_graphs=True)
+            sess.run(opt, feed_dict=input_dict,
+                     options=run_opt,
+                     run_metadata=run_meta
+                     )
+            tl = timeline.Timeline(run_meta.step_stats)
+            with open(self.path[k].split(".")[0]+"_timeline.json", "w") as fo:
+                fo.write(tl.generate_chrome_trace_format())
 
 
 
 workers = ["localhost:3901", "localhost:3902"]
-server = setup_workers(workers, "grpc+verbs")
+server = setup_workers(workers, "grpc")
 
 act = Activater(activate_graphs,server.target,sinks=sinks)
-act.activate()
+act.activate(48)
 
