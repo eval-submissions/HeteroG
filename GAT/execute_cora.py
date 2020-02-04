@@ -4,7 +4,7 @@ import tensorflow as tf
 
 from models import GAT
 from models import SpGAT
-from utils import process
+from gat_utils import process
 from data_process.dataset import GraphDataset, WhiteSpaceTokenizer,NewWhiteSpaceTokenizer
 from data_process.example import load_M10, load_cora, load_dblp
 from data_process.meta_network import MetaNetwork, N_TYPE_NODE, N_TYPE_LABEL, IdIndexer
