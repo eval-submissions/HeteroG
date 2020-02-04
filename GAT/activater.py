@@ -7,6 +7,10 @@ from tensorflow.core.framework import graph_pb2
 from tensorflow.core.framework import step_stats_pb2
 import google.protobuf.text_format as pbtf
 import pickle as pkl
+import sys
+sys.path.append('../')
+from utils import write_tensorboard, setup_workers
+
 config_dict =dict()
 if os.path.exists("activate_config.txt"):
     with open("activate_config.txt", "r") as f:
@@ -33,9 +37,10 @@ class Activater():
             tf.reset_default_graph()
             tf.import_graph_def(graph_def)
             graph = tf.get_default_graph()
-            init = graph.get_operation_by_name("import/init")
-
-            sess = tf.Session(self.target)#, config=tf.ConfigProto(allow_soft_placement=False))
+            init = graph.get_operation_by_name("import/init/replica_0")
+            config = tf.ConfigProto(allow_soft_placement=True)  # log_device_placement=True)
+            #config.gpu_options.allow_growth = True
+            sess = tf.Session(self.target,config=config)#, config=tf.ConfigProto(allow_soft_placement=False))
             sess.run(init)
 
             placeholders = (node.outputs[0] for node in graph.get_operations() if node.node_def.op == 'Placeholder')
@@ -50,6 +55,11 @@ class Activater():
             print(self.path[i])
             print("average time:",avg_time)
 
-act = Activater(activate_graphs,sinks=sinks)
+
+
+workers = ["localhost:3901", "localhost:3902"]
+server = setup_workers(workers, "grpc+verbs")
+
+act = Activater(activate_graphs,server.target,sinks=sinks)
 act.activate()
 
