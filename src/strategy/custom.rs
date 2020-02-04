@@ -164,6 +164,18 @@ impl Strategy for Custom {
                 }
             }
         }
+
+        // TODO: this logic should be in graph.rs
+        for node in graph.nodes.iter_mut() {
+            for (id, index, form) in &node.inputs {
+                let tensor = node.graph().nodes[*id].get_output(*index);
+                if (tensor.node().raw_node.op == "Placeholder" || tensor.node().raw_node.op == "IteratorGetNext" || tensor.node().extra.is_descendant_of_input) && tensor.extra.has_batch_dimension {
+                    tensor.set_flag(Tensor::BATCHED)
+                } else {
+                    tensor.unset_flag(Tensor::BATCHED)
+                }
+            }
+        }
     }
 }
 

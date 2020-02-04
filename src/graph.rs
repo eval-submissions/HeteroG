@@ -219,13 +219,19 @@ pub struct Tensor<NEX: Default, TEX: Default> {
     pub node: *const Node<NEX, TEX>,
     pub index: usize,
     pub forms: BTreeMap<Form, Box<[String]>>,
+    pub flags: u8, // flags indicate the types and roles of a tensor, and will affect how it is treated when changing forms
 
     pub extra: TEX,
 }
 
 impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
+    pub const SHAPE: u8 = 0x01; // this tensor is a 1d vector represents a tensor shape. If this tensor is BATCHED, the first element will be the batchsize
+    pub const BATCHED: u8 = 0x02; // this is tensor has batch size dimension
+    pub const FIXED: u8 = 0x80; // this tensor's form is provided by strategy
+    pub const DEFAULT: u8 = Self::BATCHED;
+
     pub fn new(node: &Node<NEX, TEX>, index: usize) -> Self {
-        Tensor { node, index, forms: BTreeMap::new(), extra: TEX::default() }
+        Tensor { node, index, forms: BTreeMap::new(), flags: Self::DEFAULT, extra: TEX::default() }
     }
 
     pub fn original_name(&self) -> String {
@@ -251,18 +257,66 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         (self.get_shape().iter().fold(1, |x, y| x * y) * 4).try_into().unwrap()
     }
 
+    pub fn has_flag(&self, flag: u8) -> bool {
+        self.flags & flag != 0
+    }
+
+    pub fn set_flag(&mut self, flag: u8) {
+        self.flags |= flag
+    }
+
+    pub fn unset_flag(&mut self, flag: u8) {
+        self.flags &= !flag
+    }
+
     // get the names as the specified form
     pub fn as_form(&mut self, form: &Form, target: &mut Target) -> &[String] {
         if !self.forms.contains_key(form) {
+            if self.has_flag(Self::FIXED) {
+                panic!("BUG: no form {:?} provided for {}", form, self.original_name())
+            }
+
             let names = if form == &self.node().form {
                 (0..form.ndev()).map(|i| format!("{}:{}", self.node().replica(i), self.index)).collect()
             } else {
                 let node_kind = self.node().form.kind;
                 match (form.kind, node_kind) {
                     (FormKind::Full, FormKind::Full) => self.replicate_broadcast(&self.node().form, form, target),
-                    (FormKind::Part, FormKind::Full) => self.replicate_split(&self.node().form, form, target),
-                    (FormKind::Full, FormKind::Part) => self.aggregate_cat(&self.node().form, form, target),
-                    (FormKind::Part, FormKind::Part) => self.resplit(&self.node().form, form, target),
+                    (FormKind::Part, FormKind::Full) => {
+                        if self.has_flag(Self::SHAPE) {
+                            unimplemented!()
+                        }
+
+                        if self.has_flag(Self::BATCHED) {
+                            self.replicate_split(&self.node().form, form, target)
+                        } else {
+                            panic!("cannot split a unbatched tensor")
+                        }
+                    },
+                    (FormKind::Full, FormKind::Part) => {
+                        if self.has_flag(Self::SHAPE) {
+                            unimplemented!()
+                        }
+
+                        if self.has_flag(Self::BATCHED) {
+                            self.aggregate_cat(&self.node().form, form, target)
+                        } else { // if it is not batched but is split, the only possibility is it is inherited from a split parent, so it must be a gradient
+                            self.aggregate_sum(&self.node().form, form, target)
+                        }
+                    },
+                    (FormKind::Part, FormKind::Part) => {
+                        if self.has_flag(Self::SHAPE) {
+                            unimplemented!()
+                        }
+
+                        if self.has_flag(Self::BATCHED) {
+                            self.resplit(&self.node().form, form, target)
+                        } else {
+                            // unimplemented!("cannot resplit a unbatched tensor")
+                            // there is currently a hack in resplit that copy parts if the number matches. Move this logic out and mark this case a bug.
+                            self.resplit(&self.node().form, form, target)
+                        }
+                    },
                 }
             };
 
