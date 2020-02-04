@@ -409,15 +409,17 @@ class Environment(object):
         self.pool = pool
         self.devices =devices
         self.sink =sink
+        self.null_gdef = graph_pb2.GraphDef()
+        with open(folder_path+"/null_graph.pbtxt","r")as f:
+            txt = f.read()
+        pbtf.Parse(txt,self.null_gdef)
+
         if os.path.exists(folder_path+"/best_time.log"):
             with open(folder_path+"/best_time.log", "r") as f:
                 tmp = json.load(f)
                 for key,value in tmp.items():
                     self.best_strategy[key] = value
-
-            _tge = tge.TGE(copy.deepcopy(self.gdef), self.devices, self.sink)
-            _tge.custom(self.best_strategy["strategy"]).compile()
-            best_graph_def =_tge.get_result()
+            best_graph_def =tge.TGE(copy.deepcopy(self.null_gdef), self.devices, self.sink).custom(self.best_strategy["strategy"]).compile().get_result()
             with open(self.folder_path+"/best_graph.pbtxt", "w") as f:
                 f.write(str(best_graph_def))
 
@@ -471,12 +473,12 @@ class Environment(object):
                 self.best_strategy["cost"] = cost_dict
                 json.dump(self.best_strategy.copy(), f)
 
-            best_graph_def = _tge.get_result()
+            best_graph_def = tge.TGE(copy.deepcopy(self.null_gdef), self.devices, self.sink).custom(strategy).compile().get_result()
             with open(self.folder_path+"/best_graph.pbtxt", "w") as f:
                 f.write(str(best_graph_def))
 
         if record:
-            record_graph_def = _tge.get_result()
+            record_graph_def = tge.TGE(copy.deepcopy(self.null_gdef), self.devices, self.sink).custom(strategy).compile().get_result()
             with open(self.folder_path+"/"+record_name, "w") as f:
                 f.write(str(record_graph_def))
 

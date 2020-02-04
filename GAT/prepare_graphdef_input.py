@@ -118,6 +118,12 @@ def generate_feature_file(folder,index):
         pbtf.Parse(txt,gdef)
         tf.import_graph_def(gdef)
     else:
+        opt = model_fn(models[index],None)
+        init = tf.global_variables_initializer()
+        gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+        with open(folder + "null_graph.pbtxt", "w") as f:
+            f.write(str(gdef))
+        tf.reset_default_graph()
         opt = model_fn(models[index],batch_size)
         init = tf.global_variables_initializer()
         gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
