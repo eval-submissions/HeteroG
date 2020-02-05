@@ -39,10 +39,10 @@ nb_epochs = 100000
 patience = 100
 lr = config_dict.get("learning_rate", 0.01)  # learning rate
 l2_coef = 0  # weight decay
-hid_units = [512,256, 256]  # numbers of hidden units per each attention head in each layer
-n_heads = [4, 4, 4, 4]  # additional entry for the output layer
-place_hid_units = [256,256, 256]
-place_n_heads = [2,2,2, 1]
+hid_units = [1024,512,256, 256]  # numbers of hidden units per each attention head in each layer
+n_heads = [4, 4, 4, 4,4]  # additional entry for the output layer
+place_hid_units = [512,512,256, 256]
+place_n_heads = [4,2,2,2, 1]
 residual = False
 nonlinearity = tf.nn.elu
 model = SpGAT
@@ -849,9 +849,14 @@ def architecture_three():
 
 
         for epoch in range(nb_epochs):
-
             for model in models:
+                model.sample_one_time()
+                model.wait_sample()
+                model.post_parallel_process()
+                model.train(epoch)
 
+            '''
+            for model in models:
                 model.sample_one_time()
 
             for model in models:
@@ -861,7 +866,7 @@ def architecture_three():
 
             for model in models:
                 model.train(epoch)
-
+            '''
             if epoch % show_interval == 0:
                 saver.save(sess, checkpt_file)
 
