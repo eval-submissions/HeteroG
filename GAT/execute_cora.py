@@ -409,10 +409,13 @@ class Environment(object):
         self.pool = pool
         self.devices =devices
         self.sink =sink
-        self.null_gdef = graph_pb2.GraphDef()
-        with open(folder_path+"/null_graph.pbtxt","r")as f:
-            txt = f.read()
-        pbtf.Parse(txt,self.null_gdef)
+        if "graph7" in folder_path:
+            self.null_gdef =self.gdef
+        else:
+            self.null_gdef = graph_pb2.GraphDef()
+            with open(folder_path+"/null_graph.pbtxt","r")as f:
+                txt = f.read()
+            pbtf.Parse(txt,self.null_gdef)
 
         if os.path.exists(folder_path+"/best_time.log"):
             with open(folder_path+"/best_time.log", "r") as f:
