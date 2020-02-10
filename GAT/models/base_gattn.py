@@ -17,7 +17,7 @@ class BaseGAttN:
         opt = tf.train.AdamOptimizer(learning_rate=lr)
 
         # training op
-        train_op = opt.minimize(loss+lossL2)
+        train_op = opt.minimize(loss+lossL2,colocate_gradients_with_ops=True)
         
         return train_op
 

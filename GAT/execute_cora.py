@@ -39,10 +39,10 @@ nb_epochs = 100000
 patience = 100
 lr = config_dict.get("learning_rate", 0.01)  # learning rate
 l2_coef = 0  # weight decay
-hid_units = [1024,512,256, 256]  # numbers of hidden units per each attention head in each layer
-n_heads = [4, 4, 4, 4,4]  # additional entry for the output layer
-place_hid_units = [512,512,256, 256]
-place_n_heads = [4,2,2,2, 1]
+hid_units = [1024]  # numbers of hidden units per each attention head in each layer
+n_heads = [4, 4]  # additional entry for the output layer
+place_hid_units = [256, 256,512,512,256, 256]
+place_n_heads = [4,4,4,2,2,2, 1]
 residual = False
 nonlinearity = tf.nn.elu
 model = SpGAT
@@ -649,7 +649,7 @@ class feature_item(threading.Thread):
                             replica_num_array=np.array(self.replica_masks),
                             sample_ps_or_reduce = np.array(self.ps_or_reduces),
                             sample_device_choice = np.array(self.device_choices),
-                            time_ratio = (np.array(self.rewards)-self.avg),
+                            time_ratio = (np.array(self.rewards)-self.avg)/np.abs(self.avg),
                             coef_entropy=co_entropy,
                             mems = self.mems)
             tr_step += 1
@@ -696,7 +696,7 @@ class new_place_GNN():
             self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(None,),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
             self.mems = [tf.placeholder(tf.float32,[2, None, 64]) for _ in range(3)]
-        with tf.device("gpu0"):
+        with tf.device("/device:GPU:1"):
             logits = model.inference(self.ftr_in, 1024, self.nb_node, self.is_train,
                                      self.attn_drop, self.ffd_drop,
                                      bias_mat=self.bias_in,
@@ -722,7 +722,7 @@ class new_place_GNN():
             self.entropy = tf.reduce_sum(tf.log(self.ps_or_reduce + np.power(10.0, -9)) * self.ps_or_reduce, 1)
             self.entropy = -(tf.reduce_mean(self.entropy) + sum / max_replica_num)
         else:
-            with tf.device("gpu1"):
+            with tf.device("/device:GPU:0"):
                 logits=model.inference(logits, max_replica_num*(len(devices)+1)+1, self.nb_node, self.is_train,
                                 self.attn_drop, self.ffd_drop,
                                 bias_mat=self.bias_in,
@@ -835,7 +835,7 @@ def architecture_three():
         item = feature_item(feature_folder,global_pool,event,event2,sinks[i])
         item.setDaemon(True)
         models.append(item)
-    config = tf.ConfigProto()
+    config = tf.ConfigProto(allow_soft_placement=True)
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
         place_gnn = new_place_GNN(sess,ft_size=models[0].ft_size)
