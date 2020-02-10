@@ -287,11 +287,11 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
                             unimplemented!()
                         }
 
-                        if self.has_flag(Self::BATCHED) {
+//                        if self.has_flag(Self::BATCHED) {
                             self.replicate_split(&self.node().form, form, target)
-                        } else {
-                            panic!("cannot split a unbatched tensor")
-                        }
+//                        } else {
+//                            panic!("cannot split a unbatched tensor")
+//                        }
                     },
                     (FormKind::Full, FormKind::Part) => {
                         if self.has_flag(Self::SHAPE) {
