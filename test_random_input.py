@@ -30,7 +30,7 @@ import tge
 
 g = (tge.TGE(gdef, devices)
     .custom({ node.name: [1, 1, 1] for node in gdef.node })
-    # .replace_placeholder(64)
+    .replace_placeholder(64)
     .verbose()
     .compile()
     .get_result()
@@ -40,16 +40,17 @@ tf.reset_default_graph()
 tf.import_graph_def(g)
 graph = tf.get_default_graph()
 
-x = graph.get_tensor_by_name("import/Placeholder/replica_0:0")
-y = graph.get_tensor_by_name("import/Placeholder_1/replica_0:0")
+# x = graph.get_tensor_by_name("import/Placeholder/replica_0:0")
+# y = graph.get_tensor_by_name("import/Placeholder_1/replica_0:0")
 opt = graph.get_operation_by_name("import/GradientDescent/replica_0")
 init = graph.get_operation_by_name("import/init/replica_0")
 
-data = { x: np.random.uniform(size=(64, 224, 224, 3)), y: np.random.uniform(size=(64, 1000)) }
+# data = { x: np.random.uniform(size=(64, 224, 224, 3)), y: np.random.uniform(size=(64, 1000)) }
 
 sess = tf.Session(server.target)
 sess.run(init)
-sess.run(opt, data)
+# sess.run(opt, data)
+sess.run(opt)
 
 print("done")
 

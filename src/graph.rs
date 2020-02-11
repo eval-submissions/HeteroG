@@ -163,6 +163,40 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
         }
 
         for (replica_index, device_id) in self.form.devices.iter().enumerate() {
+            // 0. replace placeholders
+            if self.raw_node.op == "Placeholder" {
+                if let Some(batchsize) = self.graph().options.get("replace_placeholder") {
+                    let batchsize: usize = batchsize.parse().unwrap();
+                    let mut shape: Vec<Option<usize>> = self.raw_node.attr["_output_shapes"].get_list().shape[0].dim.iter().map(|x| x.size.try_into().ok()).collect();
+                    shape[0].replace(batchsize / self.form.ndev() as usize);
+
+                    let mut shape_node = self.make_node("Const".to_string());
+                    shape_node.name += &format!("/aux_replace_placeholder_{}/shape", replica_index);
+                    shape_node.device = target.devices[*device_id].clone();
+                    shape_node.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
+                    let value = crate::proto::tensor::TensorProto::new().apply(|x| {
+                        x.set_dtype(DataType::DT_INT32);
+                        x.set_tensor_shape(crate::proto::tensor_shape::TensorShapeProto::new().apply(|s| s.set_dim([shape.len()].iter().map(|x| {crate::proto::tensor_shape::TensorShapeProto_Dim::new().apply(|fuck| fuck.size = *x as _)}).collect())));
+                        for dim in shape {
+                            x.int_val.push(dim.unwrap() as _);
+                        }
+                    });
+                    shape_node.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
+
+                    let mut random_node = self.make_node("RandomUniform".to_string());
+                    random_node.name = self.replica(replica_index);
+                    random_node.device = target.devices[*device_id].clone();
+                    random_node.input.push(shape_node.name.clone());
+                    random_node.attr.insert("T".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
+                    random_node.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_FLOAT)));
+
+                    target.pb.node.push(shape_node);
+                    target.pb.node.push(random_node);
+                    continue
+                }
+            }
+
+
             // 1. setup basic node info
             let mut node = self.raw_node.clone();
             node.name = self.replica(replica_index);

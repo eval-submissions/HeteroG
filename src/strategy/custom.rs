@@ -66,7 +66,7 @@ impl Strategy for Custom {
 
         // grouping
         for (node_id, node) in graph.nodes.iter_mut().enumerate() {
-            if !node.extra.is_descendant_of_input && !(allow_split_input && is_input(node)) { // if it is not a descendant of input, then it does not belong to any group
+            if !(allow_split_input && is_input(node) || node.extra.is_descendant_of_input) { // if it is not a descendant of input, then it does not belong to any group
                 continue
             }
 
@@ -132,6 +132,10 @@ impl Strategy for Custom {
                 if n > 1 && group.iter().copied().all(|x| node.graph().nodes[x].form.ndev() == n) {
                     for member in group.iter() {
                         let member = &mut node.graph().nodes[*member];
+                        if member.inputs.is_empty() && is_input(member) { // work around. Need to sort this out later.
+                            member.form.kind = FormKind::Part;
+                            continue
+                        }
                         for (id, index, kind) in member.inputs.iter_mut() {
                             let input = node.graph().nodes[*id].get_output(*index);
                             if (input.node().extra.is_descendant_of_input || is_input(input.node())) && (group.contains(id) || input.extra.has_batch_dimension) {
