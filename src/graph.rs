@@ -46,7 +46,6 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
     /// setup the replicas and links. Note that auxiliary nodes are already there by strategies.
     pub fn compile(&mut self, target: &mut Target) {
         task!("compiling graph of {} nodes...", self.nodes.len());
-        warn!("fuck {}", self.options["replace_placeholder"]);
         for node in self.nodes.iter_mut() {
             node.compile(target)
         }
@@ -159,7 +158,9 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
 
     /// add an edited node into the target. Requires all inputs to be compiled first
     fn compile(&mut self, target: &mut Target) {
-        debug!("compile: {} {:?} {:?}", self.raw_node.name, self.form, self.inputs);
+        if self.graph().options.get("log_forms").map(|x| x == "True").unwrap_or(false) {
+            info!("compile: {} {:?} {:?}", self.raw_node.name, self.form, self.inputs);
+        }
 
         for (replica_index, device_id) in self.form.devices.iter().enumerate() {
             // 1. setup basic node info

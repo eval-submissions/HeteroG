@@ -35,11 +35,13 @@ impl Strategy for Custom {
     /// 3. if all nodes in a group are replicated, use split, otherwise all replications are cache.
     #[allow(clippy::cognitive_complexity)]
     fn plan(&mut self, graph: &mut Graph, target: &mut Target) {
+        let allow_split_input = graph.options.contains_key("replace_placeholder");
+
         // mark batch splittability
         for node in graph.nodes.iter_mut() {
             node.extra.is_descendant_of_input = node.inputs.iter().any(|x| {
                 let input = &node.graph().nodes[x.0];
-                input.extra.is_descendant_of_input || input.raw_node.op == "Placeholder" || input.raw_node.op == "IteratorGetNext"
+                input.extra.is_descendant_of_input || is_input(input)
             });
 
             match &node.raw_node.op[..] {
@@ -64,7 +66,7 @@ impl Strategy for Custom {
 
         // grouping
         for (node_id, node) in graph.nodes.iter_mut().enumerate() {
-            if !node.extra.is_descendant_of_input { // if it is not a descendant of input, then it does not belong to any group
+            if !node.extra.is_descendant_of_input && !(allow_split_input && is_input(node)) { // if it is not a descendant of input, then it does not belong to any group
                 continue
             }
 
@@ -104,7 +106,8 @@ impl Strategy for Custom {
 
             match &node.raw_node.op[..] {
                 // TODO: RandomUniform, NoOp
-                "Placeholder" | "IteratorGetNext" | "NoOp" => node.put_on_devices(&[0]), // ignore decision and put on device 0
+                "NoOp" => node.put_on_devices(&[0]), // ignore decision and put on device 0
+                "Placeholder" | "IteratorGetNext" if !allow_split_input => node.put_on_devices(&[0]),
                 "ApplyGradientDescent" | "Assign" => { // ignore decision and put along with the variable
                     let var = &node.graph().nodes[node.inputs[0].0];
                     node.put_on_devices(&var.form.devices);
@@ -121,7 +124,9 @@ impl Strategy for Custom {
         for node in graph.nodes.iter_mut() {
             if node.extra.group.is_some() && !visited_groups.contains(&node.extra.group.as_ref().map(|x| &*x.borrow() as *const _).unwrap()) {
                 visited_groups.insert(node.extra.group.as_ref().map(|x| &*x.borrow() as *const _).unwrap());
-                // info!("{}, {:?}", visited_groups.len(), node.extra.group.as_ref().unwrap().borrow().iter().map(|x| node.graph().nodes[*x].raw_node.name.clone()).collect::<Vec<_>>());
+                if graph.options.get("log_groups").map(|x| x == "True").unwrap_or(false) {
+                     info!("group {}: {:?}", visited_groups.len(), node.extra.group.as_ref().unwrap().borrow().iter().map(|x| node.graph().nodes[*x].raw_node.name.clone()).collect::<Vec<_>>());
+                }
                 let group = &node.extra.group.as_ref().unwrap().borrow();
                 let n = node.form.ndev();
                 if n > 1 && group.iter().copied().all(|x| node.graph().nodes[x].form.ndev() == n) {
@@ -129,7 +134,7 @@ impl Strategy for Custom {
                         let member = &mut node.graph().nodes[*member];
                         for (id, index, kind) in member.inputs.iter_mut() {
                             let input = node.graph().nodes[*id].get_output(*index);
-                            if (input.node().raw_node.op == "Placeholder" || input.node().raw_node.op == "IteratorGetNext" || input.node().extra.is_descendant_of_input) && (group.contains(id) || input.extra.has_batch_dimension) {
+                            if (input.node().extra.is_descendant_of_input || is_input(input.node())) && (group.contains(id) || input.extra.has_batch_dimension) {
                                 *kind = FormKind::Part;
                                 member.form.kind = FormKind::Part;
                             }
@@ -169,7 +174,7 @@ impl Strategy for Custom {
         for node in graph.nodes.iter_mut() {
             for (id, index, form) in &node.inputs {
                 let tensor = node.graph().nodes[*id].get_output(*index);
-                if (tensor.node().raw_node.op == "Placeholder" || tensor.node().raw_node.op == "IteratorGetNext" || tensor.node().extra.is_descendant_of_input) && tensor.extra.has_batch_dimension {
+                if (tensor.node().extra.is_descendant_of_input || is_input(tensor.node())) && tensor.extra.has_batch_dimension {
                     tensor.set_flag(Tensor::BATCHED)
                 } else {
                     tensor.unset_flag(Tensor::BATCHED)
@@ -189,4 +194,8 @@ fn any_of(node: &mut Node, input_indexes: &[usize], output_index: usize) {
         let (id, index, _) = node.inputs[*input_index];
         node.graph().nodes[id].get_output(index).extra.has_batch_dimension
     })
+}
+
+fn is_input(node: &Node) -> bool {
+    node.raw_node.op == "Placeholder" || node.raw_node.op == "IteratorGetNext"
 }

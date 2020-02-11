@@ -30,7 +30,8 @@ import tge
 
 g = (tge.TGE(gdef, devices)
     .custom({ node.name: [1, 1, 1] for node in gdef.node })
-    .replace_placeholder(64)
+    # .replace_placeholder(64)
+    .verbose()
     .compile()
     .get_result()
 )
@@ -50,6 +51,7 @@ sess = tf.Session(server.target)
 sess.run(init)
 sess.run(opt, data)
 
+print("done")
 
 # CUDA_VISIBLE_DEVICES=1 python
 # import tensorflow as tf

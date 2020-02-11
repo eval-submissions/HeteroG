@@ -139,6 +139,11 @@ class TGE:
         return libtge.topology(links_raw, len(links_raw), paths_raw, len(paths_raw))
 
     @chain
+    def verbose(self):
+        self.options["log_forms"] = True
+        self.options["log_groups"] = True
+
+    @chain
     def data_parallel(self, method):
         methods_dict = {
             "ps0": 1,
