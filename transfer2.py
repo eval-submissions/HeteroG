@@ -8,7 +8,7 @@ devices = (
 )
 
 server = tf.distribute.Server(tf.train.ClusterSpec({
-    "tge": ["127.0.0.1:3901", "127.0.0.1:3902"]
+    "tge": ["10.28.1.24:3901", "10.28.1.23:3901"]
 }), job_name='tge', task_index=0, protocol="grpc")
 
 for base in (1,3,5,7):

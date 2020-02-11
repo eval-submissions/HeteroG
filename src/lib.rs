@@ -20,6 +20,7 @@ pub trait AbstractBundle {
     fn plan_and_compile(&mut self, target: &mut graph::Target);
     fn build_graph(&mut self, nodes: &[crate::proto::node_def::NodeDef], sinks: Box<[String]>);
     fn get_sinks(&self) -> &[String];
+    fn set_option(&mut self, name: String, value: String);
 }
 
 pub struct TheBundle<NEX: Default, TEX: Default, S: strategy::Strategy<NEX=NEX, TEX=TEX>> {
@@ -45,6 +46,10 @@ impl<NEX: Default, TEX: Default, S: strategy::Strategy<NEX=NEX, TEX=TEX>> Abstra
 
     fn get_sinks(&self) -> &[String] {
         &self.graph.as_ref().unwrap().sinks
+    }
+
+    fn set_option(&mut self, name: String, value: String) {
+        self.graph.as_mut().unwrap().options.insert(name, value);
     }
 }
 
@@ -82,6 +87,13 @@ unsafe extern fn topology(links_raw: *const u8, links_len: u32, paths_raw: *cons
     let paths = paths_str.lines().map(|x| x.split_ascii_whitespace().map(|x| x.parse().unwrap()).collect()).collect();
 
     leak((links, paths))
+}
+
+#[no_mangle]
+unsafe extern fn set_option(bundle: *mut Bundle, name: *const u8, name_len: u32, value: *const u8, value_len: u32) {
+    let name = std::str::from_utf8(std::slice::from_raw_parts(name, name_len as usize)).unwrap();
+    let value = std::str::from_utf8(std::slice::from_raw_parts(value, value_len as usize)).unwrap();
+    (*bundle).set_option(name.into(), value.into())
 }
 
 #[no_mangle]

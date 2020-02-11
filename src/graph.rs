@@ -9,14 +9,15 @@ use crate::strategy::Strategy;
 pub struct Graph<NEX: Default, TEX: Default> {
     pub nodes: Vec<Node<NEX, TEX>>, // This vector is partial ordered: inputs are guaranteed to appear ealier than descendents
     pub sinks: Box<[String]>, // sink nodes
-    pub name_dict: std::collections::BTreeMap<String, usize>
+    pub options: BTreeMap<String, String>,
+    pub name_dict: BTreeMap<String, usize>
 }
 
 impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
     pub fn new(nodes: &[NodeDef], sinks: Box<[String]>) -> Box<Self> {
         task!("building graph of {} nodes...", nodes.len());
 
-        let mut g = Box::new(Graph { nodes: Vec::with_capacity(nodes.len()), sinks, name_dict: BTreeMap::new() });
+        let mut g = Box::new(Graph { nodes: Vec::with_capacity(nodes.len()), sinks, options: BTreeMap::new(), name_dict: BTreeMap::new() });
 
         // not always optimal, but good enough since the input is actually mostly ordered
         let mut queue: std::collections::VecDeque::<_> = nodes.iter().collect();
@@ -45,6 +46,7 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
     /// setup the replicas and links. Note that auxiliary nodes are already there by strategies.
     pub fn compile(&mut self, target: &mut Target) {
         task!("compiling graph of {} nodes...", self.nodes.len());
+        warn!("fuck {}", self.options["replace_placeholder"]);
         for node in self.nodes.iter_mut() {
             node.compile(target)
         }

@@ -11,6 +11,9 @@ libtge.tge.restype = ctypes.c_void_p
 libtge.topology.argtypes = [ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32]
 libtge.topology.restype = ctypes.c_void_p
 
+libtge.set_option.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32]
+libtge.set_option.restype = ctypes.c_void_p
+
 libtge.not_at_all.argtypes = []
 libtge.not_at_all.restype = ctypes.c_void_p
 
@@ -45,6 +48,7 @@ class TGE:
         self.sinks = sinks
         self.graph_def = graph_def
         self.devices = device_list
+        self.options = {}
         self.flag = 0x03
 
     def get_result(self):
@@ -56,6 +60,10 @@ class TGE:
         devices_raw = ' '.join(self.devices).encode('ascii')
         sinks_raw = ' '.join(self.sinks).encode('ascii')
         tge = libtge.tge(self.strategy, self.get_topology(), graph_raw, len(graph_raw), devices_raw, len(devices_raw), sinks_raw, len(sinks_raw))
+        for name, value in self.options.items():
+            name_raw = str(name).encode('ascii')
+            value_raw = str(value).encode('ascii')
+            libtge.set_option(tge, name_raw, len(name_raw), value_raw, len(value_raw))
         size = libtge.compile(tge, self.flag)
         buf = ctypes.create_string_buffer(size)
         libtge.read_and_destroy(tge, buf)
@@ -71,6 +79,10 @@ class TGE:
         profile_raw = profile_raw.encode('ascii')
         sinks_raw = ' '.join(self.sinks).encode('ascii')
         tge = libtge.tge(self.strategy, self.get_topology(), graph_raw, len(graph_raw), devices_raw, len(devices_raw), sinks_raw, len(sinks_raw))
+        for name, value in self.options.items():
+            name_raw = str(name).encode('ascii')
+            value_raw = str(value).encode('ascii')
+            libtge.set_option(tge, name_raw, len(name_raw), value_raw, len(value_raw))
         size = libtge.compile(tge, self.flag | 0x08)
         trace_path = trace_path.encode('ascii')
         memory = (ctypes.c_uint64 * len(self.devices))(*[0 for x in self.devices])
@@ -111,6 +123,10 @@ class TGE:
                 else: # inter link
                     paths.append([0])
         self.set_topology(links, paths)
+
+    @chain
+    def replace_placeholder(self, batchsize):
+        self.options["replace_placeholder"] = batchsize
 
     def get_topology(self):
         'default topology use a single shared 100k bytes per micro second bandwidth'
