@@ -554,7 +554,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             nccl.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
             nccl.attr.insert("num_devices".into(), AttrValue::new().apply(|x| x.set_i(from.ndev().try_into().unwrap())));
             nccl.attr.insert("shared_name".into(), AttrValue::new().apply(|x| x.set_s(self.original_name().into_bytes())));
-            nccl.input.push(format!("{}:{}", self.as_form(from, target)[i], index));
+            nccl.input.push(self.as_form(from, target)[i].clone());
 
             target.pb.node.push(nccl)
         }

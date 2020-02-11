@@ -158,7 +158,11 @@ impl Strategy for Custom {
                     if grad.node().form.is_part() { // is_part implies ndev > 1
                         let full = match s {
                             // alternatively, we can allow this and perform a post transfer?
-                            Some((_, true)) if grad.node().form.devices == node.form.devices => grad.all_reduce_ring(&grad.node().form, &node.form.clone(), target),
+                            Some((_, true)) if grad.node().form.devices == node.form.devices => if graph.options.get("use_nccl").map(|x| x == "True").unwrap_or(false) {
+                                grad.all_reduce_nccl(&grad.node().form, &node.form.clone(), target)
+                            } else {
+                                grad.all_reduce_ring(&grad.node().form, &node.form.clone(), target)
+                            },
                             _ => {
                                 let x = grad.aggregate_sum(&grad.node().form, &node.form.clone().apply(|x| x.devices.truncate(1)), target);
                                 if node.form.ndev() > 1 {

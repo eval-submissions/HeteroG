@@ -144,6 +144,10 @@ class TGE:
         self.options["log_groups"] = True
 
     @chain
+    def use_nccl(self):
+        self.options["use_nccl"] = True
+
+    @chain
     def data_parallel(self, method):
         methods_dict = {
             "ps0": 1,
