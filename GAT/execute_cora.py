@@ -34,6 +34,7 @@ if os.path.exists("config.txt"):
 
 # training params
 os.environ["CUDA_VISIBLE_DEVICES"]=config_dict.get("CUDA_VISIBLE_DEVICES","0,1")
+os.environ["TF_XLA_FLAGS"]="--tf_xla_cpu_global_jit"
 batch_size = 1
 nb_epochs = 100000
 patience = 100
@@ -560,6 +561,10 @@ class feature_item(threading.Thread):
     def wait_sample(self):
         self.proc.join()
 
+    def sync_sample_and_parallel_process(self):
+        self.sample()
+        self.parallel_process_output()
+
     def sample(self):
 
         self.replica_masks = mp.Manager().list()
@@ -696,7 +701,7 @@ class new_place_GNN():
             self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(None,),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
             self.mems = [tf.placeholder(tf.float32,[2, None, 64]) for _ in range(3)]
-        with tf.device("/device:GPU:1"):
+        with tf.device("/device:CPU:0"):
             logits = model.inference(self.ftr_in, 1024, self.nb_node, self.is_train,
                                      self.attn_drop, self.ffd_drop,
                                      bias_mat=self.bias_in,
@@ -722,7 +727,7 @@ class new_place_GNN():
             self.entropy = tf.reduce_sum(tf.log(self.ps_or_reduce + np.power(10.0, -9)) * self.ps_or_reduce, 1)
             self.entropy = -(tf.reduce_mean(self.entropy) + sum / max_replica_num)
         else:
-            with tf.device("/device:GPU:0"):
+            with tf.device("/device:CPU:0"):
                 logits=model.inference(logits, max_replica_num*(len(devices)+1)+1, self.nb_node, self.is_train,
                                 self.attn_drop, self.ffd_drop,
                                 bias_mat=self.bias_in,
@@ -837,6 +842,7 @@ def architecture_three():
         models.append(item)
     config = tf.ConfigProto(allow_soft_placement=True)
     config.gpu_options.allow_growth = True
+    config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
     with tf.Session(config=config) as sess:
         place_gnn = new_place_GNN(sess,ft_size=models[0].ft_size)
 
@@ -853,8 +859,9 @@ def architecture_three():
 
         for epoch in range(nb_epochs):
             for model in models:
-                model.sample_one_time()
-                model.wait_sample()
+                #model.sample_one_time()
+                #model.wait_sample()
+                model.sync_sample_and_parallel_process()
                 model.post_parallel_process()
                 model.train(epoch)
 
