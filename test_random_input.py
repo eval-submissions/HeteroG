@@ -19,14 +19,14 @@ opt = model_fn()
 init = tf.global_variables_initializer()
 gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
 
-# devices = (
-#     "/job:tge/replica:0/task:0/device:GPU:0",
-#     "/job:tge/replica:0/task:1/device:GPU:0"
-# )
-# server = tf.distribute.Server(tf.train.ClusterSpec({
-#     "tge": ["127.0.0.1:3901", "127.0.0.1:3902"]
-# }), job_name='tge', task_index=0, protocol="grpc")
-devices = ("GPU:0", "GPU:1")
+devices = (
+    "/job:tge/replica:0/task:0/device:GPU:0",
+    "/job:tge/replica:0/task:1/device:GPU:0"
+)
+server = tf.distribute.Server(tf.train.ClusterSpec({
+    "tge": ["127.0.0.1:3901", "127.0.0.1:3902"]
+}), job_name='tge', task_index=0, protocol="grpc")
+# devices = ("GPU:0", "GPU:1")
 
 import tge
 
@@ -50,8 +50,8 @@ init = graph.get_operation_by_name("import/init/replica_0")
 
 data = { x: np.random.uniform(size=(64, 224, 224, 3)), y: np.random.uniform(size=(64, 1000)) }
 
-# sess = tf.Session(server.target)
-sess = tf.Session()
+sess = tf.Session(server.target)
+# sess = tf.Session()
 sess.run(init)
 sess.run(opt, data)
 # sess.run(opt)

@@ -183,9 +183,11 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
                     });
                     shape_node.attr.insert("value".into(), AttrValue::new().apply(|x| x.set_tensor(value)));
 
-                    let mut random_node = self.make_node("RandomUniform".to_string());
+                    let mut random_node = NodeDef::new().apply(|x| x.op = "RandomUniform".to_string());
                     random_node.name = self.replica(replica_index);
                     random_node.device = target.devices[*device_id].clone();
+                    set_origin(&mut random_node, &self.raw_node.name);
+                    set_form(&mut random_node, &self.form.code());
                     random_node.input.push(shape_node.name.clone());
                     random_node.attr.insert("T".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
                     random_node.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_FLOAT)));
@@ -195,7 +197,6 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
                     continue
                 }
             }
-
 
             // 1. setup basic node info
             let mut node = self.raw_node.clone();
