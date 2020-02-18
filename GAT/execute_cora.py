@@ -24,6 +24,17 @@ import pickle as pkl
 import multiprocessing as mp
 from multiprocessing import Pool
 
+
+variable_ops=["Variable", "VariableV2", "AutoReloadVariable",
+                   "MutableHashTable", "MutableHashTableV2",
+                   "MutableHashTableOfTensors", "MutableHashTableOfTensorsV2",
+                   "MutableDenseHashTable", "MutableDenseHashTableV2",
+                   "VarHandleOp", "BoostedTreesEnsembleResourceHandleOp",
+                   "BoostedTreesQuantileStreamResourceHandleOp",
+                   "ResourceConditionalAccumulator",
+                   "DecisionTreeResource"]
+
+
 checkpt_file = 'pre_trained/cora/mod_cora.ckpt'
 _dataset = 'cora'
 
@@ -61,7 +72,7 @@ print('nonlinearity: ' + str(nonlinearity))
 print('model: ' + str(model))
 feature_folders = config_dict.get("inputs",["data/graph1", "data/graph2", "data/graph3", "data/graph4", "data/graph5", "data/graph6","data/graph7"])
 sinks =  config_dict.get("sinks",[["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"],["group_deps_1","loss/Mean","global_step/add"]])
-sample_times = 3
+sample_times = 1
 devices = config_dict.get("devices", [
     "/job:tge/replica:0/task:0/device:GPU:0",
     "/job:tge/replica:0/task:0/device:GPU:1",
@@ -701,7 +712,7 @@ class new_place_GNN():
             self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(None,),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
             self.mems = [tf.placeholder(tf.float32,[2, None, 64]) for _ in range(3)]
-        with tf.device("/device:CPU:0"):
+        with tf.device("/device:GPU:1"):
             logits = model.inference(self.ftr_in, 1024, self.nb_node, self.is_train,
                                      self.attn_drop, self.ffd_drop,
                                      bias_mat=self.bias_in,
@@ -727,7 +738,7 @@ class new_place_GNN():
             self.entropy = tf.reduce_sum(tf.log(self.ps_or_reduce + np.power(10.0, -9)) * self.ps_or_reduce, 1)
             self.entropy = -(tf.reduce_mean(self.entropy) + sum / max_replica_num)
         else:
-            with tf.device("/device:CPU:0"):
+            with tf.device("/device:GPU:0"):
                 logits=model.inference(logits, max_replica_num*(len(devices)+1)+1, self.nb_node, self.is_train,
                                 self.attn_drop, self.ffd_drop,
                                 bias_mat=self.bias_in,
@@ -788,7 +799,12 @@ class new_place_GNN():
         self.loss = -reward
         self.train_op = model.training(self.loss, lr, l2_coef)
 
+        '''
+        for op in tf.get_default_graph().get_operations():
+            if op.node_def.op in variable_ops:
+                op._set_device("/device:CPU:0")
 
+        '''
 
     def get_a_cell(self):
         return tf.nn.rnn_cell.BasicLSTMCell(num_units=64)
