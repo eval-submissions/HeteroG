@@ -88,7 +88,7 @@ opt = graph.get_operation_by_name("import/GradientDescent/replica_0")
 init = graph.get_operation_by_name("import/init/replica_0")
 
 data = { x: np.random.uniform(size=(BATCHSIZE, 224, 224, 3)), y: np.random.uniform(size=(BATCHSIZE, 1000)) }
-config = tf.ConfigProto(allow_soft_placement=True)#log_device_placement=True)
+config = tf.ConfigProto(allow_soft_placement=True, graph)#log_device_placement=True)
 
 sess = tf.Session(None, config=config)
 sess.run(init)

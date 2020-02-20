@@ -481,6 +481,11 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         self.as_form(from, target).to_vec().chunks(from.ndev() / gcd).enumerate().map(|(i, chunk)| {
             let dest = from.devices[i * chunk.len()];
 
+            // special case: no need to concat
+            if chunk.len() == 1 {
+                return (dest, chunk[0].clone())
+            }
+
             let mut axis = self.node().make_node("Const".to_string());
             axis.name += &format!("/{}_{}/aux_resplit_{}/concat_axis", self.index, to.code(), i);
             axis.device = target.devices[dest].clone();
@@ -509,6 +514,10 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             target.pb.node.push(concat);
             (dest, result)
         }).collect::<Vec<_>>().iter().zip(to.devices.chunks(to.ndev() / gcd)).enumerate().flat_map(|(i, ((concat_place, concated), devices))| {
+            if devices.len() == 1 { // special case: no need to split
+                return vec![concated.clone()] // TODO: use another return type for this closure? Ideally do not collect and return a dyn IntoIterator instead
+            }
+
             let mut dim = self.node().make_node("Const".to_string());
             dim.name += &format!("/{}_{}/aux_resplit_{}/split_dim", self.index, to.code(), i);
             dim.device = target.devices[*concat_place].clone();
@@ -532,7 +541,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             let result = (0..to.ndev() / gcd).map({
                 let name = split.name.clone();
                 move |i| format!("{}:{}", name, i)
-            });
+            }).collect();
             target.pb.node.push(dim);
             target.pb.node.push(split);
             result
