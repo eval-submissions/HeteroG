@@ -8,6 +8,7 @@ from gat_utils import process
 from data_process.dataset import GraphDataset, WhiteSpaceTokenizer,NewWhiteSpaceTokenizer
 from data_process.example import load_M10, load_cora, load_dblp
 from data_process.meta_network import MetaNetwork, N_TYPE_NODE, N_TYPE_LABEL, IdIndexer
+from transformer.model import transformer
 import google.protobuf.text_format as pbtf
 from tensorflow.core.framework import graph_pb2
 from sklearn.preprocessing import StandardScaler
@@ -56,9 +57,19 @@ n_heads = [4, 4]  # additional entry for the output layer
 place_hid_units = [256, 256,512,512,256, 256]
 place_n_heads = [4,4,4,2,2,2, 1]
 residual = False
+
+n_layer=12
+n_head=8
+d_head=64
+d_model=512
+d_inner=2048
+
+global_mems = [np.zeros([128, 1, d_model], dtype=np.float32) for layer in range(n_layer)]
+
+
 nonlinearity = tf.nn.elu
 model = SpGAT
-transformer = True
+is_transformer = True
 print('Dataset: ' + _dataset)
 print('----- Opt. hyperparams -----')
 print('lr: ' + str(lr))
@@ -72,7 +83,7 @@ print('nonlinearity: ' + str(nonlinearity))
 print('model: ' + str(model))
 feature_folders = config_dict.get("inputs",["data/graph1", "data/graph2", "data/graph3", "data/graph4", "data/graph5", "data/graph6","data/graph7"])
 sinks =  config_dict.get("sinks",[["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"],["group_deps_1","loss/Mean","global_step/add"]])
-sample_times = 1
+sample_times = 2
 devices = config_dict.get("devices", [
     "/job:tge/replica:0/task:0/device:GPU:0",
     "/job:tge/replica:0/task:0/device:GPU:1",
@@ -511,6 +522,8 @@ def random_func1(item):
     return  np.random.choice(item.size, p=item)
 import threading
 
+
+
 class feature_item(threading.Thread):
     def __init__(self,folder_path,pool,event,event2,sink):
         super(feature_item, self).__init__()
@@ -556,7 +569,6 @@ class feature_item(threading.Thread):
         self.folder_path = folder_path
         self.strategy_pool = strategy_pool(folder_path,self.nb_nodes,self.index_id_dict,self.env,self.batch_size,self.sink)
 
-        self.mems=[np.zeros([2, self.nb_nodes, 64], dtype=np.float32) for layer in range(3)]
         self.mutex = threading.Lock()
         self.avg = float(np.mean(self.strategy_pool.rewards))
         self.oom = []
@@ -592,7 +604,7 @@ class feature_item(threading.Thread):
             ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
             bias_in=self.biases,
             nb_nodes=self.nb_nodes,
-            mems=self.mems)
+            mems=global_mems)
 
 
     def parallel_process_output(self):
@@ -648,6 +660,7 @@ class feature_item(threading.Thread):
             self.device_choices[i] = device_choice
             self.replica_masks[i] = replica_mask
     def train(self,epoch):
+        global global_mems
         tr_step = 0
         co_entropy = 0
         tr_size = self.features.shape[0]
@@ -659,7 +672,7 @@ class feature_item(threading.Thread):
             self.replica_masks.append(pool_strategy["replica_mask"])
 
         while tr_step * batch_size < tr_size:
-            new_loss,self.mems=self.place_gnn.learn(ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
+            new_loss,new_global_mems=self.place_gnn.learn(ftr_in=self.features[tr_step * batch_size:(tr_step + 1) * batch_size],
                             bias_in=self.biases,
                             nb_nodes=self.nb_nodes,
                             replica_num_array=np.array(self.replica_masks),
@@ -667,7 +680,8 @@ class feature_item(threading.Thread):
                             sample_device_choice = np.array(self.device_choices),
                             time_ratio = 1000*(np.array(self.rewards)-self.avg)/np.abs(self.avg),
                             coef_entropy=co_entropy,
-                            mems = self.mems)
+                            mems = global_mems)
+            global_mems = new_global_mems
             tr_step += 1
         for i in range(sample_times):
             if self.oom[i] == False:
@@ -676,7 +690,7 @@ class feature_item(threading.Thread):
         if epoch % show_interval == 0:
             print("[{}] step = {}".format(self.folder_path,epoch))
             print("[{}] time = {}".format(self.folder_path,times))
-            print("[{}] average reward = {}".format(self.folder_path,np.mean(self.strategy_pool.rewards)))
+            print("[{}] average reward = {}".format(self.folder_path,self.avg))
             print("[{}] overall entropy:{}".format(self.folder_path,self.cal_entropy))
             with open(self.folder_path+"/time.log", "a+") as f:
                 f.write(str(times) + ",")
@@ -711,17 +725,17 @@ class new_place_GNN():
             self.replica_num_array = tf.placeholder(dtype=tf.float32, shape=(None,None,max_replica_num),name="replica_num_array")
             self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(None,),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
-            self.mems = [tf.placeholder(tf.float32,[2, None, 64]) for _ in range(3)]
+            self.mems = [tf.placeholder(tf.float32,[128, 1, d_model]) for _ in range(n_layer)]
         with tf.device("/device:GPU:1"):
-            logits = model.inference(self.ftr_in, 1024, self.nb_node, self.is_train,
+            logits = model.inference(self.ftr_in, d_model, self.nb_node, self.is_train,
                                      self.attn_drop, self.ffd_drop,
                                      bias_mat=self.bias_in,
                                      hid_units=hid_units, n_heads=n_heads,
                                      residual=residual, activation=nonlinearity)
 
-        if not transformer:
-            log_resh = tf.reshape(logits, [-1, 1024])
-            log_resh = tf.layers.dense(log_resh, units=1024, activation=tf.nn.relu)
+        if not is_transformer:
+            log_resh = tf.reshape(logits, [-1, d_model])
+            log_resh = tf.layers.dense(log_resh, units=d_model, activation=tf.nn.relu)
             self.cell = tf.nn.rnn_cell.MultiRNNCell([self.get_a_cell() for _ in range(max_replica_num)])
             h0 = self.cell.zero_state(self.nb_node, np.float32)
             self.output,self.h = self.cell.call(log_resh, h0)
@@ -739,6 +753,7 @@ class new_place_GNN():
             self.entropy = -(tf.reduce_mean(self.entropy) + sum / max_replica_num)
         else:
             with tf.device("/device:GPU:0"):
+                '''
                 logits=model.inference(logits, max_replica_num*(len(devices)+1)+1, self.nb_node, self.is_train,
                                 self.attn_drop, self.ffd_drop,
                                 bias_mat=self.bias_in,
@@ -748,6 +763,16 @@ class new_place_GNN():
                 self.device_choices = list()
                 output = tf.reshape(logits, [-1, max_replica_num*(len(devices)+1)+1])
                 output = tf.layers.dense(output, units=max_replica_num*(len(devices)+1)+1, activation=tf.nn.relu)
+                '''
+                self.device_choices = list()
+                log_resh = tf.reshape(logits, [-1,1,d_model])
+                initializer = tf.initializers.random_normal(
+                    stddev=0.02,
+                    seed=None)
+                output,self.new_mems = transformer(log_resh,self.mems,n_layer,d_model,n_head,d_head,d_inner,0.1,0.1,initializer,True,mem_len=128)
+                output = tf.reshape(output, [-1,d_model])
+                output = tf.layers.dense(output,max_replica_num*(len(devices)+1)+1)
+
             '''
             for i in range(6):
                 output = rel_multihead_attn(
@@ -824,7 +849,7 @@ class new_place_GNN():
         feed_dict[self.coef_entropy]=coef_entropy
         for item1,item2 in zip(self.mems,mems):
             feed_dict[item1]=item2
-        loss,mems,_ = self.sess.run([self.loss,self.mems,self.train_op],
+        loss,mems,_ = self.sess.run([self.loss,self.new_mems,self.train_op],
                      feed_dict=feed_dict)
         return loss,mems
     def get_replica_num_prob_and_entropy(self,ftr_in,bias_in,nb_nodes,mems):
