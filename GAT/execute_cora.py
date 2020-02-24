@@ -64,7 +64,7 @@ d_head=64
 d_model=512
 d_inner=2048
 
-global_mems = [np.zeros([128, 1, d_model], dtype=np.float32) for layer in range(n_layer)]
+global_mems = [np.zeros([128, 32, d_model], dtype=np.float32) for layer in range(n_layer)]
 
 
 nonlinearity = tf.nn.elu
@@ -543,6 +543,11 @@ class feature_item(threading.Thread):
         train_node_indices, test_node_indices, train_masks, test_masks = self.dataset.split_train_and_test(training_rate=0.8)
 
         self.nb_nodes = feature_matrix.shape[0]
+        pad_num = 0 if self.nb_nodes%32==0 else 32-self.nb_nodes%32
+        if pad_num:
+            feature_matrix = np.pad(feature_matrix,((0,pad_num),(0,0)),"constant")
+
+
         self.ft_size = feature_matrix.shape[1]
         self.need_sample = False
 
@@ -725,7 +730,7 @@ class new_place_GNN():
             self.replica_num_array = tf.placeholder(dtype=tf.float32, shape=(None,None,max_replica_num),name="replica_num_array")
             self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(None,),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
-            self.mems = [tf.placeholder(tf.float32,[128, 1, d_model]) for _ in range(n_layer)]
+            self.mems = [tf.placeholder(tf.float32,[128, 32, d_model]) for _ in range(n_layer)]
         with tf.device("/device:GPU:1"):
             logits = model.inference(self.ftr_in, d_model, self.nb_node, self.is_train,
                                      self.attn_drop, self.ffd_drop,
@@ -765,7 +770,7 @@ class new_place_GNN():
                 output = tf.layers.dense(output, units=max_replica_num*(len(devices)+1)+1, activation=tf.nn.relu)
                 '''
                 self.device_choices = list()
-                log_resh = tf.reshape(logits, [-1,1,d_model])
+                log_resh = tf.reshape(logits, [-1,32,d_model])
                 initializer = tf.initializers.random_normal(
                     stddev=0.02,
                     seed=None)
