@@ -1,11 +1,12 @@
 def model_fn(bsize=None):
-    x = tf.placeholder(tf.float32, shape=(bsize, 1024))
-    y = tf.placeholder(tf.float32, shape=(bsize, 10,))
-    hidden = tf.contrib.slim.fully_connected(x, 256, activation_fn=tf.nn.softmax)
-    output = tf.contrib.slim.fully_connected(hidden, 10, activation_fn=tf.nn.softmax)
+    from tensorflow.contrib.slim.nets import vgg
+    x = tf.placeholder(tf.float32, shape=(bsize, 224, 224, 3))
+    y = tf.placeholder(tf.float32, shape=(bsize, 10))
+    output, _ = vgg.vgg_19(x, 10)
     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
     return optimizer
+
 
 import sys
 import numpy as np
@@ -36,7 +37,7 @@ gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
 
 import tge
 
-strategy = { node.name: [1, 2, 2] for node in gdef.node }
+strategy = { node.name: [1, 1, 1] for node in gdef.node }
 
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
