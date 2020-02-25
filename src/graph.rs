@@ -10,7 +10,8 @@ use crate::proto::attr_value::AttrValue_ListValue;
 #[derive(Default)]
 pub struct CollectiveState {
     pub instance_count: u64,
-    pub groups: BTreeMap<Vec<usize>, u64> // devices => group_key
+    pub groups: BTreeMap<Vec<usize>, u64>, // devices => group_key
+    pub last: Vec<String>
 }
 
 impl CollectiveState {
@@ -606,6 +607,8 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         let state = &mut self.node().graph().collective_state;
         let instance_key = state.new_instance();
         let group_key = state.get_group(&from.devices);
+        let mut new_list = vec![];
+        let last = &mut state.last;
 
         for (i, device_id) in from.devices.iter().enumerate() {
             let mut node = self.node().make_node("CollectiveReduce".to_string());
@@ -622,8 +625,15 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             node.attr.insert("wait_for".into(), AttrValue::new().apply(|x| x.mut_list().i = wait_for));
             node.input.push(self.as_form(from, target)[i].clone());
 
+            for dep in last.iter() {
+                node.input.push(format!("^{}", dep))
+            }
+            new_list.push(node.name.clone());
+
             target.pb.node.push(node)
         }
+
+        *last = new_list;
 
         (0..from.ndev()).map(|i| format!("{}/{}_{}/aux_collective_{}", self.node().raw_node.name, self.index, to.code(), i)).collect()
     }
