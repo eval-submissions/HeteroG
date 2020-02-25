@@ -5,19 +5,42 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::convert::TryInto;
 use crate::strategy::Strategy;
+use crate::proto::attr_value::AttrValue_ListValue;
 
+#[derive(Default)]
+pub struct CollectiveState {
+    pub instance_count: u64,
+    pub groups: BTreeMap<Vec<usize>, u64> // devices => group_key
+}
+
+impl CollectiveState {
+    pub fn new_instance(&mut self) -> u64 { self.instance_count += 1 ; self.instance_count - 1 }
+    pub fn get_group(&mut self, devices: &[usize]) -> u64 {
+        if let Some(key) = self.groups.get(devices) {
+            *key
+        } else {
+            let key = self.groups.len() as _;
+            self.groups.insert(devices.to_vec(), key);
+            key
+        }
+    }
+}
+
+#[derive(Default)]
 pub struct Graph<NEX: Default, TEX: Default> {
     pub nodes: Vec<Node<NEX, TEX>>, // This vector is partial ordered: inputs are guaranteed to appear ealier than descendents
     pub sinks: Box<[String]>, // sink nodes
     pub options: BTreeMap<String, String>,
-    pub name_dict: BTreeMap<String, usize>
+    pub name_dict: BTreeMap<String, usize>,
+
+    collective_state: CollectiveState
 }
 
 impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
     pub fn new(nodes: &[NodeDef], sinks: Box<[String]>) -> Box<Self> {
         task!("building graph of {} nodes...", nodes.len());
 
-        let mut g = Box::new(Graph { nodes: Vec::with_capacity(nodes.len()), sinks, options: BTreeMap::new(), name_dict: BTreeMap::new() });
+        let mut g = Box::new(Graph { nodes: Vec::with_capacity(nodes.len()), sinks, ..Default::default() });
 
         // not always optimal, but good enough since the input is actually mostly ordered
         let mut queue: std::collections::VecDeque::<_> = nodes.iter().collect();
@@ -570,6 +593,39 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         }
 
         (0..from.ndev()).map(|i| format!("{}/{}_{}/aux_nccl_{}", self.node().raw_node.name, self.index, to.code(), i)).collect()
+    }
+
+    pub fn all_reduce_collective(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
+        // each node have only *one* input, and should be on the same device of the input. The output of these nodes will be the same
+        // group_key: not sure, guess is nccl group, so operations on *the same set of devices* could share the same group_key
+        // instance_key: each operation use a unique instance_key, pretty much like "shared_name" in NcclAllReduce
+
+        assert!(from.valid() && to.valid() && from.is_part() && to.is_full() && from.devices == to.devices);
+
+        let index = self.index;
+        let state = &mut self.node().graph().collective_state;
+        let instance_key = state.new_instance();
+        let group_key = state.get_group(&from.devices);
+
+        for (i, device_id) in from.devices.iter().enumerate() {
+            let mut node = self.node().make_node("CollectiveReduce".to_string());
+            node.name += &format!("/{}_{}/aux_collective_{}", index, to.code(), i);
+            node.device = target.devices[*device_id].clone();
+            node.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
+            node.attr.insert("final_op".into(), AttrValue::new().apply(|x| x.set_s(b"Id".to_vec())));
+            node.attr.insert("merge_op".into(), AttrValue::new().apply(|x| x.set_s(b"Add".to_vec())));
+            node.attr.insert("group_key".into(), AttrValue::new().apply(|x| x.set_i(instance_key as _)));
+            node.attr.insert("group_size".into(), AttrValue::new().apply(|x| x.set_i(from.ndev().try_into().unwrap())));
+            node.attr.insert("instance_key".into(), AttrValue::new().apply(|x| x.set_i(instance_key as _)));
+            node.attr.insert("subdiv_offsets".into(), AttrValue::new().apply(|x| x.mut_list().i = vec![0]));
+            let wait_for = if instance_key == 0 { vec![] } else { vec![(instance_key-1) as _] };
+            node.attr.insert("wait_for".into(), AttrValue::new().apply(|x| x.mut_list().i = wait_for));
+            node.input.push(self.as_form(from, target)[i].clone());
+
+            target.pb.node.push(node)
+        }
+
+        (0..from.ndev()).map(|i| format!("{}/{}_{}/aux_collective_{}", self.node().raw_node.name, self.index, to.code(), i)).collect()
     }
 
     pub fn all_reduce_ring(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {

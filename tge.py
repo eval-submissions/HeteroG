@@ -145,7 +145,11 @@ class TGE:
 
     @chain
     def use_nccl(self):
-        self.options["use_nccl"] = True
+        self.options["allreduce_implementation"] = 'nccl'
+
+    @chain
+    def use_collective(self):
+        self.options["allreduce_implementation"] = 'collective'
 
     @chain
     def data_parallel(self, method):
