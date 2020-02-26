@@ -576,6 +576,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         // to all_sum n tensors (can be on the same device), one should have n NcclAllReduce nodes with the same shared_name attr
         // each node have only *one* input, and should be on the same device of the input. The output of these nodes will be the same
 
+        assert!(target.devices.windows(2).all(|w| task_name(&w[0]) == task_name(&w[1]))); // This nodes only works intra-task
         assert!(from.valid() && to.valid() && from.is_part() && to.is_full() && from.devices == to.devices);
 
         let index = self.index;
@@ -852,4 +853,10 @@ fn parse_input(x: &str) -> (&str, usize) {
         Some(i) => (&x[..i], x[i+1..].parse().unwrap()),
         None => (x, 0)
     }
+}
+
+// TODO: use task id?
+fn task_name(x: &str) -> String {
+    let p = x.rfind('/').expect("unrecognized device name");
+    x[..p].to_string()
 }
