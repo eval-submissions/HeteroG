@@ -644,12 +644,10 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             node.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
             node.attr.insert("final_op".into(), AttrValue::new().apply(|x| x.set_s(b"Id".to_vec())));
             node.attr.insert("merge_op".into(), AttrValue::new().apply(|x| x.set_s(b"Add".to_vec())));
-            node.attr.insert("group_key".into(), AttrValue::new().apply(|x| x.set_i(instance_key as _))); // TODO: actually use group key
+            node.attr.insert("group_key".into(), AttrValue::new().apply(|x| x.set_i(group_key as _)));
             node.attr.insert("group_size".into(), AttrValue::new().apply(|x| x.set_i(local_summed.len() as _)));
             node.attr.insert("instance_key".into(), AttrValue::new().apply(|x| x.set_i(instance_key as _)));
             node.attr.insert("subdiv_offsets".into(), AttrValue::new().apply(|x| x.mut_list().i = vec![0]));
-            let wait_for = if instance_key == 0 { vec![] } else { vec![(instance_key-1) as _] }; // TODO: remove wait_for since we got control dependency
-            node.attr.insert("wait_for".into(), AttrValue::new().apply(|x| x.mut_list().i = wait_for));
             node.input.push(local_name.clone());
             set_input_size(&mut node, 0, part_size);
 
