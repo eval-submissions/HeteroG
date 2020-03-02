@@ -6,6 +6,7 @@ use std::fmt::Write;
 use std::convert::TryInto;
 use crate::strategy::Strategy;
 use crate::proto::attr_value::AttrValue_ListValue;
+use std::hint::unreachable_unchecked;
 
 #[derive(Default)]
 pub struct CollectiveState {
@@ -398,7 +399,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         let mut addn = self.node().make_node("AddN".to_string());
         addn.name += &format!("/{}_{}/aux_sum", self.index, to.code());
         addn.device = target.devices[to.devices[0]].clone();
-        addn.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(from.ndev().try_into().unwrap())));
+        addn.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(from.ndev() as _)));
         addn.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
         addn.input = self.as_form(from, target).iter().cloned().collect();
         for i in 0..from.ndev() {
@@ -430,7 +431,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         concat.device = target.devices[to.devices[0]].clone();
         concat.input = self.as_form(from, target).iter().cloned().collect();
         concat.input.push(axis.name.clone());
-        concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(from.ndev().try_into().unwrap())));
+        concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(from.ndev() as _)));
         concat.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
         concat.attr.insert("Tidx".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
         for i in 0..from.ndev() {
@@ -473,7 +474,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         split.input.push(dim.name.clone());
         split.input.push(self.as_form(from, target)[0].clone());
         split.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
-        split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(to.ndev().try_into().unwrap())));
+        split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(to.ndev() as _)));
         set_input_size(&mut split, 1, self.get_size());
 
         let result = (0..to.ndev()).map(|i| format!("{}:{}", split.name, i)).collect();
@@ -526,7 +527,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             concat.device = target.devices[dest].clone();
             concat.input = chunk.iter().cloned().collect();
             concat.input.push(axis.name.clone());
-            concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(chunk.len().try_into().unwrap())));
+            concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(chunk.len() as _)));
             concat.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
             concat.attr.insert("Tidx".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
             for j in 0..chunk.len() {
@@ -559,7 +560,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             split.input.push(dim.name.clone());
             split.input.push(concated.clone());
             split.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
-            split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(devices.len().try_into().unwrap())));
+            split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(devices.len() as _)));
             set_input_size(&mut split, 1, self.get_size() / gcd as u64);
 
             let result = (0..to.ndev() / gcd).map({
@@ -587,7 +588,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             nccl.device = target.devices[*device_id].clone();
             nccl.attr.insert("reduction".into(), AttrValue::new().apply(|x| x.set_s(b"sum".to_vec())));
             nccl.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
-            nccl.attr.insert("num_devices".into(), AttrValue::new().apply(|x| x.set_i(from.ndev().try_into().unwrap())));
+            nccl.attr.insert("num_devices".into(), AttrValue::new().apply(|x| x.set_i(from.ndev() as _)));
             nccl.attr.insert("shared_name".into(), AttrValue::new().apply(|x| x.set_s(self.original_name().into_bytes())));
             nccl.input.push(self.as_form(from, target)[i].clone());
 
@@ -604,39 +605,66 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
 
         assert!(from.valid() && to.valid() && from.is_part() && to.is_full() && from.devices == to.devices);
 
-        let index = self.index;
+        let part_size = self.get_size() / from.ndev() as u64;
+
+        let mut local_groups: BTreeMap<usize, Vec<String>> = BTreeMap::new();
+        for (i, device_id) in from.devices.iter().copied().enumerate() {
+            let name = self.as_form(from, target)[i].clone();
+            local_groups.entry(device_id).or_default().push(name)
+        }
+
+        let local_summed: BTreeMap<_, _> = local_groups.iter().map(|(device_id, local_nodes)| (*device_id, match local_nodes.len() {
+            0 => unreachable!(),
+            1 => local_nodes[0].clone(), // TODO: destruct the vector and take the element
+            _ => {
+                let mut addn = self.node().make_node("AddN".to_string());
+                addn.name += &format!("/{}_{}_{}/aux_sum", self.index, to.code(), device_id);
+                addn.device = target.devices[*device_id].clone();
+                addn.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(local_nodes.len() as _)));
+                addn.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
+                addn.input = local_nodes.iter().cloned().collect();
+                for i in 0..local_nodes.len() {
+                    set_input_size(&mut addn, i, part_size)
+                }
+                let name = addn.name.clone();
+                target.pb.node.push(addn);
+                name
+            }
+        })).collect();
+
         let state = &mut self.node().graph().collective_state;
         let instance_key = state.new_instance();
-        let group_key = state.get_group(&from.devices);
-        let mut new_list = vec![];
+        let group_key = state.get_group(&local_summed.keys().copied().collect::<Vec<_>>()); // it is sorted by BTreeMap
         let last = &mut state.last;
 
-        for (i, device_id) in from.devices.iter().enumerate() {
+        let local_reduced: BTreeMap<_, _> = local_summed.iter().map(|(device_id, local_name)| {
             let mut node = self.node().make_node("CollectiveReduce".to_string());
-            node.name += &format!("/{}_{}/aux_collective_{}", index, to.code(), i);
+            node.name += &format!("/{}_{}_{}/aux_collective", self.index, to.code(), device_id);
             node.device = target.devices[*device_id].clone();
             node.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
             node.attr.insert("final_op".into(), AttrValue::new().apply(|x| x.set_s(b"Id".to_vec())));
             node.attr.insert("merge_op".into(), AttrValue::new().apply(|x| x.set_s(b"Add".to_vec())));
-            node.attr.insert("group_key".into(), AttrValue::new().apply(|x| x.set_i(instance_key as _)));
-            node.attr.insert("group_size".into(), AttrValue::new().apply(|x| x.set_i(from.ndev().try_into().unwrap())));
+            node.attr.insert("group_key".into(), AttrValue::new().apply(|x| x.set_i(instance_key as _))); // TODO: actually use group key
+            node.attr.insert("group_size".into(), AttrValue::new().apply(|x| x.set_i(local_summed.len() as _)));
             node.attr.insert("instance_key".into(), AttrValue::new().apply(|x| x.set_i(instance_key as _)));
             node.attr.insert("subdiv_offsets".into(), AttrValue::new().apply(|x| x.mut_list().i = vec![0]));
-            let wait_for = if instance_key == 0 { vec![] } else { vec![(instance_key-1) as _] };
+            let wait_for = if instance_key == 0 { vec![] } else { vec![(instance_key-1) as _] }; // TODO: remove wait_for since we got control dependency
             node.attr.insert("wait_for".into(), AttrValue::new().apply(|x| x.mut_list().i = wait_for));
-            node.input.push(self.as_form(from, target)[i].clone());
+            node.input.push(local_name.clone());
+            set_input_size(&mut node, 0, part_size);
 
             for dep in last.iter() {
                 node.input.push(format!("^{}", dep))
             }
-            new_list.push(node.name.clone());
 
-            target.pb.node.push(node)
-        }
+            let name = node.name.clone();
+            target.pb.node.push(node);
+            (device_id, name)
+        }).collect();
 
-        *last = new_list;
+        *last = local_reduced.values().cloned().collect();
 
-        (0..from.ndev()).map(|i| format!("{}/{}_{}/aux_collective_{}", self.node().raw_node.name, self.index, to.code(), i)).collect()
+        from.devices.iter().map(|device_id| local_reduced[device_id].clone()).collect()
     }
 
     pub fn all_reduce_ring(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
@@ -710,7 +738,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             split.input.push(dim.name.clone());
             split.input.push(flats[i].clone());
             split.attr.insert("T".into(), dtype.clone());
-            split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(n.try_into().unwrap())));
+            split.attr.insert("num_split".into(), AttrValue::new().apply(|x| x.set_i(n as _)));
             set_input_size(&mut split, 1, psize);
 
             let ret = split.name.clone();
@@ -770,7 +798,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
             concat.device = devices[i].clone();
             concat.input = chunk.into_iter().collect();
             concat.input.push(axis.name.clone());
-            concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(n.try_into().unwrap())));
+            concat.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(n as _)));
             concat.attr.insert("T".into(), dtype.clone());
             concat.attr.insert("Tidx".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
             for j in 0..len {

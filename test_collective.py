@@ -37,7 +37,7 @@ gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
 
 import tge
 
-strategy = { node.name: [1, 1, 1] for node in gdef.node }
+strategy = { node.name: [1, 2, 2] for node in gdef.node }
 
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
