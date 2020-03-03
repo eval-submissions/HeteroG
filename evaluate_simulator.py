@@ -48,29 +48,39 @@ import numpy as np
 import tensorflow as tf
 import google.protobuf.text_format as pbtf
 from tensorflow.python.client import timeline
+from tensorflow.distribute.cluster_resolver import TFConfigClusterResolver
 
 from utils import write_tensorboard, setup_workers
 
 BATCHSIZE=48
 
+devices = (
+    "/job:worker/replica:0/task:0/device:GPU:0",
+    "/job:worker/replica:0/task:1/device:GPU:0"
+)
+resolver = TFConfigClusterResolver()
+cluster = resolver.cluster_spec()
+dist = tf.distribute.experimental.MultiWorkerMirroredStrategy(
+        tf.distribute.experimental.CollectiveCommunication.NCCL)
+config = dist.update_config_proto(tf.ConfigProto())
+config.ClearField("device_filters")
+server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc", config=config)
+
 opt = model_fn(None)
 init = tf.global_variables_initializer()
 gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
-
-devices = (
-    "/GPU:0",
-    "/GPU:1"
-)
 
 import tge
 
 # options = [[0, 1], [1, 0], [0, 2], [2, 0], [1, 1]]
 # strategy = { node.name: [np.random.randint(0, 2)] + options[np.random.randint(0, len(options))] for node in gdef.node }
 
-strategy = { node.name: [0, 1, 1] for node in gdef.node }
+strategy = { node.name: [1, 1, 1] for node in gdef.node }
 
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
+    .replace_placeholder(BATCHSIZE)
+    .use_collective()
     .compile()
     .get_result()
 )
@@ -79,27 +89,32 @@ with open("modified.pb", "w") as fo:
     fo.write(pbtf.MessageToString(g))
 
 tf.reset_default_graph()
+resolver = TFConfigClusterResolver()
+cluster = resolver.cluster_spec()
+dist = tf.distribute.experimental.MultiWorkerMirroredStrategy(
+        tf.distribute.experimental.CollectiveCommunication.NCCL)
+config = dist.update_config_proto(tf.ConfigProto())
+config.ClearField("device_filters")
 tf.import_graph_def(g)
 graph = tf.get_default_graph()
 
-x = graph.get_tensor_by_name("import/Placeholder/replica_0:0")
-y = graph.get_tensor_by_name("import/Placeholder_1/replica_0:0")
+# x = graph.get_tensor_by_name("import/Placeholder/replica_0:0")
+# y = graph.get_tensor_by_name("import/Placeholder_1/replica_0:0")
 opt = graph.get_operation_by_name("import/GradientDescent/replica_0")
 init = graph.get_operation_by_name("import/init/replica_0")
 
-data = { x: np.random.uniform(size=(BATCHSIZE, 224, 224, 3)), y: np.random.uniform(size=(BATCHSIZE, 1000)) }
-config = tf.ConfigProto(allow_soft_placement=True, graph)#log_device_placement=True)
+# config = tf.ConfigProto(allow_soft_placement=True)#log_device_placement=True)
 
-sess = tf.Session(None, config=config)
+sess = tf.Session(server.target, config=config)
 sess.run(init)
-sess.run(opt, data)
+sess.run(opt)
 
 # op = graph.get_tensor_by_name("import/vgg_19/fc6/Conv2D/replica_0:0")
 # print(sess.run(op, data).shape)
 
 run_meta = tf.compat.v1.RunMetadata()
 run_opt = tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE, output_partition_graphs=True)
-sess.run(opt, data, options=run_opt, run_metadata=run_meta)
+sess.run(opt, options=run_opt, run_metadata=run_meta)
 
 with open("meta.pb", "w") as fo:
     fo.write(pbtf.MessageToString(run_meta))
@@ -109,7 +124,7 @@ with open("timeline.json", "w") as fo:
     fo.write(tl.generate_chrome_trace_format())
 
 tic = time.perf_counter()
-sess.run(opt, data)
+sess.run(opt)
 toc = time.perf_counter()
 
 from profiler import Profiler
@@ -119,7 +134,7 @@ for nrep in (1, 2, 3, 4, 6, 8, 12):
     opt = model_fn(BATCHSIZE // nrep)
     init = tf.global_variables_initializer()
     gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
-    p = Profiler(gdef)
+    p = Profiler(gdef, server.target)
     for node in gdef.node:
         prof_dict[(node.name, nrep)] = [ p.profile(node.name, device) for device in devices ]
 
@@ -133,7 +148,10 @@ with open("model.pb", "w") as fo:
 
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
-    .set_bandwidth(intra=2810, inter=2810)
+    .replace_placeholder(BATCHSIZE)
+    .use_collective()
+    # .set_bandwidth(intra=2810, inter=2810) # single worker g9
+    .set_bandwidth(intra=816, inter=816) # single machine two workers g9
     .evaluate(prof_dict, "simulated.json")
 )
 
