@@ -23,6 +23,12 @@ pub struct TensorFlowLikeScheduler {
     profile_dict: BTreeMap<String, Vec<(usize, Vec<u64>)>>
 }
 
+#[derive(Debug, Default)]
+struct CollectiveGroup {
+    devices: Vec<usize>,
+    bandwidth: u64
+}
+
 impl TensorFlowLikeScheduler {
     pub fn new(profile_dict: BTreeMap<String, Vec<(usize, Vec<u64>)>>) -> Self {
         Self { profile_dict }
@@ -55,7 +61,8 @@ impl TensorFlowLikeScheduler {
 #[derive(Debug)]
 enum TaskType<'a> {
     Computation { id: usize, gpu: usize },
-    Transfering { size: u64, path: &'a [usize] }
+    Transfer { size: u64, path: &'a [usize] },
+    Collective { instance_key: usize, group_key: usize, size: u64 }
 }
 
 #[derive(Debug)]
@@ -113,6 +120,7 @@ impl Scheduler for TensorFlowLikeScheduler {
         let nodes = sort_nodes(&target.pb.node);
         let node_dict: BTreeMap<_, _> = nodes.iter().enumerate().map(|(i, x)| (x.name.clone(), i)).collect();
         let device_dict: BTreeMap<_, _> = target.devices.iter().enumerate().map(|(i, x)| (x.clone(), i)).collect();
+        let collective_groups = analyze_collective_groups(&target.pb.node, &device_dict);
 
         // build tasks
         let mut tasks: Vec<Task> = vec![];
@@ -138,21 +146,30 @@ impl Scheduler for TensorFlowLikeScheduler {
                 in_tensors.push((input_id, index, to));
 
                 // note for memory calculation when from == to: we ignore activation of tensorbuf when it is already activated, and count ref for every transfer, so the calculation is correct.
-                Task::create(&mut tasks, TaskType::Transfering {
+                Task::create(&mut tasks, TaskType::Transfer {
                     size, path: &target.paths[from * target.devices.len() + to]
                 }, &[task_dict[input_id]], vec![(input_id, index, from)], vec![(input_id, index, to)])
             }).collect();
 
-            let id = Task::create(&mut tasks, TaskType::Computation { id: i, gpu: device_dict[&node.device] }, &wait_for, in_tensors, vec![]);
+            let id = if node.op == "CollectiveReduce" {
+                let instance_key = node.attr["instance_key"].get_i() as _;
+                let group_key = node.attr["group_key"].get_i() as _;
+                let input_id = node_dict[parse_input(&node.input[0]).0];
+                let size = nodes[input_id].attr.get("_tge_input_sizes").and_then(|x| x.get_list().i.get(0)).copied().unwrap_or(0) as _;
+                Task::create(&mut tasks, TaskType::Collective { instance_key, group_key, size }, &wait_for, in_tensors, vec![])
+            } else {
+                Task::create(&mut tasks, TaskType::Computation { id: i, gpu: device_dict[&node.device] }, &wait_for, in_tensors, vec![])
+            };
             task_dict.push(id);
         }
 
         let mut time = 0;
         let mut ongoing_tasks = BinaryHeap::new();
         let mut ready_list: VecDeque<_> = tasks.iter().enumerate().filter(|(_, task)| task.wait_for.is_empty()).map(|(i, _)| i).collect(); // TODO: find the nodes that actually need to be runned (can lead to the terminating node), or assume the DAG is already pruned.
-        let mut gnu_available_time = vec![0; target.devices.len()];
+        let mut gpu_available_time = vec![0; target.devices.len()];
         let mut link_available_time = vec![0; target.links.len()];
         let mut current_memory = max_memory.to_vec();
+        let mut collective_state: BTreeMap<usize, Vec<usize>> = BTreeMap::new(); // instance_key => [ready task_id]
 
         loop {
             // schedule ready tasks. Note the scheduled task may or may not start immediatly depending on the GPU/link queue. There may be other tasks become ready before some tasks schedualed earlier actually start.
@@ -160,12 +177,28 @@ impl Scheduler for TensorFlowLikeScheduler {
                 let task = &mut tasks[task_id];
                 match task.content {
                     TaskType::Computation { id: node_id, gpu } => {
-                        debug!("{:?} {:?} {:?} {:?} {:?}", gpu, gnu_available_time[gpu], time, nodes[node_id].name, self.profile(&nodes[node_id], gpu).unwrap_or(0));
-                        let eft = cmp::max(gnu_available_time[gpu], time) + self.profile(&nodes[node_id], gpu).unwrap_or(0);
-                        gnu_available_time[gpu] = eft;
+                        debug!("{:?} {:?} {:?} {:?} {:?}", gpu, gpu_available_time[gpu], time, nodes[node_id].name, self.profile(&nodes[node_id], gpu).unwrap_or(0));
+                        let eft = cmp::max(gpu_available_time[gpu], time) + self.profile(&nodes[node_id], gpu).unwrap_or(0);
+                        gpu_available_time[gpu] = eft;
                         ongoing_tasks.push(OngoingTask { id: task_id, eft });
                     }
-                    TaskType::Transfering { size, path } => {
+                    TaskType::Collective { instance_key, group_key, size } => {
+                        let ready_list = collective_state.entry(instance_key).or_default();
+                        let group = &collective_groups[&group_key];
+                        ready_list.push(task_id);
+                        if ready_list.len() == group.devices.len() { // all ready
+                            debug!("all ready {}", instance_key);
+                            let barrier = group.devices.iter().map(|gpu| gpu_available_time[*gpu]).max().expect("bug");
+                            let eft = barrier + size / collective_groups[&group_key].bandwidth;
+                            for gpu in group.devices.iter() {
+                                gpu_available_time[*gpu] = eft;
+                            }
+                            for task_id in ready_list {
+                                ongoing_tasks.push(OngoingTask { id: *task_id, eft })
+                            }
+                        }
+                    }
+                    TaskType::Transfer { size, path } => {
                         let est = path.iter().fold(time, |max, link| cmp::max(max, link_available_time[*link]));
                         let eft = est + if !path.is_empty() {
                             let bandwidth = path.iter().fold(std::u64::MAX, |min, link| cmp::min(min, target.links[*link]));
@@ -194,7 +227,15 @@ impl Scheduler for TensorFlowLikeScheduler {
                                 writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"computation\", \"ph\": \"E\", \"ts\": {}, \"pid\": 0, \"tid\": {} }},", nodes[*node_id].name, eft, gpu).expect("fail to write log");
                             }
                         }
-                        TaskType::Transfering { size, path } => if !path.is_empty() {
+                        TaskType::Collective { instance_key, group_key, size } => {
+                            let duration = size / collective_groups[group_key].bandwidth;
+                            let gpu = tasks[id].in_tensors[0].2; // hack
+                            if duration != 0 {
+                                writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"collective\", \"ph\": \"B\", \"ts\": {}, \"pid\": 0, \"tid\": {} }},", instance_key, eft - duration, gpu).expect("fail to write log");
+                                writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"collective\", \"ph\": \"E\", \"ts\": {}, \"pid\": 0, \"tid\": {} }},", instance_key, eft, gpu).expect("fail to write log");
+                            }
+                        }
+                        TaskType::Transfer { size, path } => if !path.is_empty() {
                             let bandwidth = path.iter().fold(std::u64::MAX, |min, link| cmp::min(min, target.links[*link]));
                             let duration = size / bandwidth + LATENCY;
                             for link in *path {
@@ -274,4 +315,27 @@ fn sort_nodes(x: &[NodeDef]) -> Vec<NodeDef> {
         result.push(node);
     }
     result
+}
+
+fn analyze_collective_groups(nodes: &[NodeDef], device_dict: &BTreeMap<String, usize>) -> BTreeMap<usize, CollectiveGroup> {
+    let mut collective_groups: BTreeMap<usize, CollectiveGroup> = BTreeMap::new();
+    let mut representative_instance: BTreeMap<usize, usize> = BTreeMap::new(); // we use the first instance to represent the group
+
+    for node in nodes.iter() {
+        if node.op != "CollectiveReduce" {
+            continue
+        }
+
+        let group_key = node.attr["group_key"].get_i() as _;
+        let instance_key = node.attr["instance_key"].get_i() as _;
+        if instance_key != *representative_instance.entry(group_key).or_insert(instance_key) {
+            continue
+        }
+
+        let group = collective_groups.entry(group_key).or_default();
+        group.devices.push(device_dict[&node.device]);
+        group.bandwidth = 2810; // TODO: profile it
+    }
+
+    collective_groups
 }

@@ -129,7 +129,7 @@ toc = time.perf_counter()
 
 from profiler import Profiler
 prof_dict = {}
-for nrep in (1, 2, 3, 4, 6, 8, 12):
+for nrep in (1, 2,):# 3, 4, 6, 8, 12):
     tf.reset_default_graph()
     opt = model_fn(BATCHSIZE // nrep)
     init = tf.global_variables_initializer()
