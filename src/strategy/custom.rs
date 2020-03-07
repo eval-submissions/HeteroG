@@ -9,13 +9,10 @@ type Group = Rc<RefCell<Vec<usize>>>;
 
 #[derive(Default, Clone)]
 pub struct NEX {
-    group: Option<Group>,
-    is_descendant_of_input: bool
 }
 
 #[derive(Default, Clone)]
 pub struct TEX {
-    has_batch_dimension: bool
 }
 
 type Graph = crate::graph::Graph<NEX, TEX>;
@@ -30,75 +27,8 @@ impl Strategy for Custom {
     type NEX = NEX;
     type TEX = TEX;
 
-    /// 1. mark tensors that has batchsize dimension with hand-crafted whitelist rules
-    /// 2. group the nodes so that a.) all nodes inside a group is splittable and b.) all cross-group tensors are splittable
-    /// 3. if all nodes in a group are replicated, use split, otherwise all replications are cache.
-    #[allow(clippy::cognitive_complexity)]
     fn plan(&mut self, graph: &mut Graph, target: &mut Target) {
         let allow_split_input = graph.options.contains_key("replace_placeholder");
-
-        // mark batch splittability
-        for node in graph.nodes.iter_mut() {
-            node.extra.is_descendant_of_input = node.inputs.iter().any(|x| {
-                let input = &node.graph().nodes[x.0];
-                input.extra.is_descendant_of_input || is_input(input)
-            });
-
-            match &node.raw_node.op[..] {
-                "Placeholder" | "IteratorGetNext" | "Conv2D" | "MaxPool" | "MatMul" | "Conv2DBackpropInput" | "BiasAdd" => node.get_output(0).extra.has_batch_dimension = true,
-                "Cast" | "ZerosLike" |"GreaterEqual" | "Neg" | "Log1p" | "Exp" |
-                "Squeeze" | "Identity" | "Sigmoid" | "LeakyRelu" | "Relu" | "Tanh" => follow(node, 0, 0),
-                "Add" | "Sub" | "Mul" => any_of(node, &[0, 1], 0),
-                _ => {}
-                // todo: Select?
-                // todo: matmul has an attr that transpose the input on the fly
-                // todo: shape -> fill or shape -> broadcast also gives a splittable tensor
-            }
-        }
-
-        for node in graph.nodes.iter_mut() {
-            if node.raw_node.op == "ApplyGradientDescent" {
-                let (id, index, _) = &node.inputs[2];
-                let input = &mut node.graph().nodes[*id].get_output(*index);
-                input.extra.has_batch_dimension = false;
-            }
-        }
-
-        // grouping
-        for (node_id, node) in graph.nodes.iter_mut().enumerate() {
-            if !(allow_split_input && is_input(node) || node.extra.is_descendant_of_input) { // if it is not a descendant of input, then it does not belong to any group
-                continue
-            }
-
-            if node.raw_node.op == "ApplyGradientDescent" { // never in a group
-                continue
-            }
-
-            for (input_id, index, _) in node.inputs.iter() {
-                let input = &mut node.graph().nodes[*input_id];
-                if input.extra.group.is_some() && !input.get_output(*index).extra.has_batch_dimension { // should be attached into the same group
-                    let input_group = input.extra.group.as_ref().cloned().unwrap();
-                    match &node.extra.group {
-                        None => { // this node is not yet assigned into a group, so we just add it into the group of the input
-                            node.extra.group = Some(input_group.clone());
-                            input_group.borrow_mut().push(node_id);
-                        }
-                        // this node already belongs to a group that is different from the one of the input. We merge the input group into the current group
-                        Some(group) if &**group as *const _ != &*input_group as *const _ => {
-                            for i in input_group.borrow().iter() {
-                                node.graph().nodes[*i].extra.group = Some(group.clone());
-                                group.borrow_mut().push(*i);
-                            }
-                        }
-                        Some(_) => {} // this node already has the same group with the input. Nothing to do here.
-                    }
-                }
-            }
-
-            if node.extra.group.is_none() { // no constraint, assign a new group
-                node.extra.group = Some(Rc::new(RefCell::new(vec![node_id])));
-            }
-        }
 
         // do replications as the user requested
         for node in graph.nodes.iter_mut() {
@@ -122,23 +52,23 @@ impl Strategy for Custom {
         // only split if the whole group is replicated the same times. Otherwise go cache (default).
         let mut visited_groups = std::collections::BTreeSet::new();
         for node in graph.nodes.iter_mut() {
-            if node.extra.group.is_some() && !visited_groups.contains(&node.extra.group.as_ref().map(|x| &*x.borrow() as *const _).unwrap()) {
-                visited_groups.insert(node.extra.group.as_ref().map(|x| &*x.borrow() as *const _).unwrap());
+            if node.group.is_some() && !visited_groups.contains(&node.group.as_ref().map(|x| &*x.borrow() as *const _).unwrap()) {
+                visited_groups.insert(node.group.as_ref().map(|x| &*x.borrow() as *const _).unwrap());
                 if graph.options.get("log_groups").map(|x| x == "True").unwrap_or(false) {
-                     info!("group {}: {:?}", visited_groups.len(), node.extra.group.as_ref().unwrap().borrow().iter().map(|x| node.graph().nodes[*x].raw_node.name.clone()).collect::<Vec<_>>());
+                     info!("group {}: {:?}", visited_groups.len(), node.group.as_ref().unwrap().borrow().iter().map(|x| node.graph().nodes[*x].raw_node.name.clone()).collect::<Vec<_>>());
                 }
-                let group = &node.extra.group.as_ref().unwrap().borrow();
+                let group = &node.group.as_ref().unwrap().borrow();
                 let n = node.form.ndev();
                 if n > 1 && group.iter().copied().all(|x| node.graph().nodes[x].form.ndev() == n) {
                     for member in group.iter() {
                         let member = &mut node.graph().nodes[*member];
-                        if member.inputs.is_empty() && is_input(member) { // work around. Need to sort this out later.
+                        if member.inputs.is_empty() && member.is_input() { // work around. Need to sort this out later.
                             member.form.kind = FormKind::Part;
                             continue
                         }
                         for (id, index, kind) in member.inputs.iter_mut() {
                             let input = node.graph().nodes[*id].get_output(*index);
-                            if (input.node().extra.is_descendant_of_input || is_input(input.node())) && (group.contains(id) || input.extra.has_batch_dimension) {
+                            if input.has_flag(Tensor::IS_FROM_INPUT) && (group.contains(id) || input.has_flag(Tensor::IS_BATCHED)) {
                                 *kind = FormKind::Part;
                                 member.form.kind = FormKind::Part;
                             }
@@ -151,7 +81,7 @@ impl Strategy for Custom {
         for node in graph.nodes.iter_mut() {
             if node.raw_node.op == "ApplyGradientDescent" {
                 let (id, index, _) = &node.inputs[2];
-                assert!(node.extra.group.is_none() || node.extra.group.as_ref().unwrap().borrow().len() == 1); // it either doesn't in a group, or it is its only member
+                assert!(node.group.is_none() || node.group.as_ref().unwrap().borrow().len() == 1); // it either doesn't in a group, or it is its only member
                 if node.replicated().unwrap() {
                     let s = self.strategy_map.get(&node.raw_node.name).cloned();
                     let grad = &mut node.graph().nodes[*id].get_output(*index);
@@ -178,33 +108,5 @@ impl Strategy for Custom {
                 }
             }
         }
-
-        // TODO: this logic should be in graph.rs
-        for node in graph.nodes.iter_mut() {
-            for (id, index, form) in &node.inputs {
-                let tensor = node.graph().nodes[*id].get_output(*index);
-                if (tensor.node().extra.is_descendant_of_input || is_input(tensor.node())) && tensor.extra.has_batch_dimension {
-                    tensor.set_flag(Tensor::BATCHED)
-                } else {
-                    tensor.unset_flag(Tensor::BATCHED)
-                }
-            }
-        }
     }
-}
-
-fn follow(node: &mut Node, input_index: usize, output_index: usize) {
-    let (id, index, _) = node.inputs[input_index];
-    node.get_output(output_index).extra.has_batch_dimension = node.graph().nodes[id].get_output(index).extra.has_batch_dimension
-}
-
-fn any_of(node: &mut Node, input_indexes: &[usize], output_index: usize) {
-    node.get_output(output_index).extra.has_batch_dimension = input_indexes.iter().any(|input_index| {
-        let (id, index, _) = node.inputs[*input_index];
-        node.graph().nodes[id].get_output(index).extra.has_batch_dimension
-    })
-}
-
-fn is_input(node: &Node) -> bool {
-    node.raw_node.op == "Placeholder" || node.raw_node.op == "IteratorGetNext"
 }

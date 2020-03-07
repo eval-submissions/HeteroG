@@ -1,12 +1,14 @@
 use oh_my_rust::*;
 use protobuf::Message;
 use crate::proto::{graph::GraphDef, node_def::NodeDef, attr_value::AttrValue, types::DataType};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 use std::convert::TryInto;
 use crate::strategy::Strategy;
 use crate::proto::attr_value::AttrValue_ListValue;
 use std::hint::unreachable_unchecked;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 #[derive(Default)]
 pub struct CollectiveState {
@@ -65,6 +67,8 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
             g.nodes.push(node);
         }
 
+        g.analyze();
+
         g
     }
 
@@ -73,6 +77,97 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
         task!("compiling graph of {} nodes...", self.nodes.len());
         for node in self.nodes.iter_mut() {
             node.compile(target)
+        }
+    }
+
+    /// set flags and assign groups for nodes
+    /// 1. mark tensors that has batchsize dimension with hand-crafted whitelist rules
+    /// 2. group the nodes so that a.) all nodes inside a group is splittable and b.) all cross-group tensors are splittable
+    /// 3. if all nodes in a group are replicated, use split, otherwise all replications are cache.
+    pub fn analyze(&mut self) {
+        let allow_split_input = self.options.contains_key("replace_placeholder");
+
+        // mark descendants of input
+        let mut descendants_of_input: BTreeSet<usize> = BTreeSet::new();
+        for (id, node) in self.nodes.iter_mut().enumerate() {
+            for (input_id, index, _) in node.inputs.iter() {
+                let input = &node.graph().nodes[*input_id];
+                if descendants_of_input.contains(input_id) || input.is_input() {
+                    input.get_output(*index).set_flag(Tensor::<NEX,TEX>::IS_FROM_INPUT);
+                    descendants_of_input.insert(id);
+                }
+            }
+        }
+
+        // mark batch splittability
+        for node in self.nodes.iter_mut() {
+            match &node.raw_node.op[..] {
+                "Placeholder" | "IteratorGetNext" | "Conv2D" | "MaxPool" | "MatMul" | "Conv2DBackpropInput" | "BiasAdd" => {
+                    node.get_output(0).set_flag(Tensor::<NEX,TEX>::IS_BATCHED);
+                },
+                "Cast" | "ZerosLike" |"GreaterEqual" | "Neg" | "Log1p" | "Exp" |
+                "Squeeze" | "Identity" | "Sigmoid" | "LeakyRelu" | "Relu" | "Tanh" => {
+                    let (id, index, _) = &node.inputs[0];
+                    if node.graph().nodes[*id].get_output(*index).has_flag(Tensor::<NEX,TEX>::IS_BATCHED) {
+                        node.get_output(0).set_flag(Tensor::<NEX,TEX>::IS_BATCHED);
+                    }
+                },
+                "Add" | "Sub" | "Mul" => for input_index in 0..=1 {
+                    let (id, index, _) = &node.inputs[input_index];
+                    if node.graph().nodes[*id].get_output(*index).has_flag(Tensor::<NEX,TEX>::IS_BATCHED) {
+                        node.get_output(0).set_flag(Tensor::<NEX,TEX>::IS_BATCHED);
+                        break
+                    }
+                },
+                _ => {}
+                // todo: Select?
+                // todo: matmul has an attr that transpose the input on the fly
+                // todo: shape -> fill or shape -> broadcast also gives a splittable tensor
+            }
+        }
+
+        // hack: ensure gradients don't have batch dimension
+        for node in self.nodes.iter_mut() {
+            if node.raw_node.op == "ApplyGradientDescent" {
+                let (id, index, _) = &node.inputs[2];
+                node.graph().nodes[*id].get_output(*index).unset_flag(Tensor::<NEX,TEX>::IS_BATCHED)
+            }
+        }
+
+        // grouping
+        for (node_id, node) in self.nodes.iter_mut().enumerate() {
+            if !(allow_split_input && node.is_input() || descendants_of_input.contains(&node_id)) { // if it is not a descendant of input, then it does not belong to any group
+                continue
+            }
+
+            if node.raw_node.op == "ApplyGradientDescent" { // never in a group
+                continue
+            }
+
+            for (input_id, index, _) in node.inputs.iter() {
+                let input = &mut node.graph().nodes[*input_id];
+                if input.group.is_some() && !input.get_output(*index).has_flag(Tensor::<NEX,TEX>::IS_BATCHED) { // should be attached into the same group
+                    let input_group = input.group.as_ref().cloned().unwrap();
+                    match &node.group {
+                        None => { // this node is not yet assigned into a group, so we just add it into the group of the input
+                            node.group = Some(input_group.clone());
+                            input_group.borrow_mut().push(node_id);
+                        }
+                        // this node already belongs to a group that is different from the one of the input. We merge the input group into the current group
+                        Some(group) if &**group as *const _ != &*input_group as *const _ => {
+                            for i in input_group.borrow().iter() {
+                                node.graph().nodes[*i].group = Some(group.clone());
+                                group.borrow_mut().push(*i);
+                            }
+                        }
+                        Some(_) => {} // this node already has the same group with the input. Nothing to do here.
+                    }
+                }
+            }
+
+            if node.group.is_none() { // no constraint, assign a new group
+                node.group = Some(Rc::new(RefCell::new(vec![node_id])));
+            }
         }
     }
 }
@@ -124,6 +219,8 @@ impl Form {
     }
 }
 
+type Group = Rc<RefCell<Vec<usize>>>;
+
 pub struct Node<NEX: Default, TEX: Default> {
     pub graph: *const Graph<NEX, TEX>,
     pub raw_node: NodeDef,
@@ -131,6 +228,7 @@ pub struct Node<NEX: Default, TEX: Default> {
     pub inputs: Vec<(usize, usize, FormKind)>, // nodeid, index, formkind (defaults to full)
     pub outputs: Vec<Tensor<NEX, TEX>>,
     pub form: Form, // the form of the node, which is also a tensor form for all its outputs
+    pub group: Option<Group>,
 
     pub extra: NEX
 }
@@ -153,7 +251,7 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
         Self {
             graph, raw_node, controls, inputs, outputs: vec![],
             form: Form { kind: FormKind::Full, devices: vec![] },
-            extra: Default::default()
+            group: None, extra: Default::default()
         }
     }
 
@@ -260,6 +358,14 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
         format!("{}/replica_{}", self.raw_node.name, index)
     }
 
+    pub fn is_input(&self) -> bool {
+        self.raw_node.op == "Placeholder" || self.raw_node.op == "IteratorGetNext"
+    }
+
+    pub fn is_sink(&self) -> bool {
+        self.graph().sinks.contains(&self.raw_node.op)
+    }
+
     /**************************************
     * following are graph editing methods *
     **************************************/
@@ -282,19 +388,19 @@ pub struct Tensor<NEX: Default, TEX: Default> {
     pub node: *const Node<NEX, TEX>,
     pub index: usize,
     pub forms: BTreeMap<Form, Box<[String]>>,
-    pub flags: u8, // flags indicate the types and roles of a tensor, and will affect how it is treated when changing forms
+    pub flags: u8, // flags indicate the types and roles of a tensor. It affects how the tensor is treated when changing forms
 
     pub extra: TEX,
 }
 
 impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
-    pub const SHAPE: u8 = 0x01; // this tensor is a 1d vector represents a tensor shape. If this tensor is BATCHED, the first element will be the batchsize
-    pub const BATCHED: u8 = 0x02; // this is tensor has batch size dimension
-    pub const FIXED: u8 = 0x80; // this tensor's form is provided by strategy
-    pub const DEFAULT: u8 = Self::BATCHED;
+    pub const IS_FROM_INPUT: u8 = 0x01; // this tensor is a descendant of an input node.
+    pub const IS_BATCHED: u8 = 0x02; // this tensor's first dimension is batch size.
+    pub const IS_SHAPE: u8 = 0x04; // currently not used
+    pub const IS_FIXED: u8 = 0x80; // this tensor's form is provided by strategy and should not be altered
 
     pub fn new(node: &Node<NEX, TEX>, index: usize) -> Self {
-        Tensor { node, index, forms: BTreeMap::new(), flags: Self::DEFAULT, extra: TEX::default() }
+        Tensor { node, index, forms: BTreeMap::new(), flags: 0, extra: TEX::default() }
     }
 
     pub fn original_name(&self) -> String {
@@ -335,7 +441,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
     // get the names as the specified form
     pub fn as_form(&mut self, form: &Form, target: &mut Target) -> &[String] {
         if !self.forms.contains_key(form) {
-            if self.has_flag(Self::FIXED) {
+            if self.has_flag(Self::IS_FIXED) {
                 panic!("BUG: no form {:?} provided for {}", form, self.original_name())
             }
 
@@ -346,33 +452,33 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
                 match (form.kind, node_kind) {
                     (FormKind::Full, FormKind::Full) => self.replicate_broadcast(&self.node().form, form, target),
                     (FormKind::Part, FormKind::Full) => {
-                        if self.has_flag(Self::SHAPE) {
+                        if self.has_flag(Self::IS_SHAPE) {
                             unimplemented!()
                         }
 
-//                        if self.has_flag(Self::BATCHED) {
+//                        if self.has_flag(Self::IS_BATCHED) {
                             self.replicate_split(&self.node().form, form, target)
 //                        } else {
 //                            panic!("cannot split a unbatched tensor")
 //                        }
                     },
                     (FormKind::Full, FormKind::Part) => {
-                        if self.has_flag(Self::SHAPE) {
+                        if self.has_flag(Self::IS_SHAPE) {
                             unimplemented!()
                         }
 
-                        if self.has_flag(Self::BATCHED) {
+                        if self.has_flag(Self::IS_BATCHED) {
                             self.aggregate_cat(&self.node().form, form, target)
                         } else { // if it is not batched but is split, the only possibility is it is inherited from a split parent, so it must be a gradient
                             self.aggregate_sum(&self.node().form, form, target)
                         }
                     },
                     (FormKind::Part, FormKind::Part) => {
-                        if self.has_flag(Self::SHAPE) {
+                        if self.has_flag(Self::IS_SHAPE) {
                             unimplemented!()
                         }
 
-                        if self.has_flag(Self::BATCHED) {
+                        if self.has_flag(Self::IS_BATCHED) {
                             self.resplit(&self.node().form, form, target)
                         } else {
                             // unimplemented!("cannot resplit a unbatched tensor")
