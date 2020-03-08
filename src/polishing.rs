@@ -18,7 +18,9 @@ pub fn remove_shape_hint(target: &mut Target) {
     }
 }
 
-pub fn remove_dangling_nodes(end_points: &[&str], target: &mut Target) {
+pub fn remove_dangling_nodes(target: &mut Target) {
+    let sinks: Vec<_> = target.sinks.iter().map(|x| format!("{}/replica_0", x)).collect();
+
     // note: don't forget control dependency
     let dict: std::collections::BTreeMap<_, Vec<_>> = target.pb.node.iter().map(|node| {
         (&node.name[..], node.input.iter().map(|x| {
@@ -32,7 +34,7 @@ pub fn remove_dangling_nodes(end_points: &[&str], target: &mut Target) {
         }).collect())
     }).collect();
     let mut keep = std::collections::BTreeSet::new();
-    let mut queue: std::collections::VecDeque<_> = end_points.iter().copied().collect();
+    let mut queue: std::collections::VecDeque<_> = sinks.iter().map(|x| &x[..]).collect();
 
     while let Some(x) = queue.pop_front() {
         if keep.insert(x) {

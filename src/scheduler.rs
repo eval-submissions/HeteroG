@@ -295,7 +295,7 @@ fn parse_input(x: &str) -> (&str, usize) {
 }
 
 fn sort_nodes(x: &[NodeDef]) -> Vec<NodeDef> {
-    let mut queue: std::collections::VecDeque::<_> = x.iter().cloned().collect();
+    let mut queue: std::collections::VecDeque<_> = x.iter().cloned().collect();
     let mut visited = BTreeSet::new();
     let mut result = vec![];
     'outer: while let Some(node) = queue.pop_front() {

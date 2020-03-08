@@ -2,37 +2,21 @@ use oh_my_rust::*;
 use std::convert::TryInto;
 use std::rc::Rc;
 use std::cell::RefCell;
-use crate::strategy::Strategy;
 use crate::graph::*;
 
 type Group = Rc<RefCell<Vec<usize>>>;
 
-#[derive(Default, Clone)]
-pub struct NEX {
+pub struct Editor {
+    pub strategy: std::collections::BTreeMap<String, (Vec<usize>, bool)> // devices (the same definition of form), is Ring reduce
 }
 
-#[derive(Default, Clone)]
-pub struct TEX {
-}
-
-type Graph = crate::graph::Graph<NEX, TEX>;
-type Node = crate::graph::Node<NEX, TEX>;
-type Tensor = crate::graph::Tensor<NEX, TEX>;
-
-pub struct Custom {
-    pub strategy_map: std::collections::BTreeMap<String, (Vec<usize>, bool)> // devices (the same definition of form), is Ring reduce
-}
-
-impl Strategy for Custom {
-    type NEX = NEX;
-    type TEX = TEX;
-
-    fn plan(&mut self, graph: &mut Graph, target: &mut Target) {
+impl Editor {
+    pub fn plan(&mut self, graph: &mut Graph, target: &mut Target) {
         let allow_split_input = graph.options.contains_key("replace_placeholder");
 
         // do replications as the user requested
         for node in graph.nodes.iter_mut() {
-            let s = self.strategy_map.get(&node.raw_node.name).cloned();
+            let s = self.strategy.get(&node.raw_node.name).cloned();
 
             match &node.raw_node.op[..] {
                 // TODO: RandomUniform, NoOp
@@ -83,7 +67,7 @@ impl Strategy for Custom {
                 let (id, index, _) = &node.inputs[2];
                 assert!(node.group.is_none() || node.group.as_ref().unwrap().borrow().len() == 1); // it either doesn't in a group, or it is its only member
                 if node.replicated().unwrap() {
-                    let s = self.strategy_map.get(&node.raw_node.name).cloned();
+                    let s = self.strategy.get(&node.raw_node.name).cloned();
                     let grad = &mut node.graph().nodes[*id].get_output(*index);
                     if grad.node().form.is_part() { // is_part implies ndev > 1
                         let full = match s {

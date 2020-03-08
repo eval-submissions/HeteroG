@@ -4,7 +4,6 @@ use crate::proto::{graph::GraphDef, node_def::NodeDef, attr_value::AttrValue, ty
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 use std::convert::TryInto;
-use crate::strategy::Strategy;
 use crate::proto::attr_value::AttrValue_ListValue;
 use std::hint::unreachable_unchecked;
 use std::rc::Rc;
@@ -31,20 +30,19 @@ impl CollectiveState {
 }
 
 #[derive(Default)]
-pub struct Graph<NEX: Default, TEX: Default> {
-    pub nodes: Vec<Node<NEX, TEX>>, // This vector is partial ordered: inputs are guaranteed to appear ealier than descendents
-    pub sinks: Box<[String]>, // sink nodes
+pub struct Graph {
+    pub nodes: Vec<Node>, // This vector is partial ordered: inputs are guaranteed to appear ealier than descendents
     pub options: BTreeMap<String, String>,
     pub name_dict: BTreeMap<String, usize>,
 
     collective_state: CollectiveState
 }
 
-impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
-    pub fn new(nodes: &[NodeDef], sinks: Box<[String]>) -> Box<Self> {
+impl Graph {
+    pub fn new(nodes: &[NodeDef]) -> Box<Self> {
         task!("building graph of {} nodes...", nodes.len());
 
-        let mut g = Box::new(Graph { nodes: Vec::with_capacity(nodes.len()), sinks, ..Default::default() });
+        let mut g = Box::new(Graph { nodes: Vec::with_capacity(nodes.len()), ..Default::default() });
 
         // not always optimal, but good enough since the input is actually mostly ordered
         let mut queue: std::collections::VecDeque::<_> = nodes.iter().collect();
@@ -93,7 +91,7 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
             for (input_id, index, _) in node.inputs.iter() {
                 let input = &node.graph().nodes[*input_id];
                 if descendants_of_input.contains(input_id) || input.is_input() {
-                    input.get_output(*index).set_flag(Tensor::<NEX,TEX>::IS_FROM_INPUT);
+                    input.get_output(*index).set_flag(Tensor::IS_FROM_INPUT);
                     descendants_of_input.insert(id);
                 }
             }
@@ -103,19 +101,19 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
         for node in self.nodes.iter_mut() {
             match &node.raw_node.op[..] {
                 "Placeholder" | "IteratorGetNext" | "Conv2D" | "MaxPool" | "MatMul" | "Conv2DBackpropInput" | "BiasAdd" => {
-                    node.get_output(0).set_flag(Tensor::<NEX,TEX>::IS_BATCHED);
+                    node.get_output(0).set_flag(Tensor::IS_BATCHED);
                 },
                 "Cast" | "ZerosLike" |"GreaterEqual" | "Neg" | "Log1p" | "Exp" |
                 "Squeeze" | "Identity" | "Sigmoid" | "LeakyRelu" | "Relu" | "Tanh" => {
                     let (id, index, _) = &node.inputs[0];
-                    if node.graph().nodes[*id].get_output(*index).has_flag(Tensor::<NEX,TEX>::IS_BATCHED) {
-                        node.get_output(0).set_flag(Tensor::<NEX,TEX>::IS_BATCHED);
+                    if node.graph().nodes[*id].get_output(*index).has_flag(Tensor::IS_BATCHED) {
+                        node.get_output(0).set_flag(Tensor::IS_BATCHED);
                     }
                 },
                 "Add" | "Sub" | "Mul" => for input_index in 0..=1 {
                     let (id, index, _) = &node.inputs[input_index];
-                    if node.graph().nodes[*id].get_output(*index).has_flag(Tensor::<NEX,TEX>::IS_BATCHED) {
-                        node.get_output(0).set_flag(Tensor::<NEX,TEX>::IS_BATCHED);
+                    if node.graph().nodes[*id].get_output(*index).has_flag(Tensor::IS_BATCHED) {
+                        node.get_output(0).set_flag(Tensor::IS_BATCHED);
                         break
                     }
                 },
@@ -130,7 +128,7 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
         for node in self.nodes.iter_mut() {
             if node.raw_node.op == "ApplyGradientDescent" {
                 let (id, index, _) = &node.inputs[2];
-                node.graph().nodes[*id].get_output(*index).unset_flag(Tensor::<NEX,TEX>::IS_BATCHED)
+                node.graph().nodes[*id].get_output(*index).unset_flag(Tensor::IS_BATCHED)
             }
         }
 
@@ -146,7 +144,7 @@ impl<NEX: Default, TEX: Default> Graph<NEX, TEX> {
 
             for (input_id, index, _) in node.inputs.iter() {
                 let input = &mut node.graph().nodes[*input_id];
-                if input.group.is_some() && !input.get_output(*index).has_flag(Tensor::<NEX,TEX>::IS_BATCHED) { // should be attached into the same group
+                if input.group.is_some() && !input.get_output(*index).has_flag(Tensor::IS_BATCHED) { // should be attached into the same group
                     let input_group = input.group.as_ref().cloned().unwrap();
                     match &node.group {
                         None => { // this node is not yet assigned into a group, so we just add it into the group of the input
@@ -221,20 +219,18 @@ impl Form {
 
 type Group = Rc<RefCell<Vec<usize>>>;
 
-pub struct Node<NEX: Default, TEX: Default> {
-    pub graph: *const Graph<NEX, TEX>,
+pub struct Node {
+    pub graph: *const Graph,
     pub raw_node: NodeDef,
     pub controls: Vec<usize>, // TODO: more consideration for control dependencies that added aux nodes
     pub inputs: Vec<(usize, usize, FormKind)>, // nodeid, index, formkind (defaults to full)
-    pub outputs: Vec<Tensor<NEX, TEX>>,
+    pub outputs: Vec<Tensor>,
     pub form: Form, // the form of the node, which is also a tensor form for all its outputs
     pub group: Option<Group>,
-
-    pub extra: NEX
 }
 
-impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
-    pub fn new(graph: &Graph<NEX, TEX>, raw_node: NodeDef) -> Self {
+impl Node {
+    pub fn new(graph: &Graph, raw_node: NodeDef) -> Self {
         let mut inputs = vec![];
         let mut controls = vec![];
 
@@ -251,18 +247,18 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
         Self {
             graph, raw_node, controls, inputs, outputs: vec![],
             form: Form { kind: FormKind::Full, devices: vec![] },
-            group: None, extra: Default::default()
+            group: None
         }
     }
 
     #[allow(clippy::mut_from_ref)]
-    pub fn graph<'a>(&self) -> &'a mut Graph<NEX, TEX> {
-        unsafe { &mut *(self.graph as *mut Graph<NEX, TEX>) }
+    pub fn graph<'a>(&self) -> &'a mut Graph {
+        unsafe { &mut *(self.graph as *mut Graph) }
     }
 
     #[allow(clippy::mut_from_ref, clippy::cast_ref_to_mut)]
-    pub fn get_output(&self, index: usize) -> &mut Tensor<NEX, TEX> {
-        let mutable = unsafe { &mut *(self as *const Node<NEX, TEX> as *mut Node<NEX, TEX>) };
+    pub fn get_output(&self, index: usize) -> &mut Tensor {
+        let mutable = unsafe { &mut *(self as *const Node as *mut Node) };
 
         while mutable.outputs.len() <= index {
             mutable.outputs.push(Tensor::new(mutable, mutable.outputs.len()))
@@ -362,10 +358,6 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
         self.raw_node.op == "Placeholder" || self.raw_node.op == "IteratorGetNext"
     }
 
-    pub fn is_sink(&self) -> bool {
-        self.graph().sinks.contains(&self.raw_node.op)
-    }
-
     /**************************************
     * following are graph editing methods *
     **************************************/
@@ -384,23 +376,21 @@ impl<NEX: Default, TEX: Default> Node<NEX, TEX> {
     }
 }
 
-pub struct Tensor<NEX: Default, TEX: Default> {
-    pub node: *const Node<NEX, TEX>,
+pub struct Tensor {
+    pub node: *const Node,
     pub index: usize,
     pub forms: BTreeMap<Form, Box<[String]>>,
     pub flags: u8, // flags indicate the types and roles of a tensor. It affects how the tensor is treated when changing forms
-
-    pub extra: TEX,
 }
 
-impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
+impl Tensor {
     pub const IS_FROM_INPUT: u8 = 0x01; // this tensor is a descendant of an input node.
     pub const IS_BATCHED: u8 = 0x02; // this tensor's first dimension is batch size.
     pub const IS_SHAPE: u8 = 0x04; // currently not used
     pub const IS_FIXED: u8 = 0x80; // this tensor's form is provided by strategy and should not be altered
 
-    pub fn new(node: &Node<NEX, TEX>, index: usize) -> Self {
-        Tensor { node, index, forms: BTreeMap::new(), flags: 0, extra: TEX::default() }
+    pub fn new(node: &Node, index: usize) -> Self {
+        Tensor { node, index, forms: BTreeMap::new(), flags: 0 }
     }
 
     pub fn original_name(&self) -> String {
@@ -411,7 +401,7 @@ impl<NEX: Default, TEX: Default> Tensor<NEX, TEX> {
         }
     }
 
-    pub fn node<'a>(&self) -> &'a Node<NEX, TEX> {
+    pub fn node<'a>(&self) -> &'a Node {
         unsafe { &*self.node }
     }
 
@@ -936,12 +926,13 @@ pub struct Target {
     pub pb: GraphDef,
     pub devices: Box<[String]>,
     pub links: Box<[u64]>, // the bandwidth of each link
-    pub paths: Box<[Box<[usize]>]> // the i*n+j element is the links that i->j uses (currently only one path between each pair)
+    pub paths: Box<[Box<[usize]>]>, // the i*n+j element is the links that i->j uses (currently only one path between each pair)
+    pub sinks: Box<[String]>, // sink nodes
 }
 
 impl Target {
-    pub fn new(pb: GraphDef, devices: Box<[String]>, links: Box<[u64]>, paths: Box<[Box<[usize]>]>) -> Self {
-        Target { pb, devices, links, paths }
+    pub fn new(pb: GraphDef, devices: Box<[String]>, links: Box<[u64]>, paths: Box<[Box<[usize]>]>, sinks: Box<[String]>) -> Self {
+        Target { pb, devices, links, paths, sinks }
     }
 
     pub fn ndev(&self) -> usize {
