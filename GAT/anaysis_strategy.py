@@ -12,8 +12,12 @@ with open(prefix+"/best_time.log", "r") as f:
     best_reward = txt_dict["time"]
     best_strategy = txt_dict["strategy"]
     name_cost_dict = txt_dict["cost"]
+    group =txt_dict["group"]
 print("Time:",best_reward)
+print("Group",group)
 logfile.write("Time:{}\n".format(best_reward))
+str_group = str(group)
+logfile.write("Group:{}\n".format(str_group))
 
 sorted_tuple =list()
 for name, cost in name_cost_dict.items():
