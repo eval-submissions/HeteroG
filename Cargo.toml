@@ -13,5 +13,5 @@ lto = true
 panic = 'abort'
 
 [dependencies]
-protobuf = "=2.8.0"
+protobuf = "=2.10.2"
 oh-my-rust = { git = "https://github.com/ylxdzsw/oh-my-rust" }
