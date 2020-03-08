@@ -7,7 +7,7 @@ class BaseGAttN:
                 labels=labels, logits=logits), sample_wts)
         return tf.reduce_mean(xentropy, name='xentropy_mean')
 
-    def training(loss, lr, l2_coef):
+    def training(loss, lr, l2_coef,vars):
         # weight decay
         vars = tf.trainable_variables()
         lossL2 = tf.add_n([tf.nn.l2_loss(v) for v in vars if v.name not

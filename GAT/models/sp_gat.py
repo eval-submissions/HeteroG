@@ -15,8 +15,6 @@ class SpGAT(BaseGAttN):
                 out_sz=hid_units[0], activation=activation, nb_nodes=nb_nodes,
                 in_drop=ffd_drop, coef_drop=attn_drop, residual=False))
         h_1 = tf.concat(attns, axis=-1)
-        h_1 = tf.layers.dense(h_1, units=h_1.shape[-1], activation=tf.nn.relu)
-
         for i in range(1, len(hid_units)):
             h_old = h_1
             attns = []
@@ -26,13 +24,10 @@ class SpGAT(BaseGAttN):
                     out_sz=hid_units[i], activation=activation, nb_nodes=nb_nodes,
                     in_drop=ffd_drop, coef_drop=attn_drop, residual=residual))
             h_1 = tf.concat(attns, axis=-1)
-            h_1 = tf.layers.dense(h_1, units=h_1.shape[-1], activation=tf.nn.relu)
         out = []
         for i in range(n_heads[-1]):
             out.append(layers.sp_attn_head(h_1, adj_mat=bias_mat,
                 out_sz=nb_classes, activation=lambda x: x, nb_nodes=nb_nodes,
                 in_drop=ffd_drop, coef_drop=attn_drop, residual=False))
         logits = tf.add_n(out) / n_heads[-1]
-        logits = tf.layers.dense(logits, units=logits.shape[-1], activation=tf.nn.relu)
-
         return logits

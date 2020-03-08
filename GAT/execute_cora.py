@@ -354,7 +354,7 @@ class Environment(object):
                 tmp = json.load(f)
                 for key,value in tmp.items():
                     self.best_strategy[key] = value
-            best_graph_def =tge.TGE(copy.deepcopy(self.null_gdef), self.devices, self.sink).custom(self.best_strategy["strategy"]).compile().get_result()
+            best_graph_def =tge.TGE(copy.deepcopy(self.null_gdef), self.devices, self.sink).custom(self.best_strategy["strategy"]).replace_placeholder(batch_size).use_collective().compile().get_result()
             with open(self.folder_path+"/best_graph.pbtxt", "w") as f:
                 f.write(str(best_graph_def))
 
@@ -387,7 +387,8 @@ class Environment(object):
             intra = bandwidth[0]
             inter = bandwidth[1]
         _tge = tge.TGE(copy.deepcopy(self.gdef), self.devices,sink)
-        time_mem_tuple = _tge.custom(strategy).set_bandwidth(intra,inter).evaluate(self.name_cost_dict)
+
+        time_mem_tuple = _tge.custom(strategy).replace_placeholder(self.batch_size).use_collective().set_bandwidth(intra,inter).evaluate(self.name_cost_dict)
         time = time_mem_tuple[0]
         mem_list = time_mem_tuple[1]
         time = float(time)/(10**3)
@@ -412,12 +413,12 @@ class Environment(object):
                 self.best_strategy["cost"] = cost_dict
                 json.dump(self.best_strategy.copy(), f)
 
-            best_graph_def = tge.TGE(copy.deepcopy(self.null_gdef), self.devices, self.sink).custom(strategy).compile().get_result()
+            best_graph_def = tge.TGE(copy.deepcopy(self.null_gdef), self.devices, self.sink).custom(strategy).replace_placeholder(self.batch_size).use_collective().compile().get_result()
             with open(self.folder_path+"/best_graph.pbtxt", "w") as f:
                 f.write(str(best_graph_def))
 
         if record:
-            record_graph_def = tge.TGE(copy.deepcopy(self.null_gdef), self.devices, self.sink).custom(strategy).compile().get_result()
+            record_graph_def = tge.TGE(copy.deepcopy(self.null_gdef), self.devices, self.sink).custom(strategy).replace_placeholder(self.batch_size).use_collective().compile().get_result()
             with open(self.folder_path+"/"+record_name, "w") as f:
                 f.write(str(record_graph_def))
 
@@ -439,6 +440,14 @@ def sample_func1(output):
     return np.array(list(map(random_choice, output)))
 def random_func1(item):
     return  random_choice(item)
+
+def argmax_choice(item):
+    choice1 = np.argmax(item)
+    return choice1
+def argmax_func1(output):
+    return np.array(list(map(argmax_choice, output)))
+def argmax_random_func1(item):
+    return  argmax_choice(item)
 import threading
 
 
@@ -504,7 +513,7 @@ class feature_item(threading.Thread):
         self.mutex = threading.Lock()
         self.avg = float(np.mean(self.strategy_pool.rewards))
         self.oom = []
-        self.train_group = True
+        self.train_place = False
         self.counter=0
 
 
@@ -539,17 +548,24 @@ class feature_item(threading.Thread):
             bias_in=self.biases,
             nb_nodes=self.nb_nodes,
             mems=global_mems,
-            sample_group=np.array(self.best_group))
+            sample_group=np.array(self.best_group),
+            train_place = self.train_place)
 
 
     def parallel_process_output(self):
-        for i in range(sample_times):
-            device_choice = np.array(list(map(sample_func1, self.outputs[0:max_replica_num])))
+        for i in range(sample_times+1):
+            if i==sample_times:
+                device_choice = np.array(list(map(argmax_func1, self.outputs[0:max_replica_num])))
+            else:
+                device_choice = np.array(list(map(sample_func1, self.outputs[0:max_replica_num])))
             #device_choice = self.outputs[0:max_replica_num]
             device_choice = np.transpose(device_choice)
 
             device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
-            ps_or_reduce = np.array(list(map(random_func1, self.outputs[max_replica_num])))
+            if i==sample_times:
+                ps_or_reduce = np.array(list(map(argmax_random_func1, self.outputs[max_replica_num])))
+            else:
+                ps_or_reduce = np.array(list(map(random_func1, self.outputs[max_replica_num])))
             #ps_or_reduce = self.outputs[max_replica_num]
             #group =  np.array(list(map(random_func1,self.outputs[-1])))
             group =self.outputs[-1]
@@ -564,9 +580,9 @@ class feature_item(threading.Thread):
             self.device_choices.append(device_choice)
             self.group.append(group)
             self.replica_masks.append(replica_mask)
-        #print("Group:",self.group[0])
+        print("Group:",self.group[0])
     def post_parallel_process(self):
-        for i in range(sample_times):
+        for i in range(sample_times+1):
             self.cal_entropy = self.outputs[-2]
             if self.rewards[i] > self.best_reward:
                 self.best_reward = self.rewards[i]
@@ -577,39 +593,6 @@ class feature_item(threading.Thread):
             if not self.oom[i]:
                 self.strategy_pool.insert(self.rewards[i], self.device_choices[i], self.replica_masks[i], self.ps_or_reduces[i],self.group[i])
 
-    def process_output(self):
-        for i in range(sample_times):
-            replica_num = list()
-            device_choice = np.array(list(map(sample_func1, self.outputs[0:max_replica_num])))
-            #device_choice = self.outputs[0:max_replica_num]
-
-            device_choice = np.transpose(device_choice)
-
-            device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
-            ps_or_reduce = np.array(list(map(random_func1, self.outputs[max_replica_num])))
-            #ps_or_reduce = self.outputs[max_replica_num]
-
-            self.cal_entropy = self.outputs[-2]
-            #group =  np.array(list(map(random_func1,self.outputs[-1])))
-            group =self.outputs[-1]
-
-            _reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group)
-            if _reward > self.best_reward:
-                self.best_reward = _reward
-                self.best_replica_num = replica_num
-                self.best_device_choice = device_choice
-                self.best_ps_or_reduce = ps_or_reduce
-                self.best_group = group
-            if not out_of_memory:
-                self.strategy_pool.insert(_reward, device_choice, replica_mask, ps_or_reduce,group)
-                self.oom[i] = False
-
-            self.rewards[i] = _reward
-            self.ps_or_reduces[i] = ps_or_reduce
-            self.device_choices[i] = device_choice
-            self.replica_masks[i] = replica_mask
-            self.group[i] = group
-        print("Group:",self.group[0])
     def train(self,epoch):
         global global_mems
         tr_step = 0
@@ -632,12 +615,13 @@ class feature_item(threading.Thread):
             if len(set(self.rewards))==1:
                 sample_prob=0.7
 
-        print("[{}] Train_group = {}".format(self.folder_path, self.train_group))
+        print("[{}] train_place = {}".format(self.folder_path, self.train_place))
         print("[{}] Rewards = {}".format(self.folder_path, self.rewards))
-        group_coef = 0.
-        place_coef = 1.
-        index = self.rewards.index(max(self.rewards))
 
+
+        index = self.rewards.index(max(self.rewards))
+        if not self.train_place:
+            index =sample_times
         new_loss,new_global_mems=self.place_gnn.learn(ftr_in=self.features,
                         bias_in=self.biases,
                         nb_nodes=self.nb_nodes,
@@ -648,31 +632,19 @@ class feature_item(threading.Thread):
                         time_ratio = ((self.rewards[index])-self.avg)/np.abs(self.avg),
                         coef_entropy=co_entropy,
                         mems = global_mems,
-                        group_coef=group_coef,
-                        place_coef=place_coef)
+                        train_place=self.train_place)
         global_mems = new_global_mems
-        group_coef = 1.
-        place_coef = 0.
-        new_loss, new_global_mems = self.place_gnn.learn(ftr_in=self.features,
-                                                         bias_in=self.biases,
-                                                         nb_nodes=self.nb_nodes,
-                                                         replica_num_array=np.array(self.replica_masks[index]),
-                                                         sample_ps_or_reduce=np.array(self.ps_or_reduces[index]),
-                                                         sample_device_choice=np.array(self.device_choices[index]),
-                                                         sample_group=np.array(self.group[index]),
-                                                         time_ratio=((self.rewards[index]) - self.avg) / np.abs(self.avg),
-                                                         coef_entropy=co_entropy,
-                                                         mems=global_mems,
-                                                         group_coef=group_coef,
-                                                         place_coef=place_coef)
-        global_mems = new_global_mems
+        self.counter+=1
+        if self.counter==10:
+            self.train_place = not self.train_place
+            self.counter=0
         '''
         for i in range(sample_times):
             if self.oom[i] == False:
                 self.avg = (self.avg+self.rewards[i])/2
         '''
 
-        times = max(self.rewards)*max(self.rewards)
+        times = max(self.rewards[0:sample_times])*max(self.rewards[0:sample_times])
 
         if epoch % show_interval == 0:
             print("[{}] step = {}".format(self.folder_path,epoch))
@@ -710,8 +682,7 @@ class feature_item(threading.Thread):
                                 time_ratio = ((self.rewards[i])-self.avg)/np.abs(self.avg),
                                 coef_entropy=co_entropy,
                                 mems = global_mems,
-                                group_coef=group_coef,
-                                place_coef=place_coef)
+                                train_place=train_place)
                 global_mems = new_global_mems
                 
         '''
@@ -744,27 +715,36 @@ class new_place_GNN():
             self.replica_num_array = tf.placeholder(dtype=tf.float32, shape=(None,max_replica_num),name="replica_num_array")
             self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
-            self.place_coef = tf.placeholder(dtype=tf.float32, shape=(),name="place_coef")
-            self.group_coef = tf.placeholder(dtype=tf.float32, shape=(),name="group_coef")
+            self.train_place = tf.placeholder(dtype=tf.bool, shape=(),name="train_place")
             self.mems = [tf.placeholder(tf.float32,[128, bsz, d_model]) for _ in range(n_layer)]
-        with tf.device("/device:GPU:1"):
-            logits = model.inference(self.ftr_in, 1024, self.nb_node, self.is_train,
-                                     self.attn_drop, self.ffd_drop,
-                                     bias_mat=self.bias_in,
-                                     hid_units=hid_units, n_heads=n_heads,
-                                     residual=residual, activation=nonlinearity)
+        with tf.variable_scope("place_nn"):
+            with tf.device("/device:GPU:1"):
+                logits = model.inference(self.ftr_in, 1024, self.nb_node, self.is_train,
+                                         self.attn_drop, self.ffd_drop,
+                                         bias_mat=self.bias_in,
+                                         hid_units=hid_units, n_heads=n_heads,
+                                         residual=residual, activation=nonlinearity)
 
 
-        with tf.device("/device:GPU:0"):
-            logits = model.inference(logits, d_model+group_num, self.nb_node, self.is_train,
-                                     self.attn_drop, self.ffd_drop,
-                                     bias_mat=self.bias_in,
-                                     hid_units=place_hid_units, n_heads=place_n_heads,
-                                     residual=residual, activation=nonlinearity)
-            global_logits =tf.reshape(logits, [-1,d_model+group_num])
-            logits = global_logits[:,0:d_model]
-            group = global_logits[:,d_model:]
-            group=tf.layers.dense(group, group_num)
+            with tf.device("/device:GPU:0"):
+
+                logits = model.inference(logits, d_model, self.nb_node, self.is_train,
+                                         self.attn_drop, self.ffd_drop,
+                                         bias_mat=self.bias_in,
+                                         hid_units=place_hid_units, n_heads=place_n_heads,
+                                         residual=residual, activation=nonlinearity)
+                logits =tf.reshape(logits, [-1,d_model])
+        with tf.variable_scope("group_nn"):
+            with tf.device("/device:GPU:0"):
+                group = model.inference(self.ftr_in, group_num, self.nb_node, self.is_train,
+                                         0,0,
+                                         bias_mat=self.bias_in,
+                                         hid_units=hid_units, n_heads=n_heads,
+                                         residual=residual, activation=nonlinearity)
+            logits =tf.reshape(logits, [-1,d_model])
+            group =tf.reshape(group, [-1,group_num])
+
+            #group=tf.layers.dense(group, group_num)
             _,sample_group = tf.unique(self.sample_group)
 
 
@@ -772,7 +752,7 @@ class new_place_GNN():
             self.log_pro_group = tf.log(self.pro_group+10e-8)
             log_pro_group = tf.nn.log_softmax(group)
             #self.group = tf.argmax(self.pro_group,axis=1)
-            self.group = tf.random.categorical(log_pro_group,1)
+            self.group = tf.cond(self.train_place,lambda:tf.argmax(self.pro_group,axis=1),lambda:tf.random.categorical(log_pro_group,1))
             self.group = tf.reshape(self.group,[-1])
             _,real_group = tf.unique(self.group)
             group = tf.cond(self.is_train,lambda:sample_group,lambda:real_group)
@@ -780,6 +760,8 @@ class new_place_GNN():
             self.logits_before = logits
             logits=tf.unsorted_segment_max(logits, group,tf.reduce_max(group)+1)
             self.logits =logits
+            self.group_entropy = tf.reduce_sum(self.pro_group * log_pro_group, 1)
+            self.group_entropy = -tf.reduce_mean(self.group_entropy)
 
             self.device_choices = list()
             self.log_device_choices = list()
@@ -854,10 +836,16 @@ class new_place_GNN():
             log_prob = tf.boolean_mask(log_prob, self.replica_num_array[:, j])
             self.place_loss+=tf.reduce_sum(log_prob * self.time_ratio)
 
-        self.place_loss = 100*self.place_loss
-        reward = (self.place_coef*self.place_loss+self.group_coef*self.group_loss)/(sample_times) + self.coef_entropy * self.entropy
+        #self.place_loss = 100*self.place_loss
+        place_reward =  self.place_loss+self.coef_entropy * self.entropy
+        group_reward = (self.group_loss+0*self.group_entropy)
+        reward = place_reward+group_reward
         self.loss = -reward
-        self.train_op = model.training(self.loss, lr, l2_coef)
+        place_loss = -place_reward
+        group_loss = -group_reward
+        train_place = model.training(place_loss, lr, l2_coef,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='place_nn'))
+        train_group =model.training(group_loss, lr*10, 0,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='group_nn'))
+        self.train_op =tf.cond(self.train_place,lambda:train_place,lambda:train_group)
 
         '''
         for op in tf.get_default_graph().get_operations():
@@ -869,7 +857,7 @@ class new_place_GNN():
     def get_a_cell(self):
         return tf.nn.rnn_cell.BasicLSTMCell(num_units=64)
 
-    def learn(self,ftr_in,bias_in,nb_nodes,replica_num_array,sample_ps_or_reduce,sample_device_choice,sample_group,time_ratio,coef_entropy,mems,place_coef=0.,group_coef=0.):
+    def learn(self,ftr_in,bias_in,nb_nodes,replica_num_array,sample_ps_or_reduce,sample_device_choice,sample_group,time_ratio,coef_entropy,mems,train_place=True):
         feed_dict = {}
         feed_dict[self.ftr_in]=ftr_in
         feed_dict[self.bias_in]=bias_in
@@ -883,23 +871,23 @@ class new_place_GNN():
         feed_dict[self.sample_group] = sample_group
         feed_dict[self.time_ratio]=time_ratio
         feed_dict[self.coef_entropy]=coef_entropy
-        feed_dict[self.place_coef]=place_coef
-        feed_dict[self.group_coef]=group_coef
+        feed_dict[self.train_place]=train_place
 
         for item1,item2 in zip(self.mems,mems):
             feed_dict[item1]=item2
-        place_loss,group_loss,log_prob,log_pro_group,indices,loss,mems,_ = self.sess.run([self.place_loss,self.group_loss,self.log_prob,self.log_pro_group,self.indices,self.loss,self.new_mems,self.train_op],
+        group_entropy,place_loss,group_loss,log_prob,pro_group,indices,loss,mems,_ = self.sess.run([self.group_entropy,self.place_loss,self.group_loss,self.log_prob,self.pro_group,self.indices,self.loss,self.new_mems,self.train_op],
                      feed_dict=feed_dict)
-        #print("Log prob:",log_pro_group)
+        print("group prob:",pro_group)
         #print("gather Log prob:", log_prob)
         #print("Indices:",indices)
         print("Time ratio:",time_ratio)
         print("Group loss:",-group_loss)
+        print("Group entropy:", group_entropy)
         print("Place loss:",-place_loss)
 
 
         return loss,mems
-    def get_replica_num_prob_and_entropy(self,ftr_in,bias_in,nb_nodes,mems,sample_group):
+    def get_replica_num_prob_and_entropy(self,ftr_in,bias_in,nb_nodes,mems,sample_group,train_place):
         fetch_list =[item for item in self.device_choices]
         fetch_list.append(self.ps_or_reduce)
         fetch_list.append(self.logits_before)
@@ -918,6 +906,7 @@ class new_place_GNN():
         feed_dict[self.sample_group]=sample_group
         feed_dict[self.attn_drop]=0
         feed_dict[self.ffd_drop]=0
+        feed_dict[self.train_place] = train_place
         for item1,item2 in zip(self.mems,mems):
             feed_dict[item1]=item2
 
@@ -997,3 +986,4 @@ if __name__ == '__main__':
     signal.signal(signal.SIGTERM, handler)
 
     architecture_three()
+                                                                                                                                                                                      
