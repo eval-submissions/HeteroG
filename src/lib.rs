@@ -6,10 +6,9 @@
 
 use oh_my_rust::*;
 use protobuf::{Message, parse_from_bytes};
-use crate::scheduler::Scheduler;
+use scheduler::Scheduler;
 use std::collections::BTreeMap;
-use crate::graph::{Graph, Target};
-use crate::editor::Editor;
+use graph::{Graph, Target};
 
 pub mod proto;
 pub mod graph;
@@ -56,6 +55,24 @@ unsafe extern fn get_groups(graph: *mut Graph, names_raw: *const u8, names_len: 
 }
 
 #[no_mangle]
+unsafe extern fn edit_graph(graph: *mut Graph, target: *mut Target, strategy_raw: *const u8, strategy_len: u32) {
+    let strategy_str = std::str::from_utf8(std::slice::from_raw_parts(strategy_raw, strategy_len as usize)).unwrap();
+    let strategy = strategy_str.lines().map(|line| {
+        let line = line.split_ascii_whitespace().collect::<Vec<_>>();
+        let name = <&str>::clone(&line[0]);
+        let method = line[1].parse::<u8>().unwrap() != 0;
+        let places = line[2..].iter().map(|x| x.parse().unwrap()).collect(); // assume sorted
+        (name, (places, method))
+    }).collect();
+    editor::edit(&mut *graph, &mut *target, &strategy)
+}
+
+#[no_mangle]
+unsafe extern fn reset_graph(graph: *mut Graph) {
+    editor::reset(&mut *graph)
+}
+
+#[no_mangle]
 unsafe extern fn create_target(
     devices_raw: *const u8, devices_len: u32,
     links_raw: *const u8, links_len: u32,
@@ -95,31 +112,8 @@ unsafe extern fn read_protobuf(target: *mut Target, dest: *mut u8) {
 }
 
 #[no_mangle]
-unsafe extern fn create_editor(strategy_raw: *const u8, strategy_len: u32) -> *mut Editor {
-    let strategy_str = std::str::from_utf8(std::slice::from_raw_parts(strategy_raw, strategy_len as usize)).unwrap();
-    let strategy = strategy_str.lines().map(|line| {
-        let line = line.split_ascii_whitespace().collect::<Vec<_>>();
-        let name = line[0].to_string();
-        let method = line[1].parse::<u8>().unwrap() != 0;
-        let places = line[2..].iter().map(|x| x.parse().unwrap()).collect(); // assume sorted
-        (name, (places, method))
-    }).collect();
-    leak(editor::Editor { strategy })
-}
-
-#[no_mangle]
-unsafe extern fn destroy_editor(editor: *mut Editor) {
-    free(editor)
-}
-
-#[no_mangle]
-unsafe extern fn compile(graph: *mut Graph, editor: *mut Editor, target: *mut Target) {
-    let graph = &mut *graph;
-    let editor = &mut *editor;
-    let target = &mut *target;
-
-    editor.plan(graph, target);
-    graph.compile(target)
+unsafe extern fn compile(graph: *mut Graph, target: *mut Target) {
+    (*graph).compile(&mut *target)
 }
 
 #[no_mangle]

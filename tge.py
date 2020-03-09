@@ -17,6 +17,12 @@ libtge.set_option.restype = None
 libtge.get_groups.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]
 libtge.get_groups.restype = None
 
+libtge.edit_graph.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32]
+libtge.edit_graph.restype = None
+
+libtge.reset_graph.argtypes = [ctypes.c_void_p]
+libtge.reset_graph.restype = None
+
 libtge.create_target.argtypes = [ctypes.POINTER(ctypes.c_char), ctypes.c_uint32] * 4
 libtge.create_target.restype = ctypes.c_void_p
 
@@ -29,13 +35,7 @@ libtge.compute_size.restype = ctypes.c_uint32
 libtge.read_protobuf.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_char)]
 libtge.read_protobuf.restype = None
 
-libtge.create_editor.argtypes = [ctypes.POINTER(ctypes.c_char), ctypes.c_uint32]
-libtge.create_editor.restype = ctypes.c_void_p
-
-libtge.destroy_editor.argtypes = [ctypes.c_void_p]
-libtge.destroy_editor.restype = None
-
-libtge.compile.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+libtge.compile.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 libtge.compile.restype = None
 
 libtge.evaluate.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint64)]
@@ -65,7 +65,6 @@ class TGE:
         self.devices = device_list
         self.graph_def = graph_def
         self.graph_proto_type = type(graph_def)
-        self.options = {}
 
         graph_raw = graph_def.SerializeToString()
         self.graph = libtge.create_graph(graph_raw, len(graph_raw))
@@ -74,15 +73,13 @@ class TGE:
         self.links = [1000000]
         self.paths = [[] if i == j else [0] for i in range(len(device_list)) for j in range(len(device_list))]
 
-        self.editor = None
+        self.strategy = None
         self.target = None
         self.compiled = False # if the target is compiled. Being True also implies that self.target is not None.
+        self.edited = False # if the graph is edited. It must be reset before another editing.
 
     def __del__(self):
         libtge.destroy_graph(self.graph)
-
-        if self.editor is not None:
-            libtge.destroy_editor(self.editor)
 
         if self.target is not None:
             libtge.destroy_target(self.target)
@@ -104,10 +101,10 @@ class TGE:
 
     @chain
     def compile(self):
-        assert self.editor is not None
-        self._set_options()
+        assert self.strategy is not None
         self._create_target()
-        libtge.compile(self.graph, self.editor, self.target)
+        self._edit()
+        libtge.compile(self.graph, self.target)
         self.compiled = True
 
         # for backward compatibility
@@ -128,12 +125,6 @@ class TGE:
         result = libtge.evaluate(self.target, profile_raw, len(profile_raw), trace_path, len(trace_path), memory)
         return result, list(memory)
 
-    def _set_options(self):
-        for name, value in self.options.items():
-            name_raw = str(name).encode('ascii')
-            value_raw = str(value).encode('ascii')
-            libtge.set_option(self.graph, name_raw, len(name_raw), value_raw, len(value_raw))
-
     def _create_target(self):
         devices_raw = ' '.join(self.devices).encode('ascii')
         sinks_raw = ' '.join(self.sinks).encode('ascii')
@@ -149,6 +140,21 @@ class TGE:
             sinks_raw, len(sinks_raw)
         )
         self.compiled = False
+
+    def _edit(self):
+        strategy_raw = ''
+        for name, strategy in self.strategy.items():
+            strategy_raw += name + ' ' + str(strategy[0])
+            for i, j in enumerate(strategy[1:]):
+                while j > 0:
+                    strategy_raw += ' ' + str(i)
+                    j -= 1
+            strategy_raw += '\n'
+        strategy_raw = strategy_raw.encode('ascii')
+        if self.edited:
+            libtge.reset_graph(self.graph)
+        libtge.edit_graph(self.graph, self.target, strategy_raw, len(strategy_raw))
+        self.edited = True
 
     @chain
     def remove_collocation_hint(self):
@@ -195,22 +201,27 @@ class TGE:
                     paths.append([0])
         self.set_topology(links, paths)
 
+    def _set_option(self, name, value):
+        name_raw = str(name).encode('ascii')
+        value_raw = str(value).encode('ascii')
+        libtge.set_option(self.graph, name_raw, len(name_raw), value_raw, len(value_raw))
+
     @chain
     def replace_placeholder(self, batchsize):
-        self.options["replace_placeholder"] = batchsize
+        self._set_option("replace_placeholder", batchsize)
 
     @chain
     def verbose(self):
-        self.options["log_forms"] = True
-        self.options["log_groups"] = True
+        self._set_option("log_forms", True)
+        self._set_option("log_groups", True)
 
     @chain
     def use_nccl(self):
-        self.options["allreduce_implementation"] = 'nccl'
+        self._set_option("allreduce_implementation", 'nccl')
 
     @chain
     def use_collective(self):
-        self.options["allreduce_implementation"] = 'collective'
+        self._set_option("allreduce_implementation", 'collective')
 
     @chain
     def custom(self, decisions): # for backward compatibility
@@ -218,14 +229,4 @@ class TGE:
 
     @chain
     def set_strategy(self, strategy): # each value in decision is an array, where the first element is 0 or 1 indicating PS or all-reduce, followed by the devices
-        decision_raw = ''
-        for name, decision in strategy.items():
-            decision_raw += name + ' ' + str(decision[0])
-            for i, j in enumerate(decision[1:]):
-                while j > 0:
-                    decision_raw += ' ' + str(i)
-                    j -= 1
-            decision_raw += '\n'
-        if self.editor is not None:
-            libtge.destroy_editor(self.editor)
-        self.editor = libtge.create_editor(decision_raw.encode('ascii'), len(decision_raw.encode('ascii')))
+        self.strategy = strategy
