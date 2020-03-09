@@ -76,6 +76,7 @@ for nrep in (1, 2, 3, 4):
     p = Profiler(gdef, server.target)
     for node in gdef.node:
         prof_dict[(node.name, nrep)] = [ p.profile(node.name, device) for device in devices ]
+tf.reset_default_graph()
 opt = model_fn(BATCHSIZE)
 init = tf.global_variables_initializer()
 gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
