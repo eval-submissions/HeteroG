@@ -967,7 +967,7 @@ fn set_form(node: &mut NodeDef, form_code: &str) {
     node.attr.insert("_tge_form".to_string(), AttrValue::new().apply(|x| x.set_s(form_code.as_bytes().to_vec())));
 }
 
-// TODO: This function is not done. Need to parse ops.pbtxt and follow type or type_attr.
+// TODO: This function is currently a stub. Need to parse ops.pbtxt and follow type or type_attr.
 fn get_dtype(x: &NodeDef, i: usize) -> AttrValue {
     match &x.op[..] {
         "Greater" | "GreaterEqual" => AttrValue::new().apply(|x| x.set_field_type(DataType::DT_BOOL)),

@@ -76,7 +76,7 @@ class TGE:
 
         self.editor = None
         self.target = None
-        self.compiled = False # if the target is compiled
+        self.compiled = False # if the target is compiled. Being True also implies that self.target is not None.
 
     def __del__(self):
         libtge.destroy_graph(self.graph)
@@ -172,16 +172,16 @@ class TGE:
 
     @chain
     def set_topology(self, links, paths):
-        '''
+        """
         links: an array contains the bandwidth of each link. The unit is bytes/time where time is the same unit of profiling
         paths: an array where the i*n+j element is an array of link indexes that in the path of i->j.
-        '''
+        """
         self.links = links
         self.paths = paths
 
     @chain
     def set_bandwidth(self, intra, inter):
-        'conveient method for setting a topology that devices on the same task are independently connected, while devices on different tasks shares a unique link'
+        """convenient method for setting a topology that devices on the same task are independently connected, while devices on different tasks shares a unique link"""
         task_map = { device: re.findall(r"task:(\d+)/", device) for device in self.devices }
         links, paths = [inter], [] # the 0-th link is the shared inter link, others are intra links
         for i in range(len(self.devices)):

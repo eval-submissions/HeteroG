@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-class Profiler():
+class Profiler:
     def __init__(self, graph_def, target=None, sinks=["GradientDescent"]):
         self.graph_def = graph_def
         self.names = { node.name for node in graph_def.node }
