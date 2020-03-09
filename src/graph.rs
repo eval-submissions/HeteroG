@@ -8,6 +8,7 @@ use crate::proto::attr_value::AttrValue_ListValue;
 use std::hint::unreachable_unchecked;
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::hash::Hash;
 
 #[derive(Default)]
 pub struct CollectiveState {
@@ -31,7 +32,7 @@ impl CollectiveState {
 
 #[derive(Default)]
 pub struct Graph {
-    pub nodes: Vec<Node>, // This vector is partial ordered: inputs are guaranteed to appear ealier than descendents
+    pub nodes: Vec<Node>, // This vector is partial ordered: inputs are guaranteed to appear earlier than descendants
     pub options: BTreeMap<String, String>,
     pub name_dict: BTreeMap<String, usize>,
 
@@ -167,6 +168,12 @@ impl Graph {
                 node.group = Some(Rc::new(RefCell::new(vec![node_id])));
             }
         }
+    }
+
+    pub fn get_groups(&self) -> BTreeMap<&str, Option<impl Hash + Ord>> {
+        self.nodes.iter().map(|node| {
+            (&node.raw_node.name[..], node.group.as_ref().map(|x| x.as_ptr()))
+        }).collect()
     }
 }
 

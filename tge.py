@@ -14,6 +14,9 @@ libtge.destroy_graph.restype = None
 libtge.set_option.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32]
 libtge.set_option.restype = None
 
+libtge.get_groups.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]
+libtge.get_groups.restype = None
+
 libtge.create_target.argtypes = [ctypes.POINTER(ctypes.c_char), ctypes.c_uint32] * 4
 libtge.create_target.restype = ctypes.c_void_p
 
@@ -61,6 +64,7 @@ class TGE:
         self.sinks = sinks
         self.devices = device_list
         self.graph_def = graph_def
+        self.graph_proto_type = type(graph_def)
         self.options = {}
 
         graph_raw = graph_def.SerializeToString()
@@ -72,6 +76,7 @@ class TGE:
 
         self.editor = None
         self.target = None
+        self.compiled = False # if the target is compiled
 
     def __del__(self):
         libtge.destroy_graph(self.graph)
@@ -87,9 +92,15 @@ class TGE:
         size = libtge.compute_size(self.target)
         buf = ctypes.create_string_buffer(size)
         libtge.read_protobuf(self.target, buf)
-        self.graph_def.Clear() # I'm not sure if this line is needed
-        self.graph_def.ParseFromString(buf.raw)
-        return self.graph_def
+        result = self.graph_proto_type()
+        result.ParseFromString(buf.raw)
+        return result
+
+    def get_groups(self):
+        names_raw = ' '.join((node.name for node in self.graph_def.node)).encode('ascii')
+        result = (ctypes.c_uint32 * len(self.graph_def.node))(*(0 for x in self.graph_def.node))
+        libtge.get_groups(self.graph, names_raw, len(names_raw), result)
+        return list(result)
 
     @chain
     def compile(self):
@@ -97,13 +108,15 @@ class TGE:
         self._set_options()
         self._create_target()
         libtge.compile(self.graph, self.editor, self.target)
+        self.compiled = True
 
         # for backward compatibility
         self.remove_collocation_hint()
         self.remove_shape_hint()
 
     def evaluate(self, profile_dict, trace_path=""):
-        self.compile() # for backward compatibility
+        if not self.compiled: # for backward compatibility
+            self.compile()
         self.remove_dangling_nodes()
 
         profile_raw = ''
@@ -111,7 +124,7 @@ class TGE:
             profile_raw += ' '.join([name, str(nreplica), *map(str, times)]) + '\n'
         profile_raw = profile_raw.encode('ascii')
         trace_path = trace_path.encode('ascii')
-        memory = (ctypes.c_uint64 * len(self.devices))(*[0 for x in self.devices])
+        memory = (ctypes.c_uint64 * len(self.devices))(*(0 for x in self.devices))
         result = libtge.evaluate(self.target, profile_raw, len(profile_raw), trace_path, len(trace_path), memory)
         return result, list(memory)
 
@@ -135,25 +148,26 @@ class TGE:
             paths_raw, len(paths_raw),
             sinks_raw, len(sinks_raw)
         )
+        self.compiled = False
 
     @chain
     def remove_collocation_hint(self):
-        assert self.target is not None
+        assert self.compiled
         libtge.remove_collocation_hint(self.target)
 
     @chain
     def remove_shape_hint(self):
-        assert self.target is not None
+        assert self.compiled
         libtge.remove_shape_hint(self.target)
 
     @chain
     def destruct_names(self):
-        assert self.target is not None
+        assert self.compiled
         libtge.destruct_names(self.target)
 
     @chain
     def remove_dangling_nodes(self):
-        assert self.target is not None
+        assert self.compiled
         libtge.remove_dangling_nodes(self.target)
 
     @chain

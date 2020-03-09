@@ -4,8 +4,6 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use crate::graph::*;
 
-type Group = Rc<RefCell<Vec<usize>>>;
-
 pub struct Editor {
     pub strategy: std::collections::BTreeMap<String, (Vec<usize>, bool)> // devices (the same definition of form), is Ring reduce
 }
@@ -36,8 +34,8 @@ impl Editor {
         // only split if the whole group is replicated the same times. Otherwise go cache (default).
         let mut visited_groups = std::collections::BTreeSet::new();
         for node in graph.nodes.iter_mut() {
-            if node.group.is_some() && !visited_groups.contains(&node.group.as_ref().map(|x| &*x.borrow() as *const _).unwrap()) {
-                visited_groups.insert(node.group.as_ref().map(|x| &*x.borrow() as *const _).unwrap());
+            if node.group.is_some() && !visited_groups.contains(&node.group.as_ref().map(|x| x.as_ptr()).unwrap()) {
+                visited_groups.insert(node.group.as_ref().map(|x| x.as_ptr()).unwrap());
                 if graph.options.get("log_groups").map(|x| x == "True").unwrap_or(false) {
                      info!("group {}: {:?}", visited_groups.len(), node.group.as_ref().unwrap().borrow().iter().map(|x| node.graph().nodes[*x].raw_node.name.clone()).collect::<Vec<_>>());
                 }

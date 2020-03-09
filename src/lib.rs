@@ -38,6 +38,24 @@ unsafe extern fn set_option(graph: *mut Graph, name: *const u8, name_len: u32, v
 }
 
 #[no_mangle]
+unsafe extern fn get_groups(graph: *mut Graph, names_raw: *const u8, names_len: *const u8, result: *mut u32) {
+    let names = std::str::from_utf8(std::slice::from_raw_parts(names_raw, names_len as usize)).unwrap().split_ascii_whitespace();
+    let result = std::slice::from_raw_parts_mut(result, (*graph).nodes.len()); // the actual length could be shorter
+    let groups = (*graph).get_groups();
+    let mut group_id = BTreeMap::new();
+    let mut id = 0;
+
+    for (name, res) in names.zip(result) {
+        if let Some(g) = &groups[name] {
+            *res = *group_id.entry(g).or_insert_with(|| { id += 1; id - 1 })
+        } else {
+            *res = id;
+            id += 1
+        }
+    }
+}
+
+#[no_mangle]
 unsafe extern fn create_target(
     devices_raw: *const u8, devices_len: u32,
     links_raw: *const u8, links_len: u32,
