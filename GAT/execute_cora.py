@@ -154,7 +154,7 @@ class strategy_pool(object):
         device_choice = np.array([np.arange(max_replica_num)%(len(devices))],dtype=np.int32)
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(1, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record_best=False)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record_best=False,from_strategy_pool=True)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
@@ -169,7 +169,7 @@ class strategy_pool(object):
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(1, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record_best=False)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record_best=False,from_strategy_pool=True)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
@@ -185,7 +185,7 @@ class strategy_pool(object):
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.zeros(shape=(1, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="dp_graph.pbtxt",record_best=False)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="dp_graph.pbtxt",record_best=False,from_strategy_pool=True)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
@@ -198,7 +198,7 @@ class strategy_pool(object):
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(1, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="single_graph.pbtxt",record_best=False)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="single_graph.pbtxt",record_best=False,from_strategy_pool=True)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
@@ -211,7 +211,7 @@ class strategy_pool(object):
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(len(devices), ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record_best=False)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record_best=False,from_strategy_pool=True)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
@@ -224,7 +224,7 @@ class strategy_pool(object):
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(len(devices),), dtype=np.int32)
-        reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record_best=False)
+        reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record_best=False,from_strategy_pool=True)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
@@ -327,7 +327,7 @@ def reward_func(item):
             new_device_array[item[j]]+=1
     return new_device_array
 class Environment(object):
-    def __init__(self,gdef_path,devices,folder_path,batch_size,pool,sink):
+    def __init__(self,gdef_path,devices,folder_path,batch_size,pool,init_group,sink):
 
         self.gdef = graph_pb2.GraphDef()
         with open(gdef_path,"r")as f:
@@ -341,6 +341,7 @@ class Environment(object):
         self.pool = pool
         self.devices =devices
         self.sink =sink
+        self.init_group = init_group
         if "graph7" in folder_path:
             self.null_gdef =self.gdef
         else:
@@ -362,7 +363,7 @@ class Environment(object):
 
         self.name_cost_dict = self.get_name_cost_dict()
 
-    def get_reward2(self,device_choice,ps_or_reduce,index_id_dict,sink,group,record=False,record_name=None,record_best=True):
+    def get_reward2(self,device_choice,ps_or_reduce,index_id_dict,sink,group,record=False,record_name=None,record_best=True,from_strategy_pool=False):
         out_of_memory=False
         #new_device_array = np.zeros(shape=(device_choice.shape[0],len(devices)),dtype=np.int32)
 
@@ -378,7 +379,10 @@ class Environment(object):
         new_device_array = np.array(list(map(reward_func,device_choice)))
         ps_or_reduce = np.reshape(ps_or_reduce, (ps_or_reduce.shape[0], 1))
         new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
-        strategy = {index_id_dict[index]:new_device_array[min(group[index],len(new_device_array)-1)].tolist() for index in range(len(index_id_dict))}
+        if from_strategy_pool:
+            strategy = {index_id_dict[index]:new_device_array[min(group[index],len(new_device_array)-1)].tolist() for index in range(len(index_id_dict))}
+        else:
+            strategy = {index_id_dict[index]:new_device_array[min(group[self.init_group[index]],len(new_device_array)-1)].tolist() for index in range(len(index_id_dict))}
         bandwidth = config_dict.get("bandwidth",None)
         if bandwidth==None:
             intra = "5000"
@@ -500,7 +504,13 @@ class feature_item(threading.Thread):
         self.test_mask = test_mask[np.newaxis]
 
         self.pool = pool
-        self.env = Environment(folder_path+"/graph.pbtxt",devices,folder_path,self.batch_size,self.pool,sink)
+        self.gdef = graph_pb2.GraphDef()
+        with open(folder_path+"/graph.pbtxt","r")as f:
+            txt = f.read()
+        pbtf.Parse(txt,self.gdef)
+        self.init_group = tge.TGE(copy.deepcopy(self.gdef ), devices, sink).get_groups()
+        print(self.init_group)
+        self.env = Environment(folder_path+"/graph.pbtxt",devices,folder_path,self.batch_size,self.pool,self.init_group,sink)
         self.average_reward=0
         self.best_reward = 1-sys.maxsize
         self.best_replica_num = list()
@@ -549,7 +559,7 @@ class feature_item(threading.Thread):
             nb_nodes=self.nb_nodes,
             mems=global_mems,
             sample_group=np.array(self.best_group),
-            train_place = self.train_place)
+            init_group = self.init_group)
 
 
     def parallel_process_output(self):
@@ -630,7 +640,7 @@ class feature_item(threading.Thread):
                         time_ratio = ((self.rewards[index])-self.avg)/np.abs(self.avg),
                         coef_entropy=co_entropy,
                         mems = global_mems,
-                        train_place=self.train_place)
+                        init_group=self.init_group)
         global_mems = new_global_mems
         '''
         for i in range(sample_times):
@@ -676,7 +686,7 @@ class feature_item(threading.Thread):
                                 time_ratio = ((self.rewards[i])-self.avg)/np.abs(self.avg),
                                 coef_entropy=co_entropy,
                                 mems = global_mems,
-                                train_place=train_place)
+                                init_group=self.init_group)
                 global_mems = new_global_mems
                 
         '''
@@ -703,6 +713,7 @@ class new_place_GNN():
             self.attn_drop = tf.placeholder(dtype=tf.float32, shape=(),name="attn_drop")
             self.ffd_drop = tf.placeholder(dtype=tf.float32, shape=(),name="ffd_drop")
             self.is_train = tf.placeholder(dtype=tf.bool, shape=(),name="is_train")
+            self.init_group = tf.placeholder(dtype=tf.int32, shape=(None,),name="init_group")
             self.sample_ps_or_reduce = tf.placeholder(dtype=tf.int32, shape=(None,),name="sample_ps_or_reduce")
             self.sample_device_choice = tf.placeholder(dtype=tf.int32, shape=(None,max_replica_num,),name="sample_device_choice")
             self.sample_group = tf.placeholder(dtype=tf.int32, shape=(None,),name="sample_group")
@@ -737,7 +748,8 @@ class new_place_GNN():
                                          residual=residual, activation=nonlinearity)
             logits =tf.reshape(logits, [-1,d_model])
             group =tf.reshape(group, [-1,group_num])
-
+            logits = tf.unsorted_segment_max(logits, self.init_group,tf.reduce_max(self.init_group)+1)
+            group =tf.unsorted_segment_max(group, self.init_group,tf.reduce_max(self.init_group)+1)
             #group=tf.layers.dense(group, group_num)
             _,sample_group = tf.unique(self.sample_group)
 
@@ -854,7 +866,7 @@ class new_place_GNN():
     def get_a_cell(self):
         return tf.nn.rnn_cell.BasicLSTMCell(num_units=64)
 
-    def learn(self,ftr_in,bias_in,nb_nodes,replica_num_array,sample_ps_or_reduce,sample_device_choice,sample_group,time_ratio,coef_entropy,mems,train_place=True):
+    def learn(self,ftr_in,bias_in,nb_nodes,replica_num_array,sample_ps_or_reduce,sample_device_choice,sample_group,time_ratio,coef_entropy,mems,init_group):
         feed_dict = {}
         feed_dict[self.ftr_in]=ftr_in
         feed_dict[self.bias_in]=bias_in
@@ -868,7 +880,7 @@ class new_place_GNN():
         feed_dict[self.sample_group] = sample_group
         feed_dict[self.time_ratio]=time_ratio
         feed_dict[self.coef_entropy]=coef_entropy
-        feed_dict[self.train_place]=train_place
+        feed_dict[self.init_group]=init_group
 
         for item1,item2 in zip(self.mems,mems):
             feed_dict[item1]=item2
@@ -884,7 +896,7 @@ class new_place_GNN():
 
 
         return loss,mems
-    def get_replica_num_prob_and_entropy(self,ftr_in,bias_in,nb_nodes,mems,sample_group,train_place):
+    def get_replica_num_prob_and_entropy(self,ftr_in,bias_in,nb_nodes,mems,sample_group,init_group):
         fetch_list =[item for item in self.device_choices]
         fetch_list.append(self.ps_or_reduce)
         fetch_list.append(self.logits_before)
@@ -903,7 +915,7 @@ class new_place_GNN():
         feed_dict[self.sample_group]=sample_group
         feed_dict[self.attn_drop]=0
         feed_dict[self.ffd_drop]=0
-        feed_dict[self.train_place] = train_place
+        feed_dict[self.init_group] = init_group
         for item1,item2 in zip(self.mems,mems):
             feed_dict[item1]=item2
 
