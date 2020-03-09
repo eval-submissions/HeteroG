@@ -64,7 +64,6 @@ class TGE:
         self.sinks = sinks
         self.devices = device_list
         self.graph_def = graph_def
-        self.graph_proto_type = type(graph_def)
 
         graph_raw = graph_def.SerializeToString()
         self.graph = libtge.create_graph(graph_raw, len(graph_raw))
@@ -89,7 +88,7 @@ class TGE:
         size = libtge.compute_size(self.target)
         buf = ctypes.create_string_buffer(size)
         libtge.read_protobuf(self.target, buf)
-        result = self.graph_proto_type()
+        result = type(self.graph_def)()
         result.ParseFromString(buf.raw)
         return result
 
