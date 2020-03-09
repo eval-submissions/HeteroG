@@ -619,9 +619,7 @@ class feature_item(threading.Thread):
         print("[{}] Rewards = {}".format(self.folder_path, self.rewards))
 
 
-        index = self.rewards.index(max(self.rewards))
-        if not self.train_place:
-            index =sample_times
+        index = self.rewards.index(max(self.rewards[0:sample_times]))
         new_loss,new_global_mems=self.place_gnn.learn(ftr_in=self.features,
                         bias_in=self.biases,
                         nb_nodes=self.nb_nodes,
@@ -634,10 +632,6 @@ class feature_item(threading.Thread):
                         mems = global_mems,
                         train_place=self.train_place)
         global_mems = new_global_mems
-        self.counter+=1
-        if self.counter==10:
-            self.train_place = not self.train_place
-            self.counter=0
         '''
         for i in range(sample_times):
             if self.oom[i] == False:
@@ -752,7 +746,8 @@ class new_place_GNN():
             self.log_pro_group = tf.log(self.pro_group+10e-8)
             log_pro_group = tf.nn.log_softmax(group)
             #self.group = tf.argmax(self.pro_group,axis=1)
-            self.group = tf.cond(self.train_place,lambda:tf.argmax(self.pro_group,axis=1),lambda:tf.random.categorical(log_pro_group,1))
+            #self.group = tf.cond(self.train_place,lambda:tf.argmax(self.pro_group,axis=1),lambda:tf.random.categorical(log_pro_group,1))
+            self.group = tf.random.categorical(log_pro_group,1)
             self.group = tf.reshape(self.group,[-1])
             _,real_group = tf.unique(self.group)
             group = tf.cond(self.is_train,lambda:sample_group,lambda:real_group)
@@ -844,8 +839,10 @@ class new_place_GNN():
         place_loss = -place_reward
         group_loss = -group_reward
         train_place = model.training(place_loss, lr, l2_coef,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='place_nn'))
-        train_group =model.training(group_loss, lr*10, 0,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='group_nn'))
-        self.train_op =tf.cond(self.train_place,lambda:train_place,lambda:train_group)
+        train_group =model.training(group_loss, lr, 0,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='group_nn'))
+        #self.train_op =tf.cond(self.train_place,lambda:train_place,lambda:train_group)
+        self.train_op =tf.group(train_place,train_group)
+
 
         '''
         for op in tf.get_default_graph().get_operations():
@@ -911,7 +908,7 @@ class new_place_GNN():
             feed_dict[item1]=item2
 
         outputs = self.sess.run(fetch_list, feed_dict=feed_dict)
-        #print("Logits_before:", outputs[-5])
+        print("device choice prob:", outputs[0])
         #print("Logits after:",outputs[-4])
         #print("Group:",outputs[-3])
         return outputs
