@@ -437,7 +437,7 @@ class Environment(object):
             name_cost_dict = pkl.load(f)
         return name_cost_dict
 
-sample_prob = 0.9
+sample_prob = 1
 def random_choice(item):
     choice1 = np.random.choice(item.size, p=item)
     choice2 = np.random.randint(0,item.size)
@@ -627,7 +627,7 @@ class feature_item(threading.Thread):
             if sample_prob<0.9:
                 sample_prob+=0.01
             if len(set(self.rewards))==1:
-                sample_prob=0.7
+                sample_prob=1
 
         print("[{}] train_place = {}".format(self.folder_path, self.train_place))
         print("[{}] Rewards = {}".format(self.folder_path, self.rewards))
@@ -641,7 +641,7 @@ class feature_item(threading.Thread):
                         sample_ps_or_reduce = np.array(self.ps_or_reduces[index]),
                         sample_device_choice = np.array(self.device_choices[index]),
                         sample_group=np.array(self.group[index]),
-                        time_ratio = ((self.rewards[index])-self.avg)/np.abs(self.avg),
+                        time_ratio = 1000*((self.rewards[index])-self.avg)/np.abs(self.avg),
                         coef_entropy=co_entropy,
                         mems = global_mems,
                         init_group=self.init_group)
@@ -675,7 +675,7 @@ class feature_item(threading.Thread):
                             sample_ps_or_reduce = np.array(pool_strategy["ps_or_reduce"]),
                             sample_device_choice = np.array(pool_strategy["device_choice"]),
                             sample_group=np.array(pool_strategy["group"]),
-                            time_ratio = ((pool_strategy["reward"])-self.avg)/np.abs(self.avg),
+                            time_ratio = 1000*((pool_strategy["reward"])-self.avg)/np.abs(self.avg),
                             coef_entropy=co_entropy,
                             mems = global_mems,
                             init_group=self.init_group)
@@ -821,10 +821,10 @@ class new_place_GNN():
         #prob = tf.reduce_sum(self.device_choices_prob[0] * one_hot_sample, 1) * self.replica_num_array[i][:, 0] + (1 - self.replica_num_array[i][:, 0])
 
 
-        indices = tf.concat((_range, self.sample_device_choice[:, 0][:, tf.newaxis]), axis=1)
-        log_prob = tf.gather_nd(self.log_device_choices[0], indices)
-        log_prob = tf.boolean_mask(log_prob, self.replica_num_array[:, 0])
-        self.place_loss += tf.reduce_sum(log_prob) * self.time_ratio
+        self.indices = tf.concat((_range, self.sample_device_choice[:, 0][:, tf.newaxis]), axis=1)
+        self.log_prob = tf.gather_nd(self.log_device_choices[0], self.indices)
+        self.log_prob = tf.boolean_mask(self.log_prob, self.replica_num_array[:, 0])
+        self.place_loss += tf.reduce_sum(self.log_prob) * self.time_ratio
 
         #rest device choice n*(m+1)
         for j in range(1,max_replica_num):
@@ -876,15 +876,13 @@ class new_place_GNN():
 
         for item1,item2 in zip(self.mems,mems):
             feed_dict[item1]=item2
-        group_entropy,place_loss,group_loss,log_prob,pro_group,indices,loss,mems,_ = self.sess.run([self.group_entropy,self.place_loss,self.group_loss,self.log_prob,self.pro_group,self.indices,self.loss,self.new_mems,self.train_op],
+        log_device_choices,log_prob,pro_group,indices,loss,mems,_ = self.sess.run([self.log_device_choices[0],self.log_prob,self.pro_group,self.indices,self.loss,self.new_mems,self.train_op],
                      feed_dict=feed_dict)
-        print("group prob:",pro_group)
-        #print("gather Log prob:", log_prob)
-        #print("Indices:",indices)
+        print("device_choice_log1:",log_device_choices)
+        print("Indices:", indices)
+        print("gather Log prob:", log_prob)
         print("Time ratio:",time_ratio)
-        print("Group loss:",-group_loss)
-        print("Group entropy:", group_entropy)
-        print("Place loss:",-place_loss)
+
 
 
         return loss,mems
