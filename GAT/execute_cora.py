@@ -132,15 +132,21 @@ def comp_fc(item):
     item2 = item[int(len(item)/2):]
     return 0 if all(item1 == item2) else 1
 class strategy_pool(object):
-    def __init__(self,folder_path,node_num,index_id_dict,env,batch_size,sink):
+    def __init__(self,folder_path,node_num,index_id_dict,env,batch_size,init_group,sink):
         self.folder_path = folder_path
         self.node_num = node_num
         self.index_id_dict = index_id_dict
         self.env = env
         self.sink = sink
+        self.init_group = init_group
+        self.init_group_num = max(self.init_group)+1
         if os.path.exists(self.folder_path+"/pool.pkl"):
             with open(self.folder_path+"/pool.pkl","rb") as f:
                 self.strategies= pkl.load(f)
+                for j, strategy in enumerate(self.strategies):
+                    group = strategy["group"]
+                    if len(group)!=self.init_group_num:
+                        self.strategies.pop(j)
             self.save_strategy_pool()
         else:
             self.strategies = list()
@@ -150,7 +156,7 @@ class strategy_pool(object):
 
         # even data parallel 1
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
-        group = np.array([0 for i in range(self.node_num)],dtype=np.int32)
+        group = np.array([0 for i in range(self.init_group_num)],dtype=np.int32)
         device_choice = np.array([np.arange(max_replica_num)%(len(devices))],dtype=np.int32)
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(1, ), dtype=np.int32)
@@ -160,7 +166,7 @@ class strategy_pool(object):
 
         # even data parallel 2
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
-        group = np.array([0 for i in range(self.node_num)],dtype=np.int32)
+        group = np.array([0 for i in range(self.init_group_num)],dtype=np.int32)
         device_choice = np.negative(np.ones(shape=(1, max_replica_num), dtype=np.int32))
         for item in device_choice:
             for i in range(len(devices)):
@@ -176,7 +182,7 @@ class strategy_pool(object):
 
         # even data parallel 3
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
-        group = np.array([0 for i in range(self.node_num)],dtype=np.int32)
+        group = np.array([0 for i in range(self.init_group_num)],dtype=np.int32)
         device_choice = np.negative(np.ones(shape=(1, max_replica_num), dtype=np.int32))
         for item in device_choice:
             for i in range(len(devices)):
@@ -190,7 +196,7 @@ class strategy_pool(object):
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
         #single gpu
-        group = np.array([0 for i in range(self.node_num)],dtype=np.int32)
+        group = np.array([0 for i in range(self.init_group_num)],dtype=np.int32)
         device_choice = np.negative(np.ones(shape=(1, max_replica_num), dtype=np.int32))
         for item in device_choice:
             item[0] =0
@@ -203,7 +209,7 @@ class strategy_pool(object):
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
         #model parallel 1
-        group = np.array([i%len(devices) for i in range(self.node_num)],dtype=np.int32)
+        group = np.array([i%len(devices) for i in range(self.init_group_num)],dtype=np.int32)
         device_choice = np.negative(np.ones(shape=(len(devices), max_replica_num), dtype=np.int32))
         for i,item in enumerate(device_choice):
             item[0] = i%(len(devices))
@@ -216,7 +222,7 @@ class strategy_pool(object):
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
         # model parallel 2
-        group = np.array([int(i//(self.node_num/(len(devices)))) for i in range(self.node_num)],dtype=np.int32)
+        group = np.array([int(i//(self.init_group_num/(len(devices)))) for i in range(self.node_num)],dtype=np.int32)
         device_choice = np.negative(np.ones(shape=(len(devices), max_replica_num), dtype=np.int32))
         for i, item in enumerate(device_choice):
             item[0] = int(i//(len(device_choice)/(len(devices))))
@@ -318,7 +324,7 @@ class strategy_pool(object):
             return None
         self.rewards = [item["reward"] for item in self.strategies]
         index = np.random.randint(0,len(self.strategies))
-        #index = self.rewards.index(max(self.rewards))
+        index = self.rewards.index(max(self.rewards))
         return self.strategies[index]
 def reward_func(item):
     new_device_array = np.zeros(shape=(len(devices)),dtype=np.int32)
@@ -379,10 +385,7 @@ class Environment(object):
         new_device_array = np.array(list(map(reward_func,device_choice)))
         ps_or_reduce = np.reshape(ps_or_reduce, (ps_or_reduce.shape[0], 1))
         new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
-        if from_strategy_pool:
-            strategy = {index_id_dict[index]:new_device_array[min(group[index],len(new_device_array)-1)].tolist() for index in range(len(index_id_dict))}
-        else:
-            strategy = {index_id_dict[index]:new_device_array[min(group[self.init_group[index]],len(new_device_array)-1)].tolist() for index in range(len(index_id_dict))}
+        strategy = {index_id_dict[index]:new_device_array[min(group[self.init_group[index]],len(new_device_array)-1)].tolist() for index in range(len(index_id_dict))}
         bandwidth = config_dict.get("bandwidth",None)
         if bandwidth==None:
             intra = "5000"
@@ -517,7 +520,7 @@ class feature_item(threading.Thread):
         self.best_device_choice = np.zeros(shape=(self.nb_nodes, max_replica_num), dtype=np.int32)
         self.best_ps_or_reduce = list()
         self.folder_path = folder_path
-        self.strategy_pool = strategy_pool(folder_path,self.nb_nodes,self.index_id_dict,self.env,self.batch_size,self.sink)
+        self.strategy_pool = strategy_pool(folder_path,self.nb_nodes,self.index_id_dict,self.env,self.batch_size,self.init_group,self.sink)
         self.best_group= self.strategy_pool.choose_strategy()["group"]
 
         self.mutex = threading.Lock()
@@ -661,35 +664,23 @@ class feature_item(threading.Thread):
                 f.write(str(self.cal_entropy) + ",")
             with open(self.folder_path+"/loss.log", "a+") as f:
                 f.write(str(new_loss) + ",")
-        '''
+
         if epoch % show_interval == 0:
             pool_strategy = self.strategy_pool.choose_strategy()
-            self.rewards=list()
-            self.device_choices=list()
-            self.ps_or_reduces=list()
-            self.replica_masks=list()
-            self.group=list()
-            for i in range(sample_times):
-                self.rewards.append(pool_strategy["reward"])
-                self.device_choices.append(pool_strategy["device_choice"])
-                self.ps_or_reduces.append((pool_strategy["ps_or_reduce"]))
-                self.replica_masks.append(pool_strategy["replica_mask"])
-                self.group.append(pool_strategy["group"])
-            for i in range(sample_times):
-                new_loss,new_global_mems=self.place_gnn.learn(ftr_in=self.features,
-                                bias_in=self.biases,
-                                nb_nodes=self.nb_nodes,
-                                replica_num_array=np.array(self.replica_masks[i]),
-                                sample_ps_or_reduce = np.array(self.ps_or_reduces[i]),
-                                sample_device_choice = np.array(self.device_choices[i]),
-                                sample_group=np.array(self.group[i]),
-                                time_ratio = ((self.rewards[i])-self.avg)/np.abs(self.avg),
-                                coef_entropy=co_entropy,
-                                mems = global_mems,
-                                init_group=self.init_group)
-                global_mems = new_global_mems
+            new_loss,new_global_mems=self.place_gnn.learn(ftr_in=self.features,
+                            bias_in=self.biases,
+                            nb_nodes=self.nb_nodes,
+                            replica_num_array=np.array(pool_strategy["replica_mask"]),
+                            sample_ps_or_reduce = np.array(pool_strategy["ps_or_reduce"]),
+                            sample_device_choice = np.array(pool_strategy["device_choice"]),
+                            sample_group=np.array(pool_strategy["group"]),
+                            time_ratio = ((pool_strategy["reward"])-self.avg)/np.abs(self.avg),
+                            coef_entropy=co_entropy,
+                            mems = global_mems,
+                            init_group=self.init_group)
+            global_mems = new_global_mems
                 
-        '''
+
 
     def run(self):
         while True:
