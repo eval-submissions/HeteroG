@@ -14,6 +14,7 @@ import google.protobuf.text_format as pbtf
 import pickle as pkl
 sys.path.append('../')
 from profiler import Profiler
+from utils import write_tensorboard, setup_workers
 
 config_dict =dict()
 if os.path.exists("config.txt"):
@@ -26,6 +27,12 @@ devices=config_dict.get("devices", [
     "/job:tge/replica:0/task:1/device:GPU:0",
     "/job:tge/replica:0/task:1/device:GPU:1"
 ])
+
+
+
+workers = ["10.28.1.26:3901", "10.28.1.25:3901"]
+server = setup_workers(workers, "grpc+verbs")
+
 def model_fn(model_name,batch_size):
     if model_name=="vgg19":
         from tensorflow.contrib.slim.nets import vgg
@@ -152,7 +159,7 @@ def generate_feature_file(folder,index):
             opt = model_fn(models[index],batch_size/replica_num[replica_times])
             init = tf.global_variables_initializer()
             gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
-            profiler = Profiler(gdef)
+            profiler = Profiler(gdef,server.target)
         for i,nodedef in enumerate(gdef.node):
             times = times_dict.get(nodedef.name,'')
             if op_type_dict.get(nodedef.op,-1)==-1:
@@ -160,12 +167,12 @@ def generate_feature_file(folder,index):
 
             for i in range(len(devices)):
                 try:
-                    time = profiler.profile(nodedef.name,'/gpu:0',run_metadata)
+                    time = profiler.profile(nodedef.name,devices[i],run_metadata)
                 except Exception as ex:
                     print(sys.stderr, 'profile error: ', ex)
                     print(nodedef)
                     time = 0
-                new_time = int(time*(1+i*0.1))
+                new_time = time
                 item=final_dict.get((nodedef.name,replica_num[replica_times]),None)
                 if item==None:
                     final_dict[(nodedef.name,replica_num[replica_times])]=list()
