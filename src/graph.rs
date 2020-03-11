@@ -83,14 +83,14 @@ impl Graph {
     /// 1. mark tensors that has batchsize dimension with hand-crafted whitelist rules
     /// 2. group the nodes so that a.) all nodes inside a group is splittable and b.) all cross-group tensors are splittable
     /// 3. if all nodes in a group are replicated, use split, otherwise all replications are cache.
-    pub fn analyze(&mut self) {
+    fn analyze(&mut self) {
         let allow_split_input = self.options.contains_key("replace_placeholder");
 
         // mark descendants of input
         let mut descendants_of_input: BTreeSet<usize> = BTreeSet::new();
         for (id, node) in self.nodes.iter_mut().enumerate() {
             for (input_id, index, _) in node.inputs.iter() {
-                let input = &node.graph().nodes[*input_id];
+                let input = &mut node.graph().nodes[*input_id];
                 if descendants_of_input.contains(input_id) || input.is_input() {
                     input.get_output(*index).set_flag(Tensor::IS_FROM_INPUT);
                     descendants_of_input.insert(id);
@@ -263,15 +263,12 @@ impl Node {
         unsafe { &mut *(self.graph as *mut Graph) }
     }
 
-    #[allow(clippy::mut_from_ref, clippy::cast_ref_to_mut)]
-    pub fn get_output(&self, index: usize) -> &mut Tensor {
-        let mutable = unsafe { &mut *(self as *const Node as *mut Node) };
-
-        while mutable.outputs.len() <= index {
-            mutable.outputs.push(Tensor::new(mutable, mutable.outputs.len()))
+    pub fn get_output(&mut self, index: usize) -> &mut Tensor {
+        while self.outputs.len() <= index {
+            self.outputs.push(Tensor::new(self, self.outputs.len()))
         }
 
-        &mut mutable.outputs[index]
+        &mut self.outputs[index]
     }
 
     pub fn replicated(&self) -> Option<bool> {
