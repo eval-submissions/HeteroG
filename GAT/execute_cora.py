@@ -109,15 +109,16 @@ def post_func1(item):
     while(batch_size%replica_num):
         replica_num-=1
     if replica_num<len(item1):
-        item1[replica_num]=len(devices)
-        if replica_num < len(item1)-1:
-            item1[replica_num+1:] = -1
+        counter=0
+        for i,elem in enumerate(item1):
+            if counter>=replica_num:
+                item1[i] = len(devices)
+            if counter<replica_num and elem!=len(devices):
+                counter+=1
+
     return item1
 def post_func2(item1):
-    replica_mask = np.ones(shape=len(item1),dtype=np.int32)
-    replica_num = find_index(item1, len(devices))
-    if replica_num < len(item1)-1:
-        replica_mask[replica_num + 1:] = 0
+    replica_mask = np.array([0 if item==-1 else 1 for item in item1],dtype=np.int32)
     return replica_mask
 def post_process_device_choice(device_choice,batch_size):
 
@@ -171,7 +172,7 @@ class strategy_pool(object):
         for item in device_choice:
             for i in range(len(devices)):
                 item[i] =i
-            item[len(devices)]=len(devices)
+            item[len(devices):]=len(devices)
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(1, ), dtype=np.int32)
@@ -187,7 +188,7 @@ class strategy_pool(object):
         for item in device_choice:
             for i in range(len(devices)):
                 item[i] =i
-            item[len(devices)]=len(devices)
+            item[len(devices):]=len(devices)
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.zeros(shape=(1, ), dtype=np.int32)
@@ -200,7 +201,7 @@ class strategy_pool(object):
         device_choice = np.negative(np.ones(shape=(1, max_replica_num), dtype=np.int32))
         for item in device_choice:
             item[0] =0
-            item[1] = len(devices)
+            item[1:] = len(devices)
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(1, ), dtype=np.int32)
@@ -213,7 +214,7 @@ class strategy_pool(object):
         device_choice = np.negative(np.ones(shape=(len(devices), max_replica_num), dtype=np.int32))
         for i,item in enumerate(device_choice):
             item[0] = i%(len(devices))
-            item[1] = len(devices)
+            item[1:] = len(devices)
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(len(devices), ), dtype=np.int32)
@@ -226,7 +227,7 @@ class strategy_pool(object):
         device_choice = np.negative(np.ones(shape=(len(devices), max_replica_num), dtype=np.int32))
         for i, item in enumerate(device_choice):
             item[0] = int(i//(len(device_choice)/(len(devices))))
-            item[1] = len(devices)
+            item[1:] = len(devices)
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(len(devices),), dtype=np.int32)
