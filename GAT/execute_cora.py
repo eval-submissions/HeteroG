@@ -158,9 +158,9 @@ class strategy_pool(object):
         # even data parallel 1
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
         group = np.array([0 for i in range(self.init_group_num)],dtype=np.int32)
-        device_choice = np.array([np.arange(max_replica_num)%(len(devices))],dtype=np.int32)
+        device_choice = np.array([np.arange(max_replica_num)%(len(devices)) for i in range(group_num)],dtype=np.int32)
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
-        ps_or_reduce = np.ones(shape=(1, ), dtype=np.int32)
+        ps_or_reduce = np.ones(shape=(group_num, ), dtype=np.int32)
         reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record_best=False,from_strategy_pool=True)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
@@ -168,14 +168,14 @@ class strategy_pool(object):
         # even data parallel 2
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
         group = np.array([0 for i in range(self.init_group_num)],dtype=np.int32)
-        device_choice = np.negative(np.ones(shape=(1, max_replica_num), dtype=np.int32))
+        device_choice = np.negative(np.ones(shape=(group_num, max_replica_num), dtype=np.int32))
         for item in device_choice:
             for i in range(len(devices)):
                 item[i] =i
             item[len(devices):]=len(devices)
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
-        ps_or_reduce = np.ones(shape=(1, ), dtype=np.int32)
+        ps_or_reduce = np.ones(shape=(group_num, ), dtype=np.int32)
         reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record_best=False,from_strategy_pool=True)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
@@ -184,53 +184,53 @@ class strategy_pool(object):
         # even data parallel 3
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
         group = np.array([0 for i in range(self.init_group_num)],dtype=np.int32)
-        device_choice = np.negative(np.ones(shape=(1, max_replica_num), dtype=np.int32))
+        device_choice = np.negative(np.ones(shape=(group_num, max_replica_num), dtype=np.int32))
         for item in device_choice:
             for i in range(len(devices)):
                 item[i] =i
             item[len(devices):]=len(devices)
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
-        ps_or_reduce = np.zeros(shape=(1, ), dtype=np.int32)
+        ps_or_reduce = np.zeros(shape=(group_num, ), dtype=np.int32)
         reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="dp_graph.pbtxt",record_best=False,from_strategy_pool=True)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
         #single gpu
         group = np.array([0 for i in range(self.init_group_num)],dtype=np.int32)
-        device_choice = np.negative(np.ones(shape=(1, max_replica_num), dtype=np.int32))
+        device_choice = np.negative(np.ones(shape=(group_num, max_replica_num), dtype=np.int32))
         for item in device_choice:
             item[0] =0
             item[1:] = len(devices)
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
-        ps_or_reduce = np.ones(shape=(1, ), dtype=np.int32)
+        ps_or_reduce = np.ones(shape=(group_num, ), dtype=np.int32)
         reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="single_graph.pbtxt",record_best=False,from_strategy_pool=True)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
         #model parallel 1
         group = np.array([i%len(devices) for i in range(self.init_group_num)],dtype=np.int32)
-        device_choice = np.negative(np.ones(shape=(len(devices), max_replica_num), dtype=np.int32))
+        device_choice = np.negative(np.ones(shape=(group_num, max_replica_num), dtype=np.int32))
         for i,item in enumerate(device_choice):
             item[0] = i%(len(devices))
             item[1:] = len(devices)
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
-        ps_or_reduce = np.ones(shape=(len(devices), ), dtype=np.int32)
+        ps_or_reduce = np.ones(shape=(group_num, ), dtype=np.int32)
         reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record_best=False,from_strategy_pool=True)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
         # model parallel 2
         group = np.array([int(i//(self.init_group_num/(len(devices)))) for i in range(self.node_num)],dtype=np.int32)
-        device_choice = np.negative(np.ones(shape=(len(devices), max_replica_num), dtype=np.int32))
+        device_choice = np.negative(np.ones(shape=(group_num, max_replica_num), dtype=np.int32))
         for i, item in enumerate(device_choice):
             item[0] = int(i//(len(device_choice)/(len(devices))))
             item[1:] = len(devices)
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
-        ps_or_reduce = np.ones(shape=(len(devices),), dtype=np.int32)
+        ps_or_reduce = np.ones(shape=(group_num,), dtype=np.int32)
         reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record_best=False,from_strategy_pool=True)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
@@ -375,18 +375,15 @@ class Environment(object):
         #new_device_array = np.zeros(shape=(device_choice.shape[0],len(devices)),dtype=np.int32)
 
         '''
-        for i in range(device_choice.shape[0]):
-            for j in range(device_choice.shape[1]):
-                if device_choice[i,j]!=-1 and device_choice[i,j]!=len(self.devices):
-                    new_device_array[i,device_choice[i,j]]+=1
-        '''
         indexes = np.unique(group, return_index=True)[1]
         no_sort_group = [group[index] for index in sorted(indexes)]
         group = [no_sort_group.index(item) for item in group]
+        '''
+        group = group.tolist()
         new_device_array = np.array(list(map(reward_func,device_choice)))
         ps_or_reduce = np.reshape(ps_or_reduce, (ps_or_reduce.shape[0], 1))
         new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
-        strategy = {index_id_dict[index]:new_device_array[min(group[self.init_group[index]],len(new_device_array)-1)].tolist() for index in range(len(index_id_dict))}
+        strategy = {index_id_dict[index]:new_device_array[group[self.init_group[index]]].tolist() for index in range(len(index_id_dict))}
         bandwidth = config_dict.get("bandwidth",None)
         if bandwidth==None:
             intra = "5000"
@@ -437,7 +434,7 @@ class Environment(object):
             name_cost_dict = pkl.load(f)
         return name_cost_dict
 
-sample_prob = 1
+sample_prob = 0.9
 def random_choice(item):
     choice1 = np.random.choice(item.size, p=item)
     choice2 = np.random.randint(0,item.size)
@@ -627,7 +624,7 @@ class feature_item(threading.Thread):
             if sample_prob<0.9:
                 sample_prob+=0.01
             if len(set(self.rewards))==1:
-                sample_prob=1
+                sample_prob=0.7
 
         print("[{}] train_place = {}".format(self.folder_path, self.train_place))
         print("[{}] Rewards = {}".format(self.folder_path, self.rewards))
@@ -742,22 +739,20 @@ class new_place_GNN():
             group =tf.reshape(group, [-1,group_num])
             logits = tf.unsorted_segment_max(logits, self.init_group,tf.reduce_max(self.init_group)+1)
             group =tf.unsorted_segment_max(group, self.init_group,tf.reduce_max(self.init_group)+1)
-            #group=tf.layers.dense(group, group_num)
-            _,sample_group = tf.unique(self.sample_group)
+            #_,sample_group = tf.unique(self.sample_group)
 
 
             self.pro_group = tf.nn.softmax(group)
             self.log_pro_group = tf.log(self.pro_group+10e-8)
             log_pro_group = tf.nn.log_softmax(group)
-            #self.group = tf.argmax(self.pro_group,axis=1)
-            #self.group = tf.cond(self.train_place,lambda:tf.argmax(self.pro_group,axis=1),lambda:tf.random.categorical(log_pro_group,1))
-            self.group = tf.random.categorical(log_pro_group,1)
+            self.group = tf.random.categorical(log_pro_group,1,dtype=tf.int32)
             self.group = tf.reshape(self.group,[-1])
-            _,real_group = tf.unique(self.group)
-            group = tf.cond(self.is_train,lambda:sample_group,lambda:real_group)
+            #_,real_group = tf.unique(self.group)
+            group = tf.cond(self.is_train,lambda:self.sample_group,lambda:self.group)
+            unique_group,_ =tf.unique(group)
             #group = tf.cond(self.is_train,lambda:tf.unique(self.sample_group[0])[0],lambda:group)
             self.logits_before = logits
-            logits=tf.unsorted_segment_max(logits, group,tf.reduce_max(group)+1)
+            logits=tf.unsorted_segment_sum(logits, group,group_num)
             self.logits =logits
             self.group_entropy = tf.reduce_sum(self.pro_group * log_pro_group, 1)
             self.group_entropy = -tf.reduce_mean(self.group_entropy)
@@ -814,6 +809,7 @@ class new_place_GNN():
         #prob = tf.reduce_sum( self.pro_group * one_hot_sample, 1)
         indices = tf.concat((_range, self.sample_ps_or_reduce[:, tf.newaxis]), axis=1)
         log_prob = tf.gather_nd(self.log_ps_reduce, indices)
+        log_prob = tf.gather(log_prob,unique_group)
         self.place_loss = tf.reduce_sum(log_prob )* self.time_ratio
 
         #first device choice n*m
@@ -823,7 +819,7 @@ class new_place_GNN():
 
         self.indices = tf.concat((_range, self.sample_device_choice[:, 0][:, tf.newaxis]), axis=1)
         self.log_prob = tf.gather_nd(self.log_device_choices[0], self.indices)
-        self.log_prob = tf.boolean_mask(self.log_prob, self.replica_num_array[:, 0])
+        self.log_prob = tf.gather(self.log_prob,unique_group)
         self.place_loss += tf.reduce_sum(self.log_prob) * self.time_ratio
 
         #rest device choice n*(m+1)
@@ -832,8 +828,8 @@ class new_place_GNN():
             #prob = tf.reduce_sum(self.device_choices_prob[j] * one_hot_sample, 1) * self.replica_num_array[i][:,j]+(1-self.replica_num_array[i][:,j])
             indices = tf.concat((_range, self.sample_device_choice[:, j][:, tf.newaxis]), axis=1)
             log_prob = tf.gather_nd(self.log_device_choices[j], indices)
-            log_prob = tf.boolean_mask(log_prob, self.replica_num_array[:, j])
-            self.place_loss+=tf.reduce_sum(log_prob * self.time_ratio)
+            log_prob = tf.gather(log_prob, unique_group)
+            self.place_loss+=tf.reduce_sum(log_prob) * self.time_ratio
 
         #self.place_loss = 100*self.place_loss
         place_reward =  self.place_loss+self.coef_entropy * self.entropy
