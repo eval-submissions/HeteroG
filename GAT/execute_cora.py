@@ -437,9 +437,10 @@ class Environment(object):
 sample_prob = 0.9
 def random_choice(item):
     choice1 = np.random.choice(item.size, p=item)
-    choice2 = np.random.randint(0,item.size)
-    choices = [choice1,choice2]
-    return choices[np.random.choice(2,p=[sample_prob,1-sample_prob])]
+    return choice1
+    #choice2 = np.random.randint(0,item.size)
+    #choices = [choice1,choice2]
+    #return choices[np.random.choice(2,p=[sample_prob,1-sample_prob])]
 
 def sample_func1(output):
     return np.array(list(map(random_choice, output)))
