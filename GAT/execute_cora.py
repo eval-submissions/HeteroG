@@ -712,23 +712,7 @@ class new_place_GNN():
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
             self.train_place = tf.placeholder(dtype=tf.bool, shape=(),name="train_place")
             self.mems = [tf.placeholder(tf.float32,[128, bsz, d_model]) for _ in range(n_layer)]
-        with tf.variable_scope("place_nn"):
-            with tf.device("/device:GPU:1"):
-                logits = model.inference(self.ftr_in, 1024, self.nb_node, self.is_train,
-                                         self.attn_drop, self.ffd_drop,
-                                         bias_mat=self.bias_in,
-                                         hid_units=hid_units, n_heads=n_heads,
-                                         residual=residual, activation=nonlinearity)
 
-
-            with tf.device("/device:GPU:0"):
-
-                logits = model.inference(logits, d_model, self.nb_node, self.is_train,
-                                         self.attn_drop, self.ffd_drop,
-                                         bias_mat=self.bias_in,
-                                         hid_units=place_hid_units, n_heads=place_n_heads,
-                                         residual=residual, activation=nonlinearity)
-                logits =tf.reshape(logits, [-1,d_model])
         with tf.variable_scope("group_nn"):
             with tf.device("/device:GPU:0"):
                 group = model.inference(self.ftr_in, group_num, self.nb_node, self.is_train,
@@ -736,9 +720,7 @@ class new_place_GNN():
                                          bias_mat=self.bias_in,
                                          hid_units=hid_units, n_heads=n_heads,
                                          residual=residual, activation=nonlinearity)
-            logits =tf.reshape(logits, [-1,d_model])
             group =tf.reshape(group, [-1,group_num])
-            logits = tf.unsorted_segment_max(logits, self.init_group,tf.reduce_max(self.init_group)+1)
             group =tf.unsorted_segment_max(group, self.init_group,tf.reduce_max(self.init_group)+1)
             #_,sample_group = tf.unique(self.sample_group)
 
@@ -752,12 +734,29 @@ class new_place_GNN():
             group = tf.cond(self.is_train,lambda:self.sample_group,lambda:self.group)
             unique_group,_ =tf.unique(group)
             #group = tf.cond(self.is_train,lambda:tf.unique(self.sample_group[0])[0],lambda:group)
+
+            self.group_entropy = tf.reduce_sum(self.pro_group * log_pro_group, 1)
+            self.group_entropy = -tf.reduce_mean(self.group_entropy)
+        with tf.variable_scope("place_nn"):
+            with tf.device("/device:GPU:1"):
+                logits = model.inference(self.ftr_in, 1024, self.nb_node, self.is_train,
+                                         self.attn_drop, self.ffd_drop,
+                                         bias_mat=self.bias_in,
+                                         hid_units=hid_units, n_heads=n_heads,
+                                         residual=residual, activation=nonlinearity)
+
+            with tf.device("/device:GPU:0"):
+                logits = model.inference(logits, d_model, self.nb_node, self.is_train,
+                                         self.attn_drop, self.ffd_drop,
+                                         bias_mat=self.bias_in,
+                                         hid_units=place_hid_units, n_heads=place_n_heads,
+                                         residual=residual, activation=nonlinearity)
+            logits = tf.reshape(logits, [-1, d_model])
+            logits = tf.unsorted_segment_max(logits, self.init_group, tf.reduce_max(self.init_group) + 1)
+            logits = tf.reshape(logits, [-1, d_model])
             self.logits_before = logits
             logits=tf.unsorted_segment_sum(logits, group,group_num)
             self.logits =logits
-            self.group_entropy = tf.reduce_sum(self.pro_group * log_pro_group, 1)
-            self.group_entropy = -tf.reduce_mean(self.group_entropy)
-
             self.device_choices = list()
             self.log_device_choices = list()
             log_resh = tf.reshape(logits, [-1,bsz,d_model])
@@ -803,7 +802,7 @@ class new_place_GNN():
         self.group_loss = tf.reduce_sum(self.log_prob)*self.time_ratio
 
 
-
+        self.place_loss = []
         #one_hot_sample = tf.one_hot(self.sample_group[i], group_num)
         #print("one_hot_sample.shape")
         #print(one_hot_sample.shape)
@@ -811,7 +810,7 @@ class new_place_GNN():
         indices = tf.concat((_range, self.sample_ps_or_reduce[:, tf.newaxis]), axis=1)
         log_prob = tf.gather_nd(self.log_ps_reduce, indices)
         log_prob = tf.gather(log_prob,unique_group)
-        self.place_loss = tf.reduce_sum(log_prob )* self.time_ratio
+        self.place_loss.append(tf.reduce_sum(log_prob )* self.time_ratio)
 
         #first device choice n*m
         #one_hot_sample = tf.one_hot(self.sample_device_choice[i][:, 0], len(devices))
@@ -821,7 +820,7 @@ class new_place_GNN():
         self.indices = tf.concat((_range, self.sample_device_choice[:, 0][:, tf.newaxis]), axis=1)
         self.log_prob = tf.gather_nd(self.log_device_choices[0], self.indices)
         self.log_prob = tf.gather(self.log_prob,unique_group)
-        self.place_loss += tf.reduce_sum(self.log_prob) * self.time_ratio
+        self.place_loss.append(tf.reduce_sum(self.log_prob) * self.time_ratio)
 
         #rest device choice n*(m+1)
         for j in range(1,max_replica_num):
@@ -830,7 +829,8 @@ class new_place_GNN():
             indices = tf.concat((_range, self.sample_device_choice[:, j][:, tf.newaxis]), axis=1)
             log_prob = tf.gather_nd(self.log_device_choices[j], indices)
             log_prob = tf.gather(log_prob, unique_group)
-            self.place_loss+=tf.reduce_sum(log_prob) * self.time_ratio
+            self.place_loss.append(tf.reduce_sum(log_prob) * self.time_ratio)
+        self.place_loss = tf.add_n(self.place_loss)
 
         #self.place_loss = 100*self.place_loss
         place_reward =  self.place_loss+self.coef_entropy * self.entropy
