@@ -57,7 +57,14 @@ class Activater():
     def activate(self,batch_size):
         for k,graph_def in enumerate(self.graph_defs):
             tf.reset_default_graph()
-
+            resolver = TFConfigClusterResolver()
+            cluster = resolver.cluster_spec()
+            dist = tf.distribute.experimental.MultiWorkerMirroredStrategy(
+                tf.distribute.experimental.CollectiveCommunication.NCCL)
+            self.config = dist.update_config_proto(tf.ConfigProto())
+            self.config.ClearField("device_filters")
+            self.config.allow_soft_placement = True  # log_device_placement=True)
+            self.config.gpu_options.allow_growth = True
 
             tf.import_graph_def(graph_def)
             graph = tf.get_default_graph()
