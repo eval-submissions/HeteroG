@@ -87,10 +87,10 @@ feature_folders = config_dict.get("inputs",["data/graph1", "data/graph2", "data/
 sinks =  config_dict.get("sinks",[["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"],["group_deps_1","loss/Mean","global_step/add"]])
 sample_times = 3
 devices = config_dict.get("devices", [
-    "/job:tge/replica:0/task:0/device:GPU:0",
-    "/job:tge/replica:0/task:0/device:GPU:1",
-    "/job:tge/replica:0/task:1/device:GPU:0",
-    "/job:tge/replica:0/task:1/device:GPU:1"
+    "/job:worker/replica:0/task:0/device:GPU:0",
+    "/job:worker/replica:0/task:0/device:GPU:1",
+    "/job:worker/replica:0/task:1/device:GPU:0",
+    "/job:worker/replica:0/task:1/device:GPU:1"
 ])
 
 max_replica_num = config_dict.get("max_replica_num", len(devices))
@@ -176,7 +176,7 @@ class strategy_pool(object):
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.ones(shape=(group_num, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record_best=False,from_strategy_pool=True)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="nccl_dp_graph.pbtxt",record_best=False,from_strategy_pool=True)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
@@ -192,7 +192,7 @@ class strategy_pool(object):
 
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
         ps_or_reduce = np.zeros(shape=(group_num, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="dp_graph.pbtxt",record_best=False,from_strategy_pool=True)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="grpc_dp_graph.pbtxt",record_best=False,from_strategy_pool=True)
         if not out_of_memory:
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
@@ -737,6 +737,17 @@ class new_place_GNN():
 
             self.group_entropy = tf.reduce_sum(self.pro_group * log_pro_group, 1)
             self.group_entropy = -tf.reduce_mean(self.group_entropy)
+
+            _range1 = tf.range(tf.shape(self.sample_group)[0])[:, tf.newaxis]
+
+            # one_hot_sample = tf.one_hot(self.sample_ps_or_reduce[i], 2)
+            # print("one_hot_sample.shape")
+            # print(one_hot_sample.shape)
+            # prob = tf.reduce_sum( self.ps_or_reduce * one_hot_sample, 1)
+            self.indices = tf.concat((_range1, self.sample_group[:, tf.newaxis]), axis=1)
+            self.log_prob = tf.gather_nd(self.log_pro_group, self.indices)
+            self.group_loss = tf.reduce_sum(self.log_prob) * self.time_ratio
+
         with tf.variable_scope("place_nn"):
             with tf.device("/device:GPU:1"):
                 logits = model.inference(self.ftr_in, 1024, self.nb_node, self.is_train,
@@ -790,47 +801,39 @@ class new_place_GNN():
             self.entropy = tf.reduce_sum(self.log_ps_reduce * ps_or_reduce_prob, 1)
             self.entropy = -(tf.reduce_mean(self.entropy) + sum / max_replica_num)
 
-        _range = tf.range(tf.shape(self.sample_ps_or_reduce)[0])[:, tf.newaxis]
-        _range1 = tf.range(tf.shape(self.sample_group)[0])[:, tf.newaxis]
-
-        #one_hot_sample = tf.one_hot(self.sample_ps_or_reduce[i], 2)
-        #print("one_hot_sample.shape")
-        #print(one_hot_sample.shape)
-        #prob = tf.reduce_sum( self.ps_or_reduce * one_hot_sample, 1)
-        self.indices = tf.concat((_range1, self.sample_group[:, tf.newaxis]), axis=1)
-        self.log_prob = tf.gather_nd(self.log_pro_group, self.indices)
-        self.group_loss = tf.reduce_sum(self.log_prob)*self.time_ratio
+            _range = tf.range(tf.shape(self.sample_ps_or_reduce)[0])[:, tf.newaxis]
 
 
-        self.place_loss = []
-        #one_hot_sample = tf.one_hot(self.sample_group[i], group_num)
-        #print("one_hot_sample.shape")
-        #print(one_hot_sample.shape)
-        #prob = tf.reduce_sum( self.pro_group * one_hot_sample, 1)
-        indices = tf.concat((_range, self.sample_ps_or_reduce[:, tf.newaxis]), axis=1)
-        log_prob = tf.gather_nd(self.log_ps_reduce, indices)
-        log_prob = tf.gather(log_prob,unique_group)
-        self.place_loss.append(tf.reduce_sum(log_prob )* self.time_ratio)
 
-        #first device choice n*m
-        #one_hot_sample = tf.one_hot(self.sample_device_choice[i][:, 0], len(devices))
-        #prob = tf.reduce_sum(self.device_choices_prob[0] * one_hot_sample, 1) * self.replica_num_array[i][:, 0] + (1 - self.replica_num_array[i][:, 0])
+            self.place_loss = []
+            #one_hot_sample = tf.one_hot(self.sample_group[i], group_num)
+            #print("one_hot_sample.shape")
+            #print(one_hot_sample.shape)
+            #prob = tf.reduce_sum( self.pro_group * one_hot_sample, 1)
+            indices = tf.concat((_range, self.sample_ps_or_reduce[:, tf.newaxis]), axis=1)
+            log_prob = tf.gather_nd(self.log_ps_reduce, indices)
+            log_prob = tf.gather(log_prob,unique_group)
+            self.place_loss.append(tf.reduce_sum(log_prob )* self.time_ratio)
+
+            #first device choice n*m
+            #one_hot_sample = tf.one_hot(self.sample_device_choice[i][:, 0], len(devices))
+            #prob = tf.reduce_sum(self.device_choices_prob[0] * one_hot_sample, 1) * self.replica_num_array[i][:, 0] + (1 - self.replica_num_array[i][:, 0])
 
 
-        self.indices = tf.concat((_range, self.sample_device_choice[:, 0][:, tf.newaxis]), axis=1)
-        self.log_prob = tf.gather_nd(self.log_device_choices[0], self.indices)
-        self.log_prob = tf.gather(self.log_prob,unique_group)
-        self.place_loss.append(tf.reduce_sum(self.log_prob) * self.time_ratio)
+            self.indices = tf.concat((_range, self.sample_device_choice[:, 0][:, tf.newaxis]), axis=1)
+            self.log_prob = tf.gather_nd(self.log_device_choices[0], self.indices)
+            self.log_prob = tf.gather(self.log_prob,unique_group)
+            self.place_loss.append(tf.reduce_sum(self.log_prob) * self.time_ratio)
 
-        #rest device choice n*(m+1)
-        for j in range(1,max_replica_num):
-            #one_hot_sample = tf.one_hot(self.sample_device_choice[i][:,j], len(devices)+1)
-            #prob = tf.reduce_sum(self.device_choices_prob[j] * one_hot_sample, 1) * self.replica_num_array[i][:,j]+(1-self.replica_num_array[i][:,j])
-            indices = tf.concat((_range, self.sample_device_choice[:, j][:, tf.newaxis]), axis=1)
-            log_prob = tf.gather_nd(self.log_device_choices[j], indices)
-            log_prob = tf.gather(log_prob, unique_group)
-            self.place_loss.append(tf.reduce_sum(log_prob) * self.time_ratio)
-        self.place_loss = tf.add_n(self.place_loss)
+            #rest device choice n*(m+1)
+            for j in range(1,max_replica_num):
+                #one_hot_sample = tf.one_hot(self.sample_device_choice[i][:,j], len(devices)+1)
+                #prob = tf.reduce_sum(self.device_choices_prob[j] * one_hot_sample, 1) * self.replica_num_array[i][:,j]+(1-self.replica_num_array[i][:,j])
+                indices = tf.concat((_range, self.sample_device_choice[:, j][:, tf.newaxis]), axis=1)
+                log_prob = tf.gather_nd(self.log_device_choices[j], indices)
+                log_prob = tf.gather(log_prob, unique_group)
+                self.place_loss.append(tf.reduce_sum(log_prob) * self.time_ratio)
+            self.place_loss = tf.add_n(self.place_loss)
 
         #self.place_loss = 100*self.place_loss
         place_reward =  self.place_loss+self.coef_entropy * self.entropy
