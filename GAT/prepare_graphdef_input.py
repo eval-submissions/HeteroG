@@ -22,16 +22,26 @@ if os.path.exists("config.txt"):
         config_dict = json.load(f)
 
 devices=config_dict.get("devices", [
-    "/job:tge/replica:0/task:0/device:GPU:0",
-    "/job:tge/replica:0/task:0/device:GPU:1",
-    "/job:tge/replica:0/task:1/device:GPU:0",
-    "/job:tge/replica:0/task:1/device:GPU:1"
+    "/job:worker/replica:0/task:0/device:GPU:0",
+    "/job:worker/replica:0/task:0/device:GPU:1",
+    "/job:worker/replica:0/task:1/device:GPU:0",
+    "/job:worker/replica:0/task:1/device:GPU:1",
+    "/job:worker/replica:0/task:2/device:GPU:0",
+    "/job:worker/replica:0/task:2/device:GPU:1",
+    "/job:worker/replica:0/task:3/device:GPU:0",
+    "/job:worker/replica:0/task:3/device:GPU:1",
+    "/job:worker/replica:0/task:4/device:GPU:0",
+    "/job:worker/replica:0/task:4/device:GPU:1",
+    "/job:worker/replica:0/task:5/device:GPU:0",
+    "/job:worker/replica:0/task:5/device:GPU:1",
+    "/job:worker/replica:0/task:6/device:GPU:0",
+    "/job:worker/replica:0/task:6/device:GPU:1"
 ])
 
 
 
-workers = ["10.28.1.26:3901", "10.28.1.25:3901"]
-server = setup_workers(workers, "grpc+verbs")
+workers = ["10.28.1.26:3901", "10.28.1.25:3901","10.28.1.25:3901","10.28.1.17:3901","10.28.1.16:3901","10.28.1.15:3901"]
+server = setup_workers(workers, "grpc")
 
 def model_fn(model_name,batch_size):
     if model_name=="vgg19":
@@ -212,7 +222,7 @@ def generate_feature_file(folder,index):
     with open(folder+"cost.pkl", "wb") as f:
         pkl.dump(final_dict,f)
 
-models = ["vgg19","resnet200","resnet50","resnet101","resnet152","inceptionv3","bert"]
+models = ["vgg19","resnet200","resnet50","resnet101","resnet152","inceptionv3"]#,"bert"]
 for i in range(len(models)):
     tf.reset_default_graph()
     folder = "data/graph"+str(i+1)+"/"

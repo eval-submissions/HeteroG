@@ -90,7 +90,17 @@ devices = config_dict.get("devices", [
     "/job:worker/replica:0/task:0/device:GPU:0",
     "/job:worker/replica:0/task:0/device:GPU:1",
     "/job:worker/replica:0/task:1/device:GPU:0",
-    "/job:worker/replica:0/task:1/device:GPU:1"
+    "/job:worker/replica:0/task:1/device:GPU:1",
+    "/job:worker/replica:0/task:2/device:GPU:0",
+    "/job:worker/replica:0/task:2/device:GPU:1",
+    "/job:worker/replica:0/task:3/device:GPU:0",
+    "/job:worker/replica:0/task:3/device:GPU:1",
+    "/job:worker/replica:0/task:4/device:GPU:0",
+    "/job:worker/replica:0/task:4/device:GPU:1",
+    "/job:worker/replica:0/task:5/device:GPU:0",
+    "/job:worker/replica:0/task:5/device:GPU:1",
+    "/job:worker/replica:0/task:6/device:GPU:0",
+    "/job:worker/replica:0/task:6/device:GPU:1"
 ])
 
 max_replica_num = config_dict.get("max_replica_num", len(devices))
