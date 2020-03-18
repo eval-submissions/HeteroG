@@ -8,13 +8,14 @@ from tensorflow.core.framework import node_def_pb2
 import sys
 import json
 import os
+import urllib.request
+import time
 from tensorflow.core.framework import graph_pb2
 from tensorflow.core.framework import step_stats_pb2
 import google.protobuf.text_format as pbtf
 import pickle as pkl
 sys.path.append('../')
 from profiler import Profiler
-from utils import write_tensorboard, setup_workers
 
 config_dict =dict()
 if os.path.exists("config.txt"):
@@ -31,16 +32,25 @@ devices=config_dict.get("devices", [
     "/job:worker/replica:0/task:3/device:GPU:0",
     "/job:worker/replica:0/task:3/device:GPU:1",
     "/job:worker/replica:0/task:4/device:GPU:0",
-    "/job:worker/replica:0/task:4/device:GPU:1",
-    "/job:worker/replica:0/task:5/device:GPU:0",
-    "/job:worker/replica:0/task:5/device:GPU:1",
-    "/job:worker/replica:0/task:6/device:GPU:0",
-    "/job:worker/replica:0/task:6/device:GPU:1"
+    "/job:worker/replica:0/task:4/device:GPU:1"
+
 ])
 
+def setup_workers(workers, protocol="grpc"):
 
 
-workers = ["10.28.1.26:3901", "10.28.1.25:3901","10.28.1.25:3901","10.28.1.17:3901","10.28.1.16:3901","10.28.1.15:3901"]
+    param = '/'.join(server.replace(':', '%3A') for server in workers)
+    for task_id, server in enumerate(workers):
+        if task_id == 0: continue
+        url = "http://{}:3905/{}/restart/{}/{}/{}".format(server.split(':')[0], int(time.time()) + 10, protocol, task_id, param)
+        assert urllib.request.urlopen(url).read() == b'ok'
+    time.sleep(1)
+
+    return tf.distribute.Server(tf.train.ClusterSpec({
+        "worker": workers
+    }), job_name='worker', task_index=0, protocol=protocol)
+
+workers = ["10.28.1.26:3901", "10.28.1.25:3901","10.28.1.24:3901","10.28.1.17:3901","10.28.1.16:3901"]
 server = setup_workers(workers, "grpc")
 
 def model_fn(model_name,batch_size):
