@@ -526,6 +526,10 @@ class feature_item(threading.Thread):
         self.best_device_choice = np.zeros(shape=(self.nb_nodes, max_replica_num), dtype=np.int32)
         self.best_ps_or_reduce = list()
         self.folder_path = folder_path
+        if self.batch_size<100:
+            self.batch_size=100
+        else:
+            self.batch_size = int((self.batch_size//100)*100)
         self.strategy_pool = strategy_pool(folder_path,self.nb_nodes,self.index_id_dict,self.env,self.batch_size,self.init_group,self.sink)
         self.best_group= self.strategy_pool.choose_strategy()["group"]
 

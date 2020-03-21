@@ -57,7 +57,7 @@ class Environment(object):
             else:
                 intra = bandwidth[0]
                 inter = bandwidth[1]
-            time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices,sink).custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).set_bandwidth(intra,inter).evaluate(self.name_cost_dict,trace)
+            time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices,sink).use_collective().custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).set_bandwidth(intra,inter).evaluate(self.name_cost_dict,trace)
             time = time_mem_tuple[0]
             mem_list = time_mem_tuple[1]
             time = float(time) / (10 ** 3)
