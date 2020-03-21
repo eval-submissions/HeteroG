@@ -24,7 +24,7 @@ import json
 import pickle as pkl
 import multiprocessing as mp
 from multiprocessing import Pool
-
+from utils import adapt_batchsize
 
 variable_ops=["Variable", "VariableV2", "AutoReloadVariable",
                    "MutableHashTable", "MutableHashTableV2",
@@ -437,7 +437,7 @@ class Environment(object):
         return -np.float32(np.sqrt(time)),out_of_memory
 
     def get_name_cost_dict(self):
-        with open(self.folder_path+"/cost.pkl", "rb") as f:
+        with open(self.folder_path+"/new_cost.pkl", "rb") as f:
             name_cost_dict = pkl.load(f)
         return name_cost_dict
 

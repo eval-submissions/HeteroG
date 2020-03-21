@@ -17,6 +17,7 @@ import pickle as pkl
 sys.path.append('../')
 import tge
 prefix=sys.argv[1]
+from utils import adapt_batchsize
 
 config_dict =dict()
 if os.path.exists("config.txt"):
@@ -69,6 +70,8 @@ class Environment(object):
     def get_name_cost_dict(self):
         with open(self.folder+"/cost.pkl", "rb") as f:
             name_cost_dict = pkl.load(f)
+            name_cost_dict = adapt_batchsize(name_cost_dict,48,100,20)
+
         return name_cost_dict
 
 env = Environment(prefix+"/graph.pbtxt",devices,prefix)
