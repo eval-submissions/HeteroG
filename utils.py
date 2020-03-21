@@ -36,28 +36,14 @@ def op_def_dict():
 def adapt_batchsize(profile_data, original_batchsize, new_batchsize, nrep_limit):
     from sklearn.linear_model import LinearRegression
     def linear_pred(data, x):
-        l = [_x for _x, y in data if _x == x ]
-        if len(l) > 0:
-            return l[0]
-        model = LinearRegression().fit([[x] for x, y in data], [[y] for x, y in data])
-        p = int(model.predict([[x]])[0][0])
-        if p < 0:
-            p = 0
-        return p
+        try:
+            return [y for _x, y in data if _x == x ][0]
+        except:
+            model = LinearRegression().fit([[x] for x, y in data], [[y] for x, y in data])
+            return max(int(model.predict([[x]])[0][0]), 0)
 
     nodes = set((node for node, nrep in profile_data.keys()))
     ndev = len(profile_data.values().__iter__().__next__())
 
-    data_points = { (node, dev): [(int(original_batchsize / nrep), cost_list[dev]) for ((_name, nrep), cost_list) in profile_data.items() if _name == node ] for node in nodes for dev in range(ndev) }
-
-    result = {}
-    for nrep in range(1, nrep_limit+1):
-        if new_batchsize % nrep != 0:
-            continue
-
-        batchsize = new_batchsize // nrep
-
-        for node in nodes:
-            result[(node, nrep)] = [linear_pred(data_points[(node, dev)], batchsize) for dev in range(ndev)]
-
-    return result
+    data_points = { (node, dev): [(original_batchsize // nrep, cost_list[dev]) for ((_name, nrep), cost_list) in profile_data.items() if _name == node ] for node in nodes for dev in range(ndev) }
+    return { (node, nrep): [linear_pred(data_points[(node, dev)], new_batchsize // nrep) for dev in range(ndev)] for node in nodes for nrep in range(1, nrep_limit+1) if new_batchsize % nrep == 0 }
