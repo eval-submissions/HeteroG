@@ -291,9 +291,7 @@ impl Node {
                 if let Some(batchsize) = self.graph().options.get("replace_placeholder") {
                     let batchsize: usize = batchsize.parse().unwrap();
                     let mut shape: Vec<Option<usize>> = self.raw_node.attr["_output_shapes"].get_list().shape[0].dim.iter().map(|x| x.size.try_into().ok()).collect();
-                    if self.form.is_part() {
-                        shape[0].replace(batchsize / self.form.ndev() as usize);
-                    }
+                    shape[0].replace(batchsize / self.form.ndev() as usize);
 
                     let mut shape_node = self.make_node("Const".to_string());
                     shape_node.name += &format!("/aux_replace_placeholder_{}/shape", replica_index);
@@ -733,73 +731,6 @@ impl Tensor {
                 name
             }
         })).collect();
-
-        let state = &mut self.node().graph().collective_state;
-        let instance_key = state.new_instance();
-        let group_key = state.get_group(&local_summed.keys().copied().collect::<Vec<_>>()); // it is sorted by BTreeMap
-        let last = &mut state.last;
-
-        let local_reduced: BTreeMap<_, _> = local_summed.iter().map(|(device_id, local_name)| {
-            let mut node = self.node().make_node("CollectiveReduce".to_string());
-            node.name += &format!("/{}_{}_{}/aux_collective", self.index, to.code(), device_id);
-            node.device = target.devices[*device_id].clone();
-            node.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
-            node.attr.insert("final_op".into(), AttrValue::new().apply(|x| x.set_s(b"Id".to_vec())));
-            node.attr.insert("merge_op".into(), AttrValue::new().apply(|x| x.set_s(b"Add".to_vec())));
-            node.attr.insert("group_key".into(), AttrValue::new().apply(|x| x.set_i(group_key as _)));
-            node.attr.insert("group_size".into(), AttrValue::new().apply(|x| x.set_i(local_summed.len() as _)));
-            node.attr.insert("instance_key".into(), AttrValue::new().apply(|x| x.set_i(instance_key as _)));
-            node.attr.insert("subdiv_offsets".into(), AttrValue::new().apply(|x| x.mut_list().i = vec![0]));
-            node.input.push(local_name.clone());
-            set_input_size(&mut node, 0, part_size);
-
-            for dep in last.iter() {
-                node.input.push(format!("^{}", dep))
-            }
-
-            let name = node.name.clone();
-            target.pb.node.push(node);
-            (device_id, name)
-        }).collect();
-
-        *last = local_reduced.values().cloned().collect();
-
-        from.devices.iter().map(|device_id| local_reduced[device_id].clone()).collect()
-    }
-
-    pub fn all_reduce_collective_hierarchical(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
-        assert!(from.valid() && to.valid() && from.is_part() && to.is_full() && from.devices == to.devices);
-
-        let part_size = self.get_size() / from.ndev() as u64;
-
-        let mut local_groups: BTreeMap<usize, Vec<String>> = BTreeMap::new();
-        for (i, device_id) in from.devices.iter().copied().enumerate() {
-            let name = self.as_form(from, target)[i].clone();
-            local_groups.entry(device_id).or_default().push(name)
-        }
-
-        let local_summed: BTreeMap<_, _> = local_groups.iter().map(|(device_id, local_nodes)| (*device_id, match local_nodes.len() {
-            0 => unreachable!(),
-            1 => local_nodes[0].clone(), // TODO: destruct the vector and take the element
-            _ => {
-                let mut addn = self.node().make_node("AddN".to_string());
-                addn.name += &format!("/{}_{}_{}/aux_sum", self.index, to.code(), device_id);
-                addn.device = target.devices[*device_id].clone();
-                addn.attr.insert("N".into(), AttrValue::new().apply(|x| x.set_i(local_nodes.len() as _)));
-                addn.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
-                addn.input = local_nodes.iter().cloned().collect();
-                for i in 0..local_nodes.len() {
-                    set_input_size(&mut addn, i, part_size)
-                }
-                let name = addn.name.clone();
-                target.pb.node.push(addn);
-                name
-            }
-        })).collect();
-
-        // the id of a task is the device number of the task leader
-        let task_leaders = unimplemented!();
-
 
         let state = &mut self.node().graph().collective_state;
         let instance_key = state.new_instance();
