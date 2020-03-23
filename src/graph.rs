@@ -291,7 +291,11 @@ impl Node {
                 if let Some(batchsize) = self.graph().options.get("replace_placeholder") {
                     let batchsize: usize = batchsize.parse().unwrap();
                     let mut shape: Vec<Option<usize>> = self.raw_node.attr["_output_shapes"].get_list().shape[0].dim.iter().map(|x| x.size.try_into().ok()).collect();
-                    shape[0].replace(batchsize / self.form.ndev() as usize);
+                    if self.form.is_part() {
+                        shape[0].replace(batchsize / self.form.ndev() as usize);
+                    } else {
+                        shape[0].replace(batchsize);
+                    }
 
                     let mut shape_node = self.make_node("Const".to_string());
                     shape_node.name += &format!("/aux_replace_placeholder_{}/shape", replica_index);
