@@ -56,7 +56,7 @@ BATCHSIZE=48
 
 devices = (
     "/job:worker/replica:0/task:0/device:GPU:0",
-    "/job:worker/replica:0/task:0/device:GPU:1"
+    "/job:worker/replica:0/task:0/device:GPU:1",
 )
 resolver = TFConfigClusterResolver()
 cluster = resolver.cluster_spec()
@@ -66,9 +66,12 @@ config = dist.update_config_proto(tf.ConfigProto())
 config.ClearField("device_filters")
 server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc", config=config)
 
-opt = model_fn(None)
-init = tf.global_variables_initializer()
-gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+# opt = model_fn(None)
+# init = tf.global_variables_initializer()
+# gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+
+gdef = tf.get_default_graph().as_graph_def()
+gdef.ParseFromString(open("bin.pb", "rb").read())
 
 import tge
 
@@ -123,7 +126,7 @@ toc = time.perf_counter()
 
 from profiler import Profiler
 prof_dict = {}
-for nrep in (1, 2,):# 3, 4, 6, 8, 12):
+for nrep in (1, 2, 3, 4):#, 6, 8, 12):
     tf.reset_default_graph()
     opt = model_fn(BATCHSIZE // nrep)
     init = tf.global_variables_initializer()
@@ -144,8 +147,8 @@ g = (tge.TGE(gdef, devices)
     .custom(strategy)
     .replace_placeholder(BATCHSIZE)
     .use_collective()
-    .set_bandwidth(intra=2810, inter=2810) # single worker g9
-    # .set_bandwidth(intra=816, inter=816) # single machine two workers g9
+    # .set_bandwidth(intra=2810, inter=2810) # single worker g9
+    .set_bandwidth(intra=816, inter=816) # single machine two workers g9
     .evaluate(prof_dict, "simulated.json")
 )
 

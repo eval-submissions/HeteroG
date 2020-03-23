@@ -47,7 +47,7 @@ impl TensorFlowLikeScheduler {
         let prof = self.profile_dict.get(&String::from_utf8(origin_name.to_vec()).unwrap())?;
         let time = match prof.binary_search_by_key(&nrep, |x| x.0) {
             Ok(i) => prof[i].1[device_id],
-            Err(i) => if i >= prof.len() { // TODO: proper linear interpolation
+            Err(i) => if i >= prof.len() {
                 prof[i - 1].1[device_id]
             } else {
                 prof[i].1[device_id]
