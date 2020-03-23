@@ -68,9 +68,9 @@ class Environment(object):
         return np.float32(time)
 
     def get_name_cost_dict(self):
-        with open(self.folder+"/cost.pkl", "rb") as f:
+        with open(self.folder+"/new_cost.pkl", "rb") as f:
             name_cost_dict = pkl.load(f)
-            name_cost_dict = adapt_batchsize(name_cost_dict,48,100,20)
+            #name_cost_dict = adapt_batchsize(name_cost_dict,48,100,20)
 
         return name_cost_dict
 

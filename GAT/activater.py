@@ -10,7 +10,7 @@ import pickle as pkl
 import sys
 from tensorflow.python.client import timeline
 from tensorflow.distribute.cluster_resolver import TFConfigClusterResolver
-
+prefix=sys.argv[1]
 sys.path.append('../')
 
 config_dict =dict()
@@ -108,12 +108,11 @@ class Activater():
             with open(self.path[k].split(".")[0]+"_timeline.json", "w") as fo:
                 fo.write(tl.generate_chrome_trace_format())
 
-workers = ["localhost:3901", "localhost:3902"]
-
-os.environ["TF_CONFIG"] = '{ "cluster": { "worker": ["localhost:3901", "localhost:3902"] }, "task": {"type": "worker", "index": 0} }'
-
-setup_workers(workers, "grpc")
+workers = ["10.28.1.26:3901", "10.28.1.25:3901","10.28.1.24:3901","10.28.1.17:3901","10.28.1.16:3901"]
+os.environ["TF_CONFIG"] = '{ "cluster": { "worker": ["10.28.1.26:3901", "10.28.1.25:3901","10.28.1.24:3901","10.28.1.17:3901","10.28.1.16:3901"]  }, "task": {"type": "worker", "index": 0} }'
+if prefix=="yes":
+    setup_workers(workers, "grpc")
 
 act = Activater(activate_graphs,sinks=sinks)
-act.activate(48)
+act.activate(480)
 

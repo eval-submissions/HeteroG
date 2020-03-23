@@ -328,7 +328,7 @@ class strategy_pool(object):
             self.rewards = [item["reward"] for item in self.strategies]
 
     def choose_strategy(self):
-        if len(self.strategies)==None:
+        if len(self.strategies)==0:
             return None
         self.rewards = [item["reward"] for item in self.strategies]
         index = np.random.randint(0,len(self.strategies))
@@ -472,6 +472,14 @@ class feature_item(threading.Thread):
         adj = self.dataset.adj_matrix(sparse=True)
         feature_matrix, feature_masks = self.dataset.feature_matrix(bag_of_words=False, sparse=False)
         self.batch_size = int(feature_matrix[0,-1])
+
+
+        if self.batch_size<480:
+            self.batch_size=480
+        else:
+            self.batch_size = int((self.batch_size//480)*480)
+
+
         self.event = event
         self.event.set()
         self.event2 = event2
@@ -526,15 +534,12 @@ class feature_item(threading.Thread):
         self.best_device_choice = np.zeros(shape=(self.nb_nodes, max_replica_num), dtype=np.int32)
         self.best_ps_or_reduce = list()
         self.folder_path = folder_path
-        if self.batch_size<96:
-            self.batch_size=96
-        else:
-            self.batch_size = int((self.batch_size//96)*96)
+
         self.strategy_pool = strategy_pool(folder_path,self.nb_nodes,self.index_id_dict,self.env,self.batch_size,self.init_group,self.sink)
-        self.best_group= self.strategy_pool.choose_strategy()["group"]
+        self.best_group= self.strategy_pool.choose_strategy()["group"] if self.strategy_pool.choose_strategy()!=None else np.arange(max(self.init_group)+1)
 
         self.mutex = threading.Lock()
-        self.avg = float(np.mean(self.strategy_pool.rewards))
+        self.avg = 0
         self.oom = []
         self.train_place = False
         self.counter=0
@@ -630,7 +635,7 @@ class feature_item(threading.Thread):
             self.replica_masks.append(pool_strategy["replica_mask"])
             self.group.append(pool_strategy["group"])
         '''
-        self.avg = float(np.mean(self.strategy_pool.rewards))
+        self.avg = float(np.mean(self.strategy_pool.rewards)) if self.strategy_pool.get_length()>0 else np.mean(self.rewards)
         if self.master:
             global sample_prob
             if sample_prob<0.9:
@@ -677,6 +682,8 @@ class feature_item(threading.Thread):
 
         if epoch % show_interval == 0:
             pool_strategy = self.strategy_pool.choose_strategy()
+            if pool_strategy==None:
+                return
             new_loss,new_global_mems=self.place_gnn.learn(ftr_in=self.features,
                             bias_in=self.biases,
                             nb_nodes=self.nb_nodes,
