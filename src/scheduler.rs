@@ -9,6 +9,7 @@ use crate::proto::types::DataType;
 use crate::proto::attr_value::{AttrValue, AttrValue_oneof_value};
 use crate::proto::node_def::NodeDef;
 use crate::proto::tensor::TensorProto;
+use std::intrinsics::{exp2f64, log2f64};
 
 const LATENCY: u64 = 12;
 
@@ -26,7 +27,7 @@ pub struct TensorFlowLikeScheduler {
 #[derive(Debug, Default)]
 struct CollectiveGroup {
     devices: Vec<usize>,
-    bandwidth: u64
+    model: [f64; 4]
 }
 
 impl TensorFlowLikeScheduler {
@@ -120,7 +121,7 @@ impl Scheduler for TensorFlowLikeScheduler {
         let nodes = sort_nodes(&target.pb.node);
         let node_dict: BTreeMap<_, _> = nodes.iter().enumerate().map(|(i, x)| (x.name.clone(), i)).collect();
         let device_dict: BTreeMap<_, _> = target.devices.iter().enumerate().map(|(i, x)| (x.clone(), i)).collect();
-        let collective_groups = analyze_collective_groups(&target.pb.node, &device_dict);
+        let collective_groups = analyze_collective_groups(&target.pb.node, &device_dict, &target.nccls);
 
         // build tasks
         let mut tasks: Vec<Task> = vec![];
@@ -317,8 +318,8 @@ fn sort_nodes(x: &[NodeDef]) -> Vec<NodeDef> {
     result
 }
 
-fn analyze_collective_groups(nodes: &[NodeDef], device_dict: &BTreeMap<String, usize>) -> BTreeMap<usize, CollectiveGroup> {
-    let mut collective_groups: BTreeMap<usize, CollectiveGroup> = BTreeMap::new();
+fn analyze_collective_groups(nodes: &[NodeDef], device_dict: &BTreeMap<String, usize>, nccl_models: &BTreeMap<String, [f64; 4]>) -> BTreeMap<usize, CollectiveGroup> {
+    let mut collective_groups: BTreeMap<usize, Vec<&str>> = BTreeMap::new();
     let mut representative_instance: BTreeMap<usize, usize> = BTreeMap::new(); // we use the first instance to represent the group
 
     for node in nodes.iter() {
@@ -333,9 +334,18 @@ fn analyze_collective_groups(nodes: &[NodeDef], device_dict: &BTreeMap<String, u
         }
 
         let group = collective_groups.entry(group_key).or_default();
-        group.devices.push(device_dict[&node.device]);
-        group.bandwidth = 2810; // TODO: profile it
+        group.push(&node.device);
     }
 
-    collective_groups
+    collective_groups.iter().map(|(&k, v)| {
+        let devices = v.iter().map(|&x| device_dict[x]).collect();
+        let model = nccl_bandwidth(&v, nccl_models);
+        (k, CollectiveGroup { devices, bandwidth })
+    }).collect()
+}
+
+fn nccl_time(x: u64, nccl_model: [f64; 4]) -> u64 {
+    let t1 = nccl_model[0] * (x >> 10 as f64 + 1).log2() + nccl_model[1];
+    let t2 = nccl_model[2] * (x >> 10 as f64 + 1).log2() + nccl_model[3];
+    cmp::max(t1, t2).exp2() as _
 }

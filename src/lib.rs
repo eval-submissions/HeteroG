@@ -77,7 +77,8 @@ unsafe extern fn create_target(
     devices_raw: *const u8, devices_len: u32,
     links_raw: *const u8, links_len: u32,
     paths_raw: *const u8, paths_len: u32,
-    sinks_raw: *const u8, sinks_len: u32
+    sinks_raw: *const u8, sinks_len: u32,
+    nccls_raw: *const u8, nccls_len: u32
 ) -> *mut Target {
     let links_str = std::str::from_utf8(std::slice::from_raw_parts(links_raw, links_len as usize)).unwrap();
     let links = links_str.split_ascii_whitespace().map(|x| x.parse().unwrap()).collect();
@@ -91,7 +92,17 @@ unsafe extern fn create_target(
     let sinks_str = std::str::from_utf8(std::slice::from_raw_parts(sinks_raw, sinks_len as usize)).unwrap();
     let sinks = sinks_str.split_ascii_whitespace().map(|x| x.to_string()).collect();
 
-    let target = graph::Target::new(proto::graph::GraphDef::new(), devices, links, paths, sinks);
+    let sinks_str = std::str::from_utf8(std::slice::from_raw_parts(sinks_raw, sinks_len as usize)).unwrap();
+    let nccls = sinks_str.lines().map(|line| {
+        let mut m = [0., 0., 0., 0.];
+        let line: Vec<_> = line.split_ascii_whitespace().collect();
+        for i in 0..4 {
+            m[i] = line[i+1].parse().unwrap()
+        }
+        (line[0].to_string(), m)
+    }).collect();
+
+    let target = graph::Target::new(proto::graph::GraphDef::new(), devices, links, paths, sinks, nccls);
     leak(target)
 }
 

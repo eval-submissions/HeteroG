@@ -200,6 +200,12 @@ class TGE:
                     paths.append([0])
         self.set_topology(links, paths)
 
+    @chain
+    def set_nccl_model(self, model):
+        """use profiler.py to make a model"""
+
+        pass
+
     def _set_option(self, name, value):
         name_raw = str(name).encode('ascii')
         value_raw = str(value).encode('ascii')

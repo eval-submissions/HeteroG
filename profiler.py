@@ -26,14 +26,21 @@ class NcclProfiler:
 
         # intra task
         for task, devs in self.devices.items():
-            results[','.join(devs)] = self._profile(devs)
+            results[','.join(sorted(devs))] = self._model(self._profile(devs))
 
         # inter task
         for tasks in (t for i in range(2, len(self.devices)+1) for t in itertools.combinations(self.devices.keys(), i)):
             devs = [self.devices[t][0] for t in tasks] # the first (alphabet order) device is the leader of the task
-            results[','.join(devs)] = self._profile(devs)
+            results[','.join(sorted(devs))] = self._model(self._profile(devs))
 
         return results
+
+    def _model(self, data):
+        from sklearn.linear_model import LinearRegression
+        import math
+        model1 = LinearRegression().fit([[math.log2(x)] for x, y in data if x <= 2**8], [[math.log2(y)] for x, y in data if x <= 2**8])
+        model2 = LinearRegression().fit([[math.log2(x)] for x, y in data if x >= 2**12], [[math.log2(y)] for x, y in data if x >= 2**12])
+        return [model1.coef_[0][0].item(), model1.intercept_[0].item(), model2.coef_[0][0].item(), model2.intercept_[0].item()]
 
     def _profile(self, devices):
         from tensorflow.python.ops import collective_ops
