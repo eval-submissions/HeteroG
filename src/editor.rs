@@ -28,8 +28,8 @@ pub fn edit(graph: &mut Graph, target: &mut Target, strategy: &BTreeMap<&str, (V
     // only split if the whole group is replicated the same times. Otherwise go cache (default).
     let mut visited_groups = BTreeSet::new();
     for node in graph.nodes.iter_mut() {
-        if node.group.is_some() && !visited_groups.contains(&node.group.as_ref().map(|x| x.as_ptr()).unwrap()) {
-            visited_groups.insert(node.group.as_ref().map(|x| x.as_ptr()).unwrap());
+        if node.group.is_some() && !visited_groups.contains(&node.group.as_ref().map(|x| x.as_ptr() as *const _).unwrap()) {
+            visited_groups.insert(node.group.as_ref().map(|x| x.as_ptr() as *const _).unwrap());
             if graph.options.get("log_groups").map(|x| x == "True").unwrap_or(false) {
                  info!("group {}: {:?}", visited_groups.len(), node.group.as_ref().unwrap().borrow().iter().map(|x| node.graph().nodes[*x].raw_node.name.clone()).collect::<Vec<_>>());
             }

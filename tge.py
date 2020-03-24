@@ -23,7 +23,7 @@ libtge.edit_graph.restype = None
 libtge.reset_graph.argtypes = [ctypes.c_void_p]
 libtge.reset_graph.restype = None
 
-libtge.create_target.argtypes = [ctypes.POINTER(ctypes.c_char), ctypes.c_uint32] * 4
+libtge.create_target.argtypes = [ctypes.POINTER(ctypes.c_char), ctypes.c_uint32] * 5
 libtge.create_target.restype = ctypes.c_void_p
 
 libtge.destroy_target.argtypes = [ctypes.c_void_p]
@@ -71,6 +71,7 @@ class TGE:
         # default topology
         self.links = [1000000]
         self.paths = [[] if i == j else [0] for i in range(len(device_list)) for j in range(len(device_list))]
+        self.nccls = {}
 
         self.strategy = None
         self.target = None
@@ -130,13 +131,17 @@ class TGE:
         links_raw = ' '.join(map(str, self.links)).encode('ascii')
         paths_raw = '\n'.join((' '.join(map(str, path)) for path in self.paths))
         paths_raw = (paths_raw + '\n').encode('ascii')
+        nccls_raw = '\n'.join((' '.join([k, *map(str, v)]) for k, v in self.nccls))
+        nccls_raw = (nccls_raw + '\n').encode('ascii')
+
         if self.target is not None:
             libtge.destroy_target(self.target)
         self.target = libtge.create_target(
             devices_raw, len(devices_raw),
             links_raw, len(links_raw),
             paths_raw, len(paths_raw),
-            sinks_raw, len(sinks_raw)
+            sinks_raw, len(sinks_raw),
+            nccls_raw, len(nccls_raw)
         )
         self.compiled = False
 
@@ -203,8 +208,7 @@ class TGE:
     @chain
     def set_nccl_model(self, model):
         """use profiler.py to make a model"""
-
-        pass
+        self.nccls = model
 
     def _set_option(self, name, value):
         name_raw = str(name).encode('ascii')

@@ -92,8 +92,8 @@ unsafe extern fn create_target(
     let sinks_str = std::str::from_utf8(std::slice::from_raw_parts(sinks_raw, sinks_len as usize)).unwrap();
     let sinks = sinks_str.split_ascii_whitespace().map(|x| x.to_string()).collect();
 
-    let sinks_str = std::str::from_utf8(std::slice::from_raw_parts(sinks_raw, sinks_len as usize)).unwrap();
-    let nccls = sinks_str.lines().map(|line| {
+    let nccls_str = std::str::from_utf8(std::slice::from_raw_parts(nccls_raw, nccls_len as usize)).unwrap();
+    let nccls = nccls_str.lines().map(|line| {
         let mut m = [0., 0., 0., 0.];
         let line: Vec<_> = line.split_ascii_whitespace().collect();
         for i in 0..4 {

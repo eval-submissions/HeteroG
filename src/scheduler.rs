@@ -9,7 +9,6 @@ use crate::proto::types::DataType;
 use crate::proto::attr_value::{AttrValue, AttrValue_oneof_value};
 use crate::proto::node_def::NodeDef;
 use crate::proto::tensor::TensorProto;
-use std::intrinsics::{exp2f64, log2f64};
 
 const LATENCY: u64 = 12;
 
@@ -190,7 +189,7 @@ impl Scheduler for TensorFlowLikeScheduler {
                         if ready_list.len() == group.devices.len() { // all ready
                             debug!("all ready {}", instance_key);
                             let barrier = group.devices.iter().map(|gpu| gpu_available_time[*gpu]).max().expect("bug");
-                            let eft = barrier + size / collective_groups[&group_key].bandwidth;
+                            let eft = barrier + nccl_time(size, &collective_groups[&group_key].model);
                             for gpu in group.devices.iter() {
                                 gpu_available_time[*gpu] = eft;
                             }
@@ -229,7 +228,7 @@ impl Scheduler for TensorFlowLikeScheduler {
                             }
                         }
                         TaskType::Collective { instance_key, group_key, size } => {
-                            let duration = size / collective_groups[group_key].bandwidth;
+                            let duration = nccl_time(*size, &collective_groups[group_key].model);
                             let gpu = tasks[id].in_tensors[0].2; // hack
                             if duration != 0 {
                                 writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"collective\", \"ph\": \"B\", \"ts\": {}, \"pid\": 0, \"tid\": {} }},", instance_key, eft - duration, gpu).expect("fail to write log");
@@ -322,6 +321,14 @@ fn analyze_collective_groups(nodes: &[NodeDef], device_dict: &BTreeMap<String, u
     let mut collective_groups: BTreeMap<usize, Vec<&str>> = BTreeMap::new();
     let mut representative_instance: BTreeMap<usize, usize> = BTreeMap::new(); // we use the first instance to represent the group
 
+    let mut tasks: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for device in device_dict.keys() {
+        tasks.entry(task_name(device)).or_default().push(device)
+    }
+    for v in tasks.values_mut() {
+        v.sort_unstable()
+    }
+
     for node in nodes.iter() {
         if node.op != "CollectiveReduce" {
             continue
@@ -337,15 +344,29 @@ fn analyze_collective_groups(nodes: &[NodeDef], device_dict: &BTreeMap<String, u
         group.push(&node.device);
     }
 
-    collective_groups.iter().map(|(&k, v)| {
-        let devices = v.iter().map(|&x| device_dict[x]).collect();
-        let model = nccl_bandwidth(&v, nccl_models);
-        (k, CollectiveGroup { devices, bandwidth })
+    collective_groups.iter_mut().map(|(&k, v)| {
+        let devices = v.iter().map(|&x| device_dict[x]).collect::<Vec<_>>().apply(|x| x.sort_unstable());
+
+        v.sort_unstable();
+        let model = if let Some(x) = nccl_models.get(&v.join(",")) {
+            *x
+        } else {
+            let mut set: Vec<_> = v.iter().map(|x| tasks[task_name(x)][0]).collect();
+            set.sort_unstable();
+            set.dedup();
+            nccl_models[&set.join(",")]
+        };
+
+        (k, CollectiveGroup { devices, model })
     }).collect()
 }
 
-fn nccl_time(x: u64, nccl_model: [f64; 4]) -> u64 {
-    let t1 = nccl_model[0] * (x >> 10 as f64 + 1).log2() + nccl_model[1];
-    let t2 = nccl_model[2] * (x >> 10 as f64 + 1).log2() + nccl_model[3];
-    cmp::max(t1, t2).exp2() as _
+fn task_name(x: &str) -> &str {
+    &x[..x.rfind('/').unwrap()]
+}
+
+fn nccl_time(x: u64, nccl_model: &[f64; 4]) -> u64 {
+    let t1 = (nccl_model[0] * ((x >> 10) as f64 + 1.).log2() + nccl_model[1]).exp2() as _;
+    let t2 = (nccl_model[2] * ((x >> 10) as f64 + 1.).log2() + nccl_model[3]).exp2() as _;
+    cmp::max(t1, t2)
 }
