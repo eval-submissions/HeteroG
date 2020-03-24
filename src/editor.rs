@@ -38,7 +38,7 @@ pub fn edit(graph: &mut Graph, target: &mut Target, strategy: &BTreeMap<&str, (V
             if n > 1 && group.iter().copied().all(|x| node.graph().nodes[x].form.ndev() == n) {
                 for member in group.iter() {
                     let member = &mut node.graph().nodes[*member];
-                    if member.inputs.is_empty() && member.is_input() { // work around. Need to sort this out later.
+                    if member.inputs.is_empty() && member.is_input() { // work around. Need to sort this out later. EDIT: it does not work now, need to inspect
                         member.form.kind = FormKind::Part;
                         continue
                     }

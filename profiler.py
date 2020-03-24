@@ -1,5 +1,65 @@
 import numpy as np
 import tensorflow as tf
+import re
+import itertools
+
+class NcclProfiler:
+    def __init__(self, devices, target):
+        self.target = target
+        self.devices = {}
+        self.id = 0
+
+        for dev in devices:
+            task = re.search("task:(\d+)/", dev)[1]
+            if task in self.devices.keys():
+                self.devices[task].append(dev)
+            else:
+                self.devices[task] = [dev]
+
+        for devs in self.devices.values():
+            devs.sort()
+
+    def profile(self):
+        from tensorflow.distribute.cluster_resolver import TFConfigClusterResolver
+
+        results = {}
+
+        # intra task
+        for task, devs in self.devices.items():
+            results[','.join(devs)] = self._profile(devs)
+
+        # inter task
+        for tasks in (t for i in range(2, len(self.devices)+1) for t in itertools.combinations(self.devices.keys(), i)):
+            devs = [self.devices[t][0] for t in tasks] # the first (alphabet order) device is the leader of the task
+            results[','.join(devs)] = self._profile(devs)
+
+        return results
+
+    def _profile(self, devices):
+        from tensorflow.python.ops import collective_ops
+
+        id = self.id
+        self.id += 1
+
+        result = []
+        for size in (2**i for i in range(21)): # 1 KB to 1GB
+            handles = []
+            tf.reset_default_graph()
+            for dev in devices:
+                with tf.device(dev):
+                    x = tf.random.uniform((size, 128), dtype=tf.dtypes.float64)
+                    nccl = collective_ops.all_reduce(x, len(devices), id, id, 'Add', 'Id')
+                    handles.append(tf.identity(nccl))
+            run_meta = tf.compat.v1.RunMetadata()
+            run_opt = tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+            sess = tf.Session(self.target)
+            sess.run(handles)
+            sess.run(handles, options=run_opt, run_metadata=run_meta)
+
+            time = min(node.all_end_rel_micros for d in run_meta.step_stats.dev_stats for node in d.node_stats if 'CollectiveReduce' in node.node_name)
+            result.append((size, time))
+
+        return result
 
 class Profiler:
     def __init__(self, graph_def, target=None, sinks=["GradientDescent"]):

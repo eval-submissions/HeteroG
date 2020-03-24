@@ -56,7 +56,9 @@ BATCHSIZE=48
 
 devices = (
     "/job:worker/replica:0/task:0/device:GPU:0",
-    "/job:worker/replica:0/task:0/device:GPU:1"
+    "/job:worker/replica:0/task:0/device:GPU:1",
+    "/job:worker/replica:0/task:1/device:GPU:0",
+    "/job:worker/replica:0/task:1/device:GPU:1"
 )
 resolver = TFConfigClusterResolver()
 cluster = resolver.cluster_spec()
