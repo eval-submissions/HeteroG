@@ -93,14 +93,16 @@ unsafe extern fn create_target(
     let sinks = sinks_str.split_ascii_whitespace().map(|x| x.to_string()).collect();
 
     let nccls_str = std::str::from_utf8(std::slice::from_raw_parts(nccls_raw, nccls_len as usize)).unwrap();
-    let nccls = nccls_str.lines().map(|line| {
-        let mut m = [0., 0., 0., 0.];
+    let nccls = nccls_str.lines().filter(|x| !x.is_empty()).map(|line| {
+        let mut m = [0, 0, 0, 0];
         let line: Vec<_> = line.split_ascii_whitespace().collect();
         for i in 0..4 {
             m[i] = line[i+1].parse().unwrap()
         }
         (line[0].to_string(), m)
     }).collect();
+
+    warn!("{:?}", nccls);
 
     let target = graph::Target::new(proto::graph::GraphDef::new(), devices, links, paths, sinks, nccls);
     leak(target)

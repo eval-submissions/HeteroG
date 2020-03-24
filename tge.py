@@ -131,7 +131,7 @@ class TGE:
         links_raw = ' '.join(map(str, self.links)).encode('ascii')
         paths_raw = '\n'.join((' '.join(map(str, path)) for path in self.paths))
         paths_raw = (paths_raw + '\n').encode('ascii')
-        nccls_raw = '\n'.join((' '.join([k, *map(str, v)]) for k, v in self.nccls))
+        nccls_raw = '\n'.join((' '.join([k, *map(str, v)]) for k, v in self.nccls.items()))
         nccls_raw = (nccls_raw + '\n').encode('ascii')
 
         if self.target is not None:

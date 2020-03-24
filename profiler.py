@@ -7,7 +7,7 @@ class NcclProfiler:
     def __init__(self, devices, target):
         self.target = target
         self.devices = {}
-        self.id = 0
+        self.id = 3399
 
         for dev in devices:
             task = re.search("task:(\d+)/", dev)[1]
@@ -37,10 +37,9 @@ class NcclProfiler:
 
     def _model(self, data):
         from sklearn.linear_model import LinearRegression
-        import math
-        model1 = LinearRegression().fit([[math.log2(x)] for x, y in data if x <= 2**8], [[math.log2(y)] for x, y in data if x <= 2**8])
-        model2 = LinearRegression().fit([[math.log2(x)] for x, y in data if x >= 2**12], [[math.log2(y)] for x, y in data if x >= 2**12])
-        return [model1.coef_[0][0].item(), model1.intercept_[0].item(), model2.coef_[0][0].item(), model2.intercept_[0].item()]
+        model1 = LinearRegression().fit([[x] for x, y in data if x <= 2**8], [[y] for x, y in data if x <= 2**8])
+        model2 = LinearRegression().fit([[x] for x, y in data if x >= 2**12], [[y] for x, y in data if x >= 2**12])
+        return [ int(x.item()) for x in [model1.coef_[0][0], model1.intercept_[0], model2.coef_[0][0], model2.intercept_[0]] ]
 
     def _profile(self, devices):
         from tensorflow.python.ops import collective_ops
