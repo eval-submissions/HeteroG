@@ -4,10 +4,10 @@ import re
 import itertools
 
 class NcclProfiler:
-    def __init__(self, devices, target):
+    def __init__(self, devices, target, seed=3399):
         self.target = target
+        self.seed = seed
         self.devices = {}
-        self.id = 3399
 
         for dev in devices:
             task = re.search("task:(\d+)/", dev)[1]
@@ -20,18 +20,14 @@ class NcclProfiler:
             devs.sort()
 
     def profile(self):
-        from tensorflow.distribute.cluster_resolver import TFConfigClusterResolver
-
         results = {}
 
-        # intra task
         for task, devs in self.devices.items():
-            results[','.join(sorted(devs))] = self._model(self._profile(devs))
+            results[','.join(sorted(devs))] = self._model([x for i in range(5) for x in self._profile(devs)])
 
-        # inter task
         for tasks in (t for i in range(2, len(self.devices)+1) for t in itertools.combinations(self.devices.keys(), i)):
             devs = [self.devices[t][0] for t in tasks] # the first (alphabet order) device is the leader of the task
-            results[','.join(sorted(devs))] = self._model(self._profile(devs))
+            results[','.join(sorted(devs))] = self._model([x for i in range(5) for x in self._profile(devs)])
 
         return results
 
@@ -39,13 +35,14 @@ class NcclProfiler:
         from sklearn.linear_model import LinearRegression
         model1 = LinearRegression().fit([[x] for x, y in data if x <= 2**8], [[y] for x, y in data if x <= 2**8])
         model2 = LinearRegression().fit([[x] for x, y in data if x >= 2**12], [[y] for x, y in data if x >= 2**12])
-        return [ int(x.item()) for x in [model1.coef_[0][0], model1.intercept_[0], model2.coef_[0][0], model2.intercept_[0]] ]
+        print(data, [model1.coef_[0][0].item(), model1.intercept_[0].item(), model2.coef_[0][0].item(), model2.intercept_[0].item()])
+        return [model1.coef_[0][0].item(), model1.intercept_[0].item(), model2.coef_[0][0].item(), model2.intercept_[0].item()]
 
     def _profile(self, devices):
         from tensorflow.python.ops import collective_ops
 
-        id = self.id
-        self.id += 1
+        id = self.seed
+        self.seed += 1
 
         result = []
         for size in (2**i for i in range(21)): # 1 KB to 1GB

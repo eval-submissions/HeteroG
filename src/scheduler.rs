@@ -26,7 +26,7 @@ pub struct TensorFlowLikeScheduler {
 #[derive(Debug, Default)]
 struct CollectiveGroup {
     devices: Vec<usize>,
-    model: [i64; 4]
+    model: [f64; 4]
 }
 
 impl TensorFlowLikeScheduler {
@@ -317,7 +317,7 @@ fn sort_nodes(x: &[NodeDef]) -> Vec<NodeDef> {
     result
 }
 
-fn analyze_collective_groups(nodes: &[NodeDef], device_dict: &BTreeMap<String, usize>, nccl_models: &BTreeMap<String, [i64; 4]>) -> BTreeMap<usize, CollectiveGroup> {
+fn analyze_collective_groups(nodes: &[NodeDef], device_dict: &BTreeMap<String, usize>, nccl_models: &BTreeMap<String, [f64; 4]>) -> BTreeMap<usize, CollectiveGroup> {
     let mut collective_groups: BTreeMap<usize, Vec<&str>> = BTreeMap::new();
     let mut representative_instance: BTreeMap<usize, usize> = BTreeMap::new(); // we use the first instance to represent the group
 
@@ -354,7 +354,12 @@ fn analyze_collective_groups(nodes: &[NodeDef], device_dict: &BTreeMap<String, u
             let mut set: Vec<_> = v.iter().map(|x| tasks[task_name(x)][0]).collect();
             set.sort_unstable();
             set.dedup();
-            nccl_models[&set.join(",")]
+            if let Some(x) = nccl_models.get(&set.join(",")) {
+                *x
+            } else {
+                warn!("no profiling data for nccl among {}, use a general fallback", set.join(","));
+                [0.043420241077615454, 368.2013618677043, 0.27766802543921265, 211.91926070037152]
+            }
         };
 
         (k, CollectiveGroup { devices, model })
@@ -365,10 +370,8 @@ fn task_name(x: &str) -> &str {
     &x[..x.rfind('/').unwrap()]
 }
 
-fn nccl_time(x: u64, nccl_model: &[i64; 4]) -> u64 {
-    let t1 = nccl_model[0] * (x >> 10) as i64 + nccl_model[1];
-    let t2 = nccl_model[2] * (x >> 10) as i64 + nccl_model[3];
-    let v = cmp::max(t1, t2) as _;
-    info!("{:?} {} {}", nccl_model, x, v);
-    v
+fn nccl_time(x: u64, nccl_model: &[f64; 4]) -> u64 {
+    let t1 = nccl_model[0] * (x >> 10) as f64 + nccl_model[1];
+    let t2 = nccl_model[2] * (x >> 10) as f64 + nccl_model[3];
+    cmp::max(t1 as _, t2 as _)
 }
