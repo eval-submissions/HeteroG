@@ -30,11 +30,7 @@ devices=config_dict.get("devices", [
     "/job:worker/replica:0/task:1/device:GPU:0",
     "/job:worker/replica:0/task:1/device:GPU:1",
     "/job:worker/replica:0/task:2/device:GPU:0",
-    "/job:worker/replica:0/task:2/device:GPU:1",
-    "/job:worker/replica:0/task:3/device:GPU:0",
-    "/job:worker/replica:0/task:3/device:GPU:1",
-    "/job:worker/replica:0/task:4/device:GPU:0",
-    "/job:worker/replica:0/task:4/device:GPU:1"
+    "/job:worker/replica:0/task:2/device:GPU:1"
 
 ])
 
@@ -49,8 +45,9 @@ def setup_workers(workers, protocol="grpc"):
     time.sleep(1)
 
 
-workers = ["10.28.1.26:3901", "10.28.1.25:3901","10.28.1.24:3901","10.28.1.17:3901","10.28.1.16:3901"]
-os.environ["TF_CONFIG"] = '{ "cluster": { "worker": ["10.28.1.26:3901", "10.28.1.25:3901","10.28.1.24:3901","10.28.1.17:3901","10.28.1.16:3901"]  }, "task": {"type": "worker", "index": 0} }'
+#workers = ["10.28.1.26:3901", "10.28.1.25:3901","10.28.1.24:3901","10.28.1.17:3901","10.28.1.16:3901"]
+workers = ["10.28.1.26:3901","10.28.1.17:3901","10.28.1.16:3901"]
+os.environ["TF_CONFIG"] = '{ "cluster": { "worker": ["10.28.1.26:3901","10.28.1.17:3901","10.28.1.16:3901"]  }, "task": {"type": "worker", "index": 0} }'
 setup_workers(workers, "grpc")
 
 resolver = TFConfigClusterResolver()

@@ -58,6 +58,9 @@ place_hid_units = [1024, 256]
 place_n_heads = [4,4,1]
 residual = False
 
+
+global_batch_size=288
+
 n_layer=12
 n_head=8
 d_head=64
@@ -356,6 +359,10 @@ class Environment(object):
         self.devices =devices
         self.sink =sink
         self.init_group = init_group
+        with open("nccl_model.pkl","rb") as f:
+            self.nccl_model=pkl.load(f)
+
+
         if "graph7" in folder_path:
             self.null_gdef =self.gdef
         else:
@@ -400,7 +407,7 @@ class Environment(object):
             inter = bandwidth[1]
         _tge = tge.TGE(copy.deepcopy(self.gdef), self.devices,sink)
 
-        time_mem_tuple = _tge.custom(strategy).replace_placeholder(self.batch_size).use_collective().set_bandwidth(intra,inter).evaluate(self.name_cost_dict)
+        time_mem_tuple = _tge.custom(strategy).replace_placeholder(self.batch_size).set_nccl_model(self.nccl_model).use_collective().set_bandwidth(intra,inter).evaluate(self.name_cost_dict)
         time = time_mem_tuple[0]
         mem_list = time_mem_tuple[1]
         time = float(time)/(10**3)
@@ -475,10 +482,10 @@ class feature_item(threading.Thread):
         self.batch_size = int(feature_matrix[0,-1])
 
 
-        if self.batch_size<480:
-            self.batch_size=480
+        if self.batch_size<global_batch_size:
+            self.batch_size=global_batch_size
         else:
-            self.batch_size = int((self.batch_size//480)*480)
+            self.batch_size = int((self.batch_size//global_batch_size)*global_batch_size)
 
 
         self.event = event
