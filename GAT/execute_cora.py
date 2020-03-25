@@ -443,11 +443,12 @@ class Environment(object):
 
 sample_prob = 0.9
 def random_choice(item):
+    np.random.seed()
     choice1 = np.random.choice(item.size, p=item)
-    return choice1
-    #choice2 = np.random.randint(0,item.size)
-    #choices = [choice1,choice2]
-    #return choices[np.random.choice(2,p=[sample_prob,1-sample_prob])]
+    #return choice1
+    choice2 = np.random.randint(0,item.size)
+    choices = [choice1,choice2]
+    return choices[np.random.choice(2,p=[sample_prob,1-sample_prob])]
 
 def sample_func1(output):
     return np.array(list(map(random_choice, output)))
@@ -659,7 +660,7 @@ class feature_item(threading.Thread):
     def train(self,epoch):
         global global_mems
         tr_step = 0
-        co_entropy = 0
+        co_entropy = 10
         tr_size = self.features.shape[0]
         '''
         if self.strategy_pool.get_length()>0:
@@ -690,7 +691,7 @@ class feature_item(threading.Thread):
                         sample_ps_or_reduce = np.array(self.ps_or_reduces[index]),
                         sample_device_choice = np.array(self.device_choices[index]),
                         sample_group=np.array(self.group[index]),
-                        time_ratio = 1000*((self.rewards[index])-self.avg)/np.abs(self.avg),
+                        time_ratio = ((self.rewards[index])-self.avg)/np.abs(self.avg),
                         coef_entropy=co_entropy,
                         mems = global_mems,
                         init_group=self.init_group)
@@ -727,7 +728,7 @@ class feature_item(threading.Thread):
                             sample_ps_or_reduce = np.array(pool_strategy["ps_or_reduce"]),
                             sample_device_choice = np.array(pool_strategy["device_choice"]),
                             sample_group=np.array(pool_strategy["group"]),
-                            time_ratio = 1000*((pool_strategy["reward"])-self.avg)/np.abs(self.avg),
+                            time_ratio = ((pool_strategy["reward"])-self.avg)/np.abs(self.avg),
                             coef_entropy=co_entropy,
                             mems = global_mems,
                             init_group=self.init_group)
@@ -891,7 +892,7 @@ class new_place_GNN():
 
         #self.place_loss = 100*self.place_loss
         place_reward =  self.place_loss+self.coef_entropy * self.entropy
-        group_reward = (self.group_loss+0*self.group_entropy)
+        group_reward = (self.group_loss+self.coef_entropy*self.group_entropy)
         reward = place_reward+group_reward
         self.loss = -reward
         place_loss = -place_reward
