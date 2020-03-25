@@ -562,12 +562,12 @@ class feature_item(threading.Thread):
 
     def sample(self):
 
-        self.replica_masks = mp.Manager().list()
-        self.device_choices = mp.Manager().list()
-        self.rewards = mp.Manager().list()
-        self.ps_or_reduces = mp.Manager().list()
-        self.group =mp.Manager().list()
-        self.oom = mp.Manager().list()
+        self.replica_masks = mp.Manager().list(range(sample_times+1))
+        self.device_choices = mp.Manager().list(range(sample_times+1))
+        self.rewards = mp.Manager().list(range(sample_times+1))
+        self.ps_or_reduces = mp.Manager().list(range(sample_times+1))
+        self.group =mp.Manager().list(range(sample_times+1))
+        self.oom = mp.Manager().list(range(sample_times+1))
         co_entropy = 0
         self.thres = []
 
@@ -579,9 +579,37 @@ class feature_item(threading.Thread):
             sample_group=np.array(self.best_group),
             init_group = self.init_group)
 
+    def parallel_process_output_unit(self,i):
+        if i == sample_times:
+            device_choice = np.array(list(map(argmax_func1, self.outputs[0:max_replica_num])))
+        else:
+            device_choice = np.array(list(map(sample_func1, self.outputs[0:max_replica_num])))
+        # device_choice = self.outputs[0:max_replica_num]
+        device_choice = np.transpose(device_choice)
+
+        device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
+        if i == sample_times:
+            ps_or_reduce = np.array(list(map(argmax_random_func1, self.outputs[max_replica_num])))
+        else:
+            ps_or_reduce = np.array(list(map(random_func1, self.outputs[max_replica_num])))
+        # ps_or_reduce = self.outputs[max_replica_num]
+        # group =  np.array(list(map(random_func1,self.outputs[-1])))
+        group = self.outputs[-1]
+        _reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group)
+        if not out_of_memory:
+            self.oom[i]=(False)
+        else:
+            self.oom[i]=(True)
+
+        self.rewards[i]=(_reward)
+        self.ps_or_reduces[i]=(ps_or_reduce)
+        self.device_choices[i]=(device_choice)
+        self.group[i]=(group)
+        self.replica_masks[i]=(replica_mask)
 
     def parallel_process_output(self):
         for i in range(sample_times+1):
+            '''
             if i==sample_times:
                 device_choice = np.array(list(map(argmax_func1, self.outputs[0:max_replica_num])))
             else:
@@ -608,6 +636,13 @@ class feature_item(threading.Thread):
             self.device_choices.append(device_choice)
             self.group.append(group)
             self.replica_masks.append(replica_mask)
+            '''
+            p=mp.Process(target=self.parallel_process_output_unit, args=(i,))
+            self.thres.append(p)
+            p.start()
+        for p in self.thres:
+            p.join()
+
         print("Group:",self.group[0])
     def post_parallel_process(self):
         for i in range(sample_times+1):
@@ -681,6 +716,7 @@ class feature_item(threading.Thread):
                 f.write(str(new_loss) + ",")
 
         if epoch % show_interval == 0:
+            return
             pool_strategy = self.strategy_pool.choose_strategy()
             if pool_strategy==None:
                 return
