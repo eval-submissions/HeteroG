@@ -32,11 +32,11 @@ class NcclProfiler:
         return results
 
     def _model(self, data):
-        from sklearn.linear_model import LinearRegression
-        model1 = LinearRegression().fit([[x] for x, y in data if x <= 2**8], [[y] for x, y in data if x <= 2**8])
-        model2 = LinearRegression().fit([[x] for x, y in data if x >= 2**12], [[y] for x, y in data if x >= 2**12])
-        print(data, [model1.coef_[0][0].item(), model1.intercept_[0].item(), model2.coef_[0][0].item(), model2.intercept_[0].item()])
-        return [model1.coef_[0][0].item(), model1.intercept_[0].item(), model2.coef_[0][0].item(), model2.intercept_[0].item()]
+        from sklearn.linear_model import HuberRegressor
+        model1 = HuberRegressor().fit([[x] for x, y in data if x < 2**8], [y for x, y in data if x < 2**8])
+        model2 = HuberRegressor().fit([[x] for x, y in data if x > 2**10], [y for x, y in data if x > 2**10])
+        print(data, [model1.coef_[0].item(), model1.intercept_.item(), model2.coef_[0].item(), model2.intercept_.item()])
+        return [model1.coef_[0].item(), model1.intercept_.item(), model2.coef_[0].item(), model2.intercept_.item()]
 
     def _profile(self, devices):
         from tensorflow.python.ops import collective_ops
