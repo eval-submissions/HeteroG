@@ -6,7 +6,7 @@
 
 use oh_my_rust::*;
 use protobuf::{Message, parse_from_bytes};
-use scheduler::Scheduler;
+use simulator::Simulator;
 use std::collections::BTreeMap;
 use graph::{Graph, Target};
 
@@ -14,7 +14,7 @@ pub mod proto;
 pub mod graph;
 pub mod editor;
 pub mod polishing;
-pub mod scheduler;
+pub mod simulator;
 
 #[no_mangle]
 unsafe extern fn create_graph(pb: *const u8, pb_len: u32) -> *mut Graph {
@@ -140,7 +140,7 @@ unsafe extern fn evaluate(target: *mut Target, profile_data: *const u8, profile_
         let pos = v.binary_search_by_key(&nrep, |x| x.0).unwrap_or_else(|e| e);
         v.insert(pos, (nrep, times))
     };
-    let scheduler = scheduler::TensorFlowLikeScheduler::new(profile_dict);
+    let scheduler = simulator::SimpleSimulator::new(profile_dict);
     let tracer = if trace_len == 0 {
         None
     } else {

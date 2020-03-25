@@ -10,15 +10,18 @@ use crate::proto::attr_value::{AttrValue, AttrValue_oneof_value};
 use crate::proto::node_def::NodeDef;
 use crate::proto::tensor::TensorProto;
 
-const LATENCY: u64 = 12;
+const GRPC_LATENCY: u64 = 12;
+
+#[allow(clippy::unreadable_literal)]
+const FALLBACK_NCCL_MODEL: [f64; 4] = [0.043420241077615454, 368.2013618677043, 0.27766802543921265, 211.91926070037152];
 
 // todo: split scheduling and simulating. logging and memory calculation are simulation
-pub trait Scheduler {
+pub trait Simulator {
     /// `memory` should be already zero-initialized and be at least as long as target.device
     fn evaluate<W: std::io::Write>(&self, target: &Target, trace: Option<&mut W>, memory: &mut [u64]) -> u64;
 }
 
-pub struct TensorFlowLikeScheduler {
+pub struct SimpleSimulator {
     /// the value is a binary sorted array contains replica_number and the time required on each device given replicated by that number
     profile_dict: BTreeMap<String, Vec<(usize, Vec<u64>)>>
 }
@@ -29,7 +32,7 @@ struct CollectiveGroup {
     model: [f64; 4]
 }
 
-impl TensorFlowLikeScheduler {
+impl SimpleSimulator {
     pub fn new(profile_dict: BTreeMap<String, Vec<(usize, Vec<u64>)>>) -> Self {
         Self { profile_dict }
     }
@@ -109,7 +112,7 @@ type TensorBuf = (usize, usize, usize); // id, index, gpu
 // consume memory when the activate op is finished, and deactivate when all deactivate ops are done
 // TODO: ensure every tensor being transferred, even if the path is empty
 
-impl Scheduler for TensorFlowLikeScheduler {
+impl Simulator for SimpleSimulator {
     fn evaluate<W: std::io::Write>(&self, target: &Target, mut tracer: Option<&mut W>, max_memory: &mut [u64]) -> u64 {
         task!("evaluating graph of {} nodes...", target.pb.node.len());
 
@@ -202,7 +205,7 @@ impl Scheduler for TensorFlowLikeScheduler {
                         let est = path.iter().fold(time, |max, link| cmp::max(max, link_available_time[*link]));
                         let eft = est + if !path.is_empty() {
                             let bandwidth = path.iter().fold(std::u64::MAX, |min, link| cmp::min(min, target.links[*link]));
-                            size / bandwidth + LATENCY
+                            size / bandwidth + GRPC_LATENCY
                         } else {
                             0
                         };
@@ -237,7 +240,7 @@ impl Scheduler for TensorFlowLikeScheduler {
                         }
                         TaskType::Transfer { size, path } => if !path.is_empty() {
                             let bandwidth = path.iter().fold(std::u64::MAX, |min, link| cmp::min(min, target.links[*link]));
-                            let duration = size / bandwidth + LATENCY;
+                            let duration = size / bandwidth + GRPC_LATENCY;
                             for link in *path {
                                 writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"transfer\", \"ph\": \"B\", \"ts\": {}, \"pid\": 1, \"tid\": {} }},", id, eft - duration, link).expect("fail to write log");
                                 writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"transfer\", \"ph\": \"E\", \"ts\": {}, \"pid\": 1, \"tid\": {} }},", id, eft, link).expect("fail to write log");
@@ -358,7 +361,7 @@ fn analyze_collective_groups(nodes: &[NodeDef], device_dict: &BTreeMap<String, u
                 *x
             } else {
                 warn!("no profiling data for nccl among {}, use a general fallback", set.join(","));
-                [0.043420241077615454, 368.2013618677043, 0.27766802543921265, 211.91926070037152]
+                FALLBACK_NCCL_MODEL
             }
         };
 
