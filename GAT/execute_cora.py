@@ -690,26 +690,26 @@ class feature_item(threading.Thread):
         print("[{}] Rewards = {}".format(self.folder_path, self.rewards))
 
 
-        index = self.rewards.index(max(self.rewards[0:sample_times]))
-        new_loss,new_global_mems=self.place_gnn.learn(ftr_in=self.features,
-                        bias_in=self.biases,
-                        nb_nodes=self.nb_nodes,
-                        replica_num_array=np.array(self.replica_masks[index]),
-                        sample_ps_or_reduce = np.array(self.ps_or_reduces[index]),
-                        sample_device_choice = np.array(self.device_choices[index]),
-                        sample_group=np.array(self.group[index]),
-                        time_ratio = ((self.rewards[index])-self.avg)/np.abs(self.avg),
-                        coef_entropy=co_entropy,
-                        mems = global_mems,
-                        init_group=self.init_group)
-        global_mems = new_global_mems
+        for index in range(sample_times):
+            new_loss,new_global_mems=self.place_gnn.learn(ftr_in=self.features,
+                            bias_in=self.biases,
+                            nb_nodes=self.nb_nodes,
+                            replica_num_array=np.array(self.replica_masks[index]),
+                            sample_ps_or_reduce = np.array(self.ps_or_reduces[index]),
+                            sample_device_choice = np.array(self.device_choices[index]),
+                            sample_group=np.array(self.group[index]),
+                            time_ratio = ((self.rewards[index])-self.avg)/np.abs(self.avg),
+                            coef_entropy=co_entropy,
+                            mems = global_mems,
+                            init_group=self.init_group)
+            global_mems = new_global_mems
         '''
         for i in range(sample_times):
             if self.oom[i] == False:
                 self.avg = (self.avg+self.rewards[i])/2
         '''
 
-        times = max(self.rewards[0:sample_times])*max(self.rewards[0:sample_times])
+        times = max(self.rewards)*max(self.rewards)
 
         if epoch % show_interval == 0:
             print("[{}] step = {}".format(self.folder_path,epoch))
