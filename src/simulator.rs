@@ -21,44 +21,10 @@ pub trait Simulator {
     fn evaluate<W: std::io::Write>(&self, target: &Target, trace: Option<&mut W>, memory: &mut [u64]) -> u64;
 }
 
-pub struct SimpleSimulator {
-    /// the value is a binary sorted array contains replica_number and the time required on each device given replicated by that number
-    profile_dict: BTreeMap<String, Vec<(usize, Vec<u64>)>>
-}
-
 #[derive(Debug, Default)]
 struct CollectiveGroup {
     devices: Vec<usize>,
     model: [f64; 4]
-}
-
-impl SimpleSimulator {
-    pub fn new(profile_dict: BTreeMap<String, Vec<(usize, Vec<u64>)>>) -> Self {
-        Self { profile_dict }
-    }
-
-    fn profile(&self, node: &NodeDef, device_id: usize) -> Option<u64> {
-        let origin_name = node.attr.get("_tge_origin")?.get_s();
-        // technically we do not need to extract the form if we use a profiler since it will be reflected by the input size.
-        let form = Form::from_code(std::str::from_utf8(node.attr.get("_tge_form")?.get_s()).ok()?);
-        let nrep = if form.is_part() {
-            form.ndev()
-        } else {
-            1
-        };
-
-        let prof = self.profile_dict.get(&String::from_utf8(origin_name.to_vec()).unwrap())?;
-        let time = match prof.binary_search_by_key(&nrep, |x| x.0) {
-            Ok(i) => prof[i].1[device_id],
-            Err(i) => if i >= prof.len() {
-                prof[i - 1].1[device_id]
-            } else {
-                prof[i].1[device_id]
-            }
-        };
-
-        Some(time)
-    }
 }
 
 #[derive(Debug)]
@@ -111,6 +77,40 @@ type TensorBuf = (usize, usize, usize); // id, index, gpu
 // implementation: transfer task save activate tensor id, tensors is an array contains sizes and ref counts, computation save deactivate tensor id
 // consume memory when the activate op is finished, and deactivate when all deactivate ops are done
 // TODO: ensure every tensor being transferred, even if the path is empty
+
+pub struct SimpleSimulator {
+    /// the value is a binary sorted array contains replica_number and the time required on each device given replicated by that number
+    profile_dict: BTreeMap<String, Vec<(usize, Vec<u64>)>>
+}
+
+impl SimpleSimulator {
+    pub fn new(profile_dict: BTreeMap<String, Vec<(usize, Vec<u64>)>>) -> Self {
+        Self { profile_dict }
+    }
+
+    fn profile(&self, node: &NodeDef, device_id: usize) -> Option<u64> {
+        let origin_name = node.attr.get("_tge_origin")?.get_s();
+        // technically we do not need to extract the form if we use a profiler since it will be reflected by the input size.
+        let form = Form::from_code(std::str::from_utf8(node.attr.get("_tge_form")?.get_s()).ok()?);
+        let nrep = if form.is_part() {
+            form.ndev()
+        } else {
+            1
+        };
+
+        let prof = self.profile_dict.get(&String::from_utf8(origin_name.to_vec()).unwrap())?;
+        let time = match prof.binary_search_by_key(&nrep, |x| x.0) {
+            Ok(i) => prof[i].1[device_id],
+            Err(i) => if i >= prof.len() {
+                prof[i - 1].1[device_id]
+            } else {
+                prof[i].1[device_id]
+            }
+        };
+
+        Some(time)
+    }
+}
 
 impl Simulator for SimpleSimulator {
     fn evaluate<W: std::io::Write>(&self, target: &Target, mut tracer: Option<&mut W>, max_memory: &mut [u64]) -> u64 {
@@ -177,7 +177,7 @@ impl Simulator for SimpleSimulator {
         loop {
             // schedule ready tasks. Note the scheduled task may or may not start immediatly depending on the GPU/link queue. There may be other tasks become ready before some tasks schedualed earlier actually start.
             while let Some(task_id) = ready_list.pop_front() {
-                let task = &mut tasks[task_id];
+                let task = &tasks[task_id];
                 match task.content {
                     TaskType::Computation { id: node_id, gpu } => {
                         debug!("{:?} {:?} {:?} {:?} {:?}", gpu, gpu_available_time[gpu], time, nodes[node_id].name, self.profile(&nodes[node_id], gpu).unwrap_or(0));
