@@ -7,15 +7,15 @@
 #     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
 #     return optimizer
 
-# def model_fn(bsize=None):
-#     from tensorflow.contrib.slim.nets import resnet_v2
-#     x = tf.placeholder(tf.float32, shape=(bsize, 224, 224, 3))
-#     y = tf.placeholder(tf.float32, shape=(bsize, 1000))
-#     output, _ = resnet_v2.resnet_v2_101(x, 1000)
-#     output = tf.contrib.slim.flatten(output)
-#     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
-#     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
-#     return optimizer
+def model_fn(bsize=None):
+    from tensorflow.contrib.slim.nets import resnet_v2
+    x = tf.placeholder(tf.float32, shape=(bsize, 224, 224, 3))
+    y = tf.placeholder(tf.float32, shape=(bsize, 1000))
+    output, _ = resnet_v2.resnet_v2_101(x, 1000)
+    output = tf.contrib.slim.flatten(output)
+    loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
+    optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
+    return optimizer
 
 # def model_fn(bsize):
 #     x = tf.placeholder(tf.float32, shape=(bsize, 1024))
@@ -26,21 +26,21 @@
 #     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
 #     return optimizer
 
-def model_fn(bsize):
-    slim = tf.contrib.slim
-    x = tf.placeholder(tf.float32, shape=(bsize, 32, 32, 3))
-    y = tf.placeholder(tf.float32, shape=(bsize, 1000))
-    net = slim.conv2d(x, 32, [5, 5])
-    net = slim.max_pool2d(net, [2, 2], 2)
-    net = slim.conv2d(net, 64, [5, 5])
-    net = slim.max_pool2d(net, [2, 2], 2)
-    net = slim.flatten(net)
-    net = slim.fully_connected(net, 1024, activation_fn=tf.nn.sigmoid)
-    net = slim.fully_connected(net, 1000, activation_fn=None)
-    loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=net)
-    acc = tf.reduce_mean(tf.nn.softmax(net) * y)
-    optimizer = tf.train.GradientDescentOptimizer(0.001).minimize(tf.reduce_sum(loss))
-    return optimizer
+# def model_fn(bsize):
+#     slim = tf.contrib.slim
+#     x = tf.placeholder(tf.float32, shape=(bsize, 32, 32, 3))
+#     y = tf.placeholder(tf.float32, shape=(bsize, 1000))
+#     net = slim.conv2d(x, 32, [5, 5])
+#     net = slim.max_pool2d(net, [2, 2], 2)
+#     net = slim.conv2d(net, 64, [5, 5])
+#     net = slim.max_pool2d(net, [2, 2], 2)
+#     net = slim.flatten(net)
+#     net = slim.fully_connected(net, 1024, activation_fn=tf.nn.sigmoid)
+#     net = slim.fully_connected(net, 1000, activation_fn=None)
+#     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=net)
+#     acc = tf.reduce_mean(tf.nn.softmax(net) * y)
+#     optimizer = tf.train.GradientDescentOptimizer(0.001).minimize(tf.reduce_sum(loss))
+#     return optimizer
 
 import time
 import numpy as np
