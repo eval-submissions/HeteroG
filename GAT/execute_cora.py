@@ -112,6 +112,13 @@ def find_index(array, item):
         if val == item:
             return idx
     return len(array)
+
+def find_replica_num(array,item):
+    counter=0
+    for idx, val in enumerate(array):
+        if val!=item:
+            counter+=1
+    return counter
 def post_func1(item):
     item1=item[:len(item)-1]
     batch_size = item[-1]
@@ -119,12 +126,18 @@ def post_func1(item):
     while(batch_size%replica_num):
         replica_num-=1
     if replica_num<len(item1):
+        '''
         counter=0
+       
         for i,elem in enumerate(item1):
             if counter>=replica_num:
                 item1[i] = len(devices)
             if counter<replica_num and elem!=len(devices):
                 counter+=1
+        '''
+        item1[replica_num] =len(devices)
+        if replica_num+1<len(item1):
+            item1[replica_num+1:]=-1
 
     return item1
 def post_func2(item1):
@@ -397,6 +410,7 @@ class Environment(object):
         new_device_array = np.array(list(map(reward_func,device_choice)))
         ps_or_reduce = np.reshape(ps_or_reduce, (ps_or_reduce.shape[0], 1))
         new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
+        print(new_device_array)
         strategy = {index_id_dict[index]:new_device_array[group[self.init_group[index]]].tolist() for index in range(len(index_id_dict))}
         bandwidth = config_dict.get("bandwidth",None)
         if bandwidth==None:
@@ -894,6 +908,7 @@ class new_place_GNN():
                 indices = tf.concat((_range, self.sample_device_choice[:, j][:, tf.newaxis]), axis=1)
                 log_prob = tf.gather_nd(self.log_device_choices[j], indices)
                 log_prob = tf.gather(log_prob, unique_group)
+                log_prob = tf.boolean_mask(log_prob,self.replica_num_array[:,j])
                 self.place_loss.append(tf.reduce_sum(log_prob) * self.time_ratio)
             self.place_loss = tf.add_n(self.place_loss)
 
