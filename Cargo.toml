@@ -15,5 +15,6 @@ panic = 'abort'
 [dependencies]
 protobuf = "=2.10.2"
 taken = "0.1"
+crossbeam-channel = "0.4"
 oh-my-rust = { git = "https://github.com/ylxdzsw/oh-my-rust" }
 scoped = { git = "https://github.com/ylxdzsw/scoped" }

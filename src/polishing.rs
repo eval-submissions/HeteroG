@@ -22,7 +22,7 @@ pub fn remove_dangling_nodes(target: &mut Target) {
     let sinks: Vec<_> = target.sinks.iter().map(|x| format!("{}/replica_0", x)).collect();
 
     // note: don't forget control dependency
-    let dict: std::collections::BTreeMap<_, Vec<_>> = target.pb.node.iter().map(|node| {
+    let dict: std::collections::HashMap<_, Vec<_>> = target.pb.node.iter().map(|node| {
         (&node.name[..], node.input.iter().map(|x| {
             if x.starts_with('^') {
                 return &x[1..]
@@ -33,16 +33,19 @@ pub fn remove_dangling_nodes(target: &mut Target) {
             }
         }).collect())
     }).collect();
-    let mut keep = std::collections::BTreeSet::new();
+    let mut keep = std::collections::HashSet::new();
     let mut queue: std::collections::VecDeque<_> = sinks.iter().map(|x| &x[..]).collect();
 
     while let Some(x) = queue.pop_front() {
-        if keep.insert(x) {
+        if keep.insert(x.to_string()) {
             queue.extend(&dict[x]);
         }
     }
 
-    target.pb.node = target.pb.node.clone().into_iter().filter(|x| keep.contains(&x.name[..])).collect() // TODO: no clone?
+    // hacky way to avoid clone
+    let mut x = std::mem::replace(&mut target.pb.node, vec![].into()).into_vec();
+    x.retain(|x| keep.contains(&x.name[..]));
+    std::mem::replace(&mut target.pb.node, x.into());
 }
 
 pub fn destruct_names(target: &mut Target) {

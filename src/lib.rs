@@ -129,6 +129,7 @@ unsafe extern fn compile(graph: *mut Graph, target: *mut Target) {
 
 #[no_mangle]
 unsafe extern fn evaluate(target: *mut Target, profile_data: *const u8, profile_len: u32, trace_path: *const u8, trace_len: u32, memory: *mut u64) -> u64 {
+    let fuck = std::time::Instant::now();
     let profile_str = std::str::from_utf8(std::slice::from_raw_parts(profile_data, profile_len as usize)).unwrap();
     let mut profile_dict: BTreeMap<String, Vec<(usize, Vec<u64>)>> = BTreeMap::new();
     for line in profile_str.lines() {
@@ -140,12 +141,15 @@ unsafe extern fn evaluate(target: *mut Target, profile_data: *const u8, profile_
         let pos = v.binary_search_by_key(&nrep, |x| x.0).unwrap_or_else(|e| e);
         v.insert(pos, (nrep, times))
     };
-    let scheduler = simulator::MultiThreadedSimulator::new(profile_dict);
+    let scheduler = simulator::SimpleSimulator::new(profile_dict);
     let tracer = if trace_len == 0 {
         None
     } else {
         Some(std::str::from_utf8(std::slice::from_raw_parts(trace_path, trace_len as usize)).unwrap())
     };
+
+    warn!("before: {}", fuck.elapsed().as_millis());
+
     scheduler.evaluate(&*target, tracer.map(|x| std::fs::File::create(x).unwrap()).as_mut(), std::slice::from_raw_parts_mut(memory, (*target).devices.len()))
 }
 

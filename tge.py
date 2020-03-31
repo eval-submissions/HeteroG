@@ -112,9 +112,14 @@ class TGE:
         self.remove_shape_hint()
 
     def evaluate(self, profile_dict, trace_path=""):
+        import time
+        tic = time.time()
+
         if not self.compiled: # for backward compatibility
             self.compile()
         self.remove_dangling_nodes()
+
+        print("python/simulate remove dangling nodes: ", time.time() - tic)
 
         profile_raw = ''
         for (name, nreplica), times in profile_dict.items():
@@ -122,7 +127,13 @@ class TGE:
         profile_raw = profile_raw.encode('ascii')
         trace_path = trace_path.encode('ascii')
         memory = (ctypes.c_uint64 * len(self.devices))(*(0 for x in self.devices))
+
+        print("python/simulate make prof dict: ", time.time() - tic)
+
         result = libtge.evaluate(self.target, profile_raw, len(profile_raw), trace_path, len(trace_path), memory)
+
+        print("python/simulate after call: ", time.time() - tic)
+
         return result, list(memory)
 
     def _create_target(self):

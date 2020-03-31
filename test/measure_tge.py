@@ -43,40 +43,42 @@ def model_fn(bsize=None):
 #     return optimizer
 
 import time
-import numpy as np
 import tensorflow as tf
-import google.protobuf.text_format as pbtf
-from tensorflow.python.client import timeline
-from tensorflow.distribute.cluster_resolver import TFConfigClusterResolver
-
-import os
-os.environ["TF_CONFIG"] = '{ "cluster": { "worker": ["127.0.0.1:8027"] }, "task": {"type": "worker", "index": 0} }'
+import pickle
 
 BATCHSIZE=48
 
 devices = (
     "/job:worker/replica:0/task:0/device:GPU:0",
-    "/job:worker/replica:0/task:0/device:GPU:1"
+    "/job:worker/replica:0/task:0/device:GPU:1",
+    "/job:worker/replica:0/task:1/device:GPU:0",
+    "/job:worker/replica:0/task:1/device:GPU:1",
+    "/job:worker/replica:0/task:2/device:GPU:0",
+    "/job:worker/replica:0/task:2/device:GPU:1",
+    "/job:worker/replica:0/task:3/device:GPU:0",
+    "/job:worker/replica:0/task:3/device:GPU:1",
+    "/job:worker/replica:0/task:4/device:GPU:0",
+    "/job:worker/replica:0/task:4/device:GPU:1",
+    "/job:worker/replica:0/task:5/device:GPU:0",
+    "/job:worker/replica:0/task:5/device:GPU:1",
 )
-resolver = TFConfigClusterResolver()
-cluster = resolver.cluster_spec()
-dist = tf.distribute.experimental.MultiWorkerMirroredStrategy(
-        tf.distribute.experimental.CollectiveCommunication.NCCL)
-config = dist.update_config_proto(tf.ConfigProto())
-config.ClearField("device_filters")
-server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc", config=config)
 
 from tge import TGE
 from profiler import Profiler
-prof_dict = {}
-for nrep in (1, 2,):# 3, 4, 6, 8, 12):
-    tf.reset_default_graph()
-    opt = model_fn(BATCHSIZE // nrep)
-    init = tf.global_variables_initializer()
-    gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
-    p = Profiler(gdef, server.target)
-    for node in gdef.node:
-        prof_dict[(node.name, nrep)] = [ p.profile(node.name, device) for device in devices ]
+
+try:
+    prof_dict = pickle.load(open("measure_tge.pickle", 'rb'))
+except:
+    prof_dict = {}
+    for nrep in (1, 2, 3, 4, 6, 8, 12):
+        tf.reset_default_graph()
+        opt = model_fn(BATCHSIZE // nrep)
+        init = tf.global_variables_initializer()
+        gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+        p = Profiler(gdef)
+        for node in gdef.node:
+            prof_dict[(node.name, nrep)] = [ p.profile(node.name, '/GPU:0') for device in devices ]
+    pickle.dump(prof_dict, open("measure_tge.pickle", 'wb'))
 
 tic = time.time()
 opt = model_fn(BATCHSIZE)
@@ -84,7 +86,7 @@ init = tf.global_variables_initializer()
 gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
 print("reference: ", time.time() - tic)
 
-strategy = { node.name: [1, 1, 1] for node in gdef.node }
+strategy = { node.name: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] for node in gdef.node }
 
 tic = time.time()
 tge = TGE(gdef, devices)
@@ -92,7 +94,6 @@ print("read: ", time.time() - tic)
 tic = time.time()
 tge.custom(strategy)
 tge.replace_placeholder(BATCHSIZE)
-tge.use_collective()
 tge.set_bandwidth(intra=2810, inter=2810)
 print("prepare: ", time.time() - tic)
 tic = time.time()
