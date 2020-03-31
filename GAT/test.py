@@ -46,6 +46,10 @@ class Environment(object):
         self.name_cost_dict = self.get_name_cost_dict()
         self.devices =devices
         self._tge = tge.TGE(self.gdef, devices)
+        with open("nccl_model.pkl","rb") as f:
+            self.nccl_model=pkl.load(f)
+
+
 
     def get_reward(self,strategy,index_id_dict,trace=""):
         if self.strategy_reward_dict.get(str(strategy),None):
@@ -58,7 +62,7 @@ class Environment(object):
             else:
                 intra = bandwidth[0]
                 inter = bandwidth[1]
-            time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices,sink).use_collective().custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).set_bandwidth(intra,inter).evaluate(self.name_cost_dict,trace)
+            time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices,sink).set_nccl_model(self.nccl_model).use_collective().custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).set_bandwidth(intra,inter).evaluate(self.name_cost_dict,trace)
             time = time_mem_tuple[0]
             mem_list = time_mem_tuple[1]
             time = float(time) / (10 ** 3)
