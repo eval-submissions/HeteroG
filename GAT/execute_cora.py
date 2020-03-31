@@ -287,30 +287,14 @@ class strategy_pool(object):
     def insert(self,reward,device_choice,replica_mask,ps_or_reduce,group):
         strategy_list = self.get_stratey_list(device_choice, ps_or_reduce)
 
-        if len(self.strategies)<4:
-            for j,strategy in enumerate(self.strategies):
-                exist_device_choice = (strategy["device_choice"])
-                #diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
-                if False:#sum(diff_list)/len(diff_list)<0.05:
-                    if reward>strategy["reward"]:
-                        self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce,"group":group})
-                        self.strategies.pop(j)
-                        self.save_strategy_pool()
-                        self.rewards = [item["reward"] for item in self.strategies]
-                    return
-            self.strategies.append({"replica_mask": replica_mask, "strategy_list": strategy_list, "reward": reward,
-                                    "device_choice": device_choice, "ps_or_reduce": ps_or_reduce,"group":group})
 
-            self.save_strategy_pool()
-            self.rewards.append(reward)
-
-        elif len(self.strategies)<100 and reward>np.mean(self.rewards):
+        if len(self.strategies)<200 and reward>np.mean(self.rewards):
             for j,strategy in enumerate(self.strategies):
                 exist_device_choice = (strategy["device_choice"])
                 if len(exist_device_choice)!=len(device_choice):
                     continue
                 diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
-                if sum(diff_list)/len(diff_list)<0.05:
+                if sum(diff_list)/len(diff_list)<0.2:
                     if reward>strategy["reward"]:
                         self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce,"group":group})
                         self.strategies.pop(j)
@@ -328,7 +312,7 @@ class strategy_pool(object):
                 if len(exist_device_choice)!=len(device_choice):
                     continue
                 diff_list = list(map(comp_fc,np.concatenate((device_choice,exist_device_choice),axis=1)))
-                if sum(diff_list)/len(diff_list)<0.05:
+                if sum(diff_list)/len(diff_list)<0.2:
                     if reward>strategy["reward"]:
                         self.strategies.append({"replica_mask":replica_mask,"strategy_list":strategy_list,"reward":reward,"device_choice":device_choice,"ps_or_reduce":ps_or_reduce,"group":group})
                         self.strategies.pop(j)
@@ -348,7 +332,7 @@ class strategy_pool(object):
             return None
         self.rewards = [item["reward"] for item in self.strategies]
         index = np.random.randint(0,len(self.strategies))
-        index = self.rewards.index(max(self.rewards))
+        #index = self.rewards.index(max(self.rewards))
         return self.strategies[index]
 def reward_func(item):
     new_device_array = np.zeros(shape=(len(devices)),dtype=np.int32)
@@ -462,7 +446,7 @@ class Environment(object):
             name_cost_dict = pkl.load(f)
         return name_cost_dict
 
-sample_prob = 0.9
+sample_prob = 0.1
 def random_choice(item):
     np.random.seed()
     choice1 = np.random.choice(item.size, p=item)
@@ -679,7 +663,7 @@ class feature_item(threading.Thread):
                 self.strategy_pool.insert(self.rewards[i], self.device_choices[i], self.replica_masks[i], self.ps_or_reduces[i],self.group[i])
 
     def train(self,epoch):
-        global global_mems
+        global global_mems,sample_prob
         tr_step = 0
         co_entropy = 10
         tr_size = self.features.shape[0]
@@ -694,14 +678,19 @@ class feature_item(threading.Thread):
         '''
         self.avg = float(np.mean(self.strategy_pool.rewards)) if self.strategy_pool.get_length()>0 else np.mean(self.rewards)
         if self.master:
-            global sample_prob
+
+            '''
             if sample_prob<0.9:
                 sample_prob+=0.01
             if len(set(self.rewards))==1:
                 sample_prob=0.7
-
+            '''
+            sample_prob = min(0.1+0.1*(epoch//2000),1)
+        print("[{}] sample_prob = {}".format(self.folder_path, sample_prob))
         print("[{}] train_place = {}".format(self.folder_path, self.train_place))
         print("[{}] Rewards = {}".format(self.folder_path, self.rewards))
+        print("[{}] epoch = {}".format(self.folder_path, epoch))
+
 
 
         for index in range(sample_times):
@@ -738,7 +727,6 @@ class feature_item(threading.Thread):
                 f.write(str(new_loss) + ",")
 
         if epoch % show_interval == 0:
-            return
             pool_strategy = self.strategy_pool.choose_strategy()
             if pool_strategy==None:
                 return

@@ -108,11 +108,11 @@ class Activater():
             with open(self.path[k].split(".")[0]+"_timeline.json", "w") as fo:
                 fo.write(tl.generate_chrome_trace_format())
 
-workers = ["10.28.1.26:3901", "10.28.1.25:3901","10.28.1.24:3901","10.28.1.17:3901","10.28.1.16:3901"]
-os.environ["TF_CONFIG"] = '{ "cluster": { "worker": ["10.28.1.26:3901", "10.28.1.25:3901","10.28.1.24:3901","10.28.1.17:3901","10.28.1.16:3901"]  }, "task": {"type": "worker", "index": 0} }'
+workers = ["10.28.1.26:3901","10.28.1.17:3901","10.28.1.16:3901"]
+os.environ["TF_CONFIG"] = '{ "cluster": { "worker": ["10.28.1.26:3901","10.28.1.17:3901","10.28.1.16:3901"]  }, "task": {"type": "worker", "index": 0} }'
 if prefix=="yes":
     setup_workers(workers, "grpc")
 
 act = Activater(activate_graphs,sinks=sinks)
-act.activate(480)
+act.activate(288)
 
