@@ -858,8 +858,7 @@ class new_place_GNN():
                 #log_oi = tf.nn.log_softmax(output[:,i*(len(devices)+1)-1:(i+1)*(len(devices)+1)-1])
                 log_oi = tf.log(oi+10e-8)
                 self.log_device_choices.append(log_oi)
-
-                sum = sum + tf.reduce_mean(tf.reduce_sum(log_oi* oi, 1))
+                sum = sum + tf.reduce_mean(tf.reduce_sum(tf.boolean_mask(log_oi* oi,self.replica_num_array[:,i]), 1))
             ps_or_reduce_prob = tf.nn.softmax(output[:,-2:])
             self.ps_or_reduce = ps_or_reduce_prob
             #self.log_ps_reduce = tf.nn.log_softmax(output[:,-2:])
