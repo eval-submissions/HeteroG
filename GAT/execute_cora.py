@@ -180,6 +180,7 @@ class strategy_pool(object):
 
         # even data parallel 1
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
+        '''
         group = np.array([0 for i in range(self.init_group_num)],dtype=np.int32)
         device_choice = np.array([np.arange(max_replica_num)%(len(devices)) for i in range(group_num)],dtype=np.int32)
         device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
@@ -259,6 +260,7 @@ class strategy_pool(object):
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
         self.rewards = [item["reward"] for item in self.strategies]
+        '''
     def get_length(self):
         return len(self.strategies)
 
@@ -685,7 +687,7 @@ class feature_item(threading.Thread):
             if len(set(self.rewards))==1:
                 sample_prob=0.7
             '''
-            sample_prob = min(0.1+0.1*(epoch//2000),1)
+            sample_prob = min(0.1+0.1*(epoch//200),0.9)
         print("[{}] sample_prob = {}".format(self.folder_path, sample_prob))
         print("[{}] train_place = {}".format(self.folder_path, self.train_place))
         print("[{}] Rewards = {}".format(self.folder_path, self.rewards))
