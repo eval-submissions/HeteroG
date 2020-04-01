@@ -46,6 +46,8 @@ class Environment(object):
         self.name_cost_dict = self.get_name_cost_dict()
         self.devices =devices
         self._tge = tge.TGE(self.gdef, devices)
+
+
         with open("nccl_model.pkl","rb") as f:
             self.nccl_model=pkl.load(f)
 
