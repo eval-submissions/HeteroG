@@ -66,7 +66,7 @@ n_head=8
 d_head=64
 d_model=512
 d_inner=2048
-group_num = 10
+group_num = 200
 bsz =1
 
 global_mems = [np.zeros([128, bsz, d_model], dtype=np.float32) for layer in range(n_layer)]
