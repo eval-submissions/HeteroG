@@ -919,7 +919,8 @@ class new_place_GNN():
                 indices = tf.concat((_range, self.sample_device_choice[:, j][:, tf.newaxis]), axis=1)
                 log_prob = tf.gather_nd(self.log_device_choices[j], indices)
                 log_prob = tf.gather(log_prob, unique_group)
-                log_prob = tf.boolean_mask(log_prob,self.replica_num_array[:,j])
+                mask = tf.gather(self.replica_num_array[:,j], unique_group)
+                log_prob = tf.boolean_mask(log_prob,mask)
                 self.place_loss.append(tf.reduce_sum(log_prob) * self.time_ratio)
             self.place_loss = tf.add_n(self.place_loss)
 
