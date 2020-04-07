@@ -66,7 +66,7 @@ n_head=8
 d_head=64
 d_model=512
 d_inner=2048
-group_num = 200
+group_num = 10
 bsz =1
 
 global_mems = [np.zeros([128, bsz, d_model], dtype=np.float32) for layer in range(n_layer)]
@@ -418,7 +418,7 @@ class Environment(object):
         name_list = [nodedef.name for nodedef in self.null_gdef.node]
         print(new_device_array)
         strategy = {index_id_dict[index]:new_device_array[group[self.init_group[index]]].tolist() for index in range(len(index_id_dict))}
-        strategy = {name: strategy.get(name, strategy.values()[0]) for name in name_list}
+        strategy = {name: strategy.get(name, list(strategy.values())[0]) for name in name_list}
 
         bandwidth = config_dict.get("bandwidth",None)
         if bandwidth==None:
@@ -709,7 +709,7 @@ class feature_item(threading.Thread):
             if len(set(self.rewards))==1:
                 sample_prob=0.7
             '''
-            sample_prob = min(0.1+0.1*(epoch//200),0.9)
+            sample_prob = min(0.1+0.1*(epoch//30),0.9)
         print("[{}] sample_prob = {}".format(self.folder_path, sample_prob))
         print("[{}] train_place = {}".format(self.folder_path, self.train_place))
         print("[{}] Rewards = {}".format(self.folder_path, self.rewards))
