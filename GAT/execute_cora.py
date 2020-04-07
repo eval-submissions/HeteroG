@@ -456,9 +456,11 @@ class Environment(object):
                 f.write(str(best_graph_def))
 
         if record:
-            record_graph_def = tge.TGE(copy.deepcopy(self.null_gdef), self.devices, self.sink).custom(strategy).replace_placeholder(self.batch_size).use_collective().compile().get_result()
+            name_list = [nodedef.name for nodedef in self.null_gdef.node]
+            new_strategy = {name:strategy.get(name,strategy.values()[0]) for name in name_list}
+            record_graph_def = tge.TGE(copy.deepcopy(self.null_gdef), self.devices, self.sink).custom(new_strategy).replace_placeholder(self.batch_size).use_collective().compile().get_result()
             with open(self.folder_path+"/"+record_name, "w") as f:
-                f.write(str(record_graph_def))
+                f.write(pbtf.MessageToString(record_graph_def))
 
         return -np.float32(np.sqrt(time)),out_of_memory
 

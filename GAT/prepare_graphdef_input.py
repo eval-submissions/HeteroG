@@ -110,12 +110,12 @@ def model_fn(model_name,batch_size):
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
         optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
         return optimizer
-def generate_edge_file(gdef,folder):
+def generate_edge_file(gdef,null_gdef,folder):
     with open(folder+"graph.pbtxt","w") as f:
         f.write(str(gdef))
-    name_list = [nodedef.name for nodedef in gdef.node]
+    name_list = [nodedef.name for nodedef in null_gdef.node]
     item_list=[]
-    for i,nodedef in enumerate(gdef.node):
+    for i,nodedef in enumerate(null_gdef.node):
         for j,input in enumerate(nodedef.input):
             if ":" in input:
                 index = int(input.split(":")[1])
@@ -149,24 +149,17 @@ def generate_nccl_model():
 def generate_feature_file(folder,index):
     batch_size=48
     final_dict=dict()
-    if os.path.exists(folder+"graph.pbtxt"):
-        gdef = graph_pb2.GraphDef()
-        with open(folder+"graph.pbtxt","r")as f:
-            txt = f.read()
-        pbtf.Parse(txt,gdef)
-        tf.import_graph_def(gdef)
-    else:
-        opt = model_fn(models[index],None)
-        init = tf.global_variables_initializer()
-        gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
-        with open(folder + "null_graph.pbtxt", "w") as f:
-            f.write(str(gdef))
-        tf.reset_default_graph()
-        opt = model_fn(models[index],batch_size)
-        init = tf.global_variables_initializer()
-        gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+    opt = model_fn(models[index],None)
+    init = tf.global_variables_initializer()
+    null_gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+    with open(folder + "null_graph.pbtxt", "w") as f:
+        f.write(pbtf.MessageToString(null_gdef))
+    tf.reset_default_graph()
+    opt = model_fn(models[index],batch_size)
+    init = tf.global_variables_initializer()
+    gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
 
-    generate_edge_file(gdef,folder)
+    generate_edge_file(gdef,null_gdef,folder)
     if os.path.exists("op_type_dict.json"):
         with open("op_type_dict.json", "r") as f:
             op_type_dict=json.load(f)
@@ -234,6 +227,9 @@ def generate_feature_file(folder,index):
                 size+=local_size
         times = times_dict[nodedef.name]
         item_list.append("{} {} {}{} {}".format(nodedef.name, op_type_dict[nodedef.op],times,size,batch_size))
+    for nodedef in enumerate(null_gdef.node):
+        if nodedef.name not in name_list:
+            item_list.append("{} {} {}{} {}".format(nodedef.name, op_type_dict[nodedef.op], 0, 0, batch_size))
 
     with open(folder+"docs.txt","w") as f:
         item_list = ["\n"+item if i!=0 else item for i,item in enumerate(item_list)]
@@ -248,4 +244,4 @@ for i in range(len(models)):
     tf.reset_default_graph()
     folder = "data/graph"+str(i+1)+"/"
     generate_feature_file(folder,i)
-generate_nccl_model()
+#generate_nccl_model()
