@@ -48,16 +48,16 @@ import google.protobuf.text_format as pbtf
 from tensorflow.python.client import timeline
 from tensorflow.distribute.cluster_resolver import TFConfigClusterResolver
 
-# import os
-# os.environ["TF_CONFIG"] = '{ "cluster": { "worker": ["127.0.0.1:8027"] }, "task": {"type": "worker", "index": 0} }'
+import os
+os.environ["TF_CONFIG"] = '{ "cluster": { "worker": ["127.0.0.1:8027"] }, "task": {"type": "worker", "index": 0} }'
 
 BATCHSIZE=48
 
 devices = (
     "/job:worker/replica:0/task:0/device:GPU:0",
     "/job:worker/replica:0/task:0/device:GPU:1",
-    "/job:worker/replica:0/task:1/device:GPU:0",
-    "/job:worker/replica:0/task:1/device:GPU:1"
+    # "/job:worker/replica:0/task:1/device:GPU:0",
+    # "/job:worker/replica:0/task:1/device:GPU:1"
 )
 resolver = TFConfigClusterResolver()
 cluster = resolver.cluster_spec()
@@ -76,7 +76,7 @@ import tge
 # options = [[0, 1], [1, 0], [0, 2], [2, 0], [1, 1]]
 # strategy = { node.name: [np.random.randint(0, 2)] + options[np.random.randint(0, len(options))] for node in gdef.node }
 
-strategy = { node.name: [1, 1, 1, 1, 1] for node in gdef.node }
+strategy = { node.name: [1, 2, 2] for node in gdef.node }
 
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
@@ -124,7 +124,7 @@ toc = time.perf_counter()
 
 from profiler import Profiler
 prof_dict = {}
-for nrep in (1, 2,):# 3, 4, 6, 8, 12):
+for nrep in (1, 2, 3, 4,):# 6, 8, 12):
     tf.reset_default_graph()
     opt = model_fn(BATCHSIZE // nrep)
     init = tf.global_variables_initializer()
@@ -133,9 +133,9 @@ for nrep in (1, 2,):# 3, 4, 6, 8, 12):
     for node in gdef.node:
         prof_dict[(node.name, nrep)] = [ p.profile(node.name, device) for device in devices ]
 
-from profiler import NcclProfiler
-nccl_model = NcclProfiler(devices, server.target).profile()
-print(nccl_model)
+# from profiler import NcclProfiler
+# nccl_model = NcclProfiler(devices, server.target).profile()
+# print(nccl_model)
 
 tf.reset_default_graph()
 opt = model_fn(BATCHSIZE)
@@ -149,14 +149,13 @@ g = (tge.TGE(gdef, devices)
     .custom(strategy)
     .replace_placeholder(BATCHSIZE)
     .use_collective()
+    .verbose()
     .set_bandwidth(intra=2810, inter=2810) # single worker g9
-    .set_nccl_model(nccl_model)
+    # .set_nccl_model(nccl_model)
     # .set_bandwidth(intra=816, inter=816) # single machine two workers g9
     .evaluate(prof_dict, "simulated.json")
 )
 
 print("actual: {}".format(toc - tic))
 print("simulated: {}".format(g[0]))
-
-with open("result", "a") as fo:
-    fo.write("{} {}\n".format(toc - tic, g[0]))
+print("memory: {}".format(g[1]))

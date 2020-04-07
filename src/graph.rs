@@ -84,8 +84,6 @@ impl Graph {
     /// 2. group the nodes so that a.) all nodes inside a group is splittable and b.) all cross-group tensors are splittable
     /// 3. if all nodes in a group are replicated, use split, otherwise all replications are cache.
     fn analyze(&mut self) {
-        let allow_split_input = self.options.contains_key("replace_placeholder");
-
         // mark descendants of input
         let mut descendants_of_input: BTreeSet<usize> = BTreeSet::new();
         for (id, node) in self.nodes.iter_mut().enumerate() {
@@ -135,7 +133,7 @@ impl Graph {
 
         // grouping
         for (node_id, node) in self.nodes.iter_mut().enumerate() {
-            if !(allow_split_input && node.is_input() || descendants_of_input.contains(&node_id)) { // if it is not a descendant of input, then it does not belong to any group
+            if !(node.is_input() || descendants_of_input.contains(&node_id)) { // if it is not a descendant of input, then it does not belong to any group
                 continue
             }
 
@@ -335,7 +333,7 @@ impl Node {
             // 2. link inputs and set size
             node.input = self.inputs.iter().copied().enumerate().map(|(i, (node_id, index, kind))| {
                 let input_tensor = &mut self.graph().nodes[node_id].get_output(index);
-                set_input_size(&mut node, i, match self.form.kind {
+                set_input_size(&mut node, i, match kind {
                     FormKind::Full => input_tensor.get_size(),
                     FormKind::Part => input_tensor.get_size() / self.form.ndev() as u64,
                 });
@@ -695,6 +693,7 @@ impl Tensor {
             nccl.attr.insert("num_devices".into(), AttrValue::new().apply(|x| x.set_i(from.ndev() as _)));
             nccl.attr.insert("shared_name".into(), AttrValue::new().apply(|x| x.set_s(self.original_name().into_bytes())));
             nccl.input.push(self.as_form(from, target)[i].clone());
+            // TODO: tensor size
 
             target.pb.node.push(nccl)
         }
