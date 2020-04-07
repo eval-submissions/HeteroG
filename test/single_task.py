@@ -17,7 +17,7 @@ def model_fn(bsize=None):
 #     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
 #     return optimizer
 
-# def model_fn(bsize):
+# def model_fn(bsize=None):
 #     x = tf.placeholder(tf.float32, shape=(bsize, 1024))
 #     y = tf.placeholder(tf.float32, shape=(bsize, 10,))
 #     hidden = tf.contrib.slim.fully_connected(x, 256, activation_fn=tf.nn.softmax)
@@ -26,7 +26,7 @@ def model_fn(bsize=None):
 #     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
 #     return optimizer
 
-# def model_fn(bsize):
+# def model_fn(bsize=None):
 #     slim = tf.contrib.slim
 #     x = tf.placeholder(tf.float32, shape=(bsize, 32, 32, 3))
 #     y = tf.placeholder(tf.float32, shape=(bsize, 1000))
@@ -55,9 +55,7 @@ BATCHSIZE=48
 
 devices = (
     "/job:worker/replica:0/task:0/device:GPU:0",
-    "/job:worker/replica:0/task:0/device:GPU:1",
-    # "/job:worker/replica:0/task:1/device:GPU:0",
-    # "/job:worker/replica:0/task:1/device:GPU:1"
+    "/job:worker/replica:0/task:0/device:GPU:1"
 )
 resolver = TFConfigClusterResolver()
 cluster = resolver.cluster_spec()
@@ -67,9 +65,12 @@ config = dist.update_config_proto(tf.ConfigProto())
 config.ClearField("device_filters")
 server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc", config=config)
 
-opt = model_fn(None)
+opt = model_fn()
 init = tf.global_variables_initializer()
 gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+
+with open("model.pb", "w") as fo:
+    fo.write(pbtf.MessageToString(gdef))
 
 import tge
 
@@ -133,26 +134,17 @@ for nrep in (1, 2, 3, 4,):# 6, 8, 12):
     for node in gdef.node:
         prof_dict[(node.name, nrep)] = [ p.profile(node.name, device) for device in devices ]
 
-# from profiler import NcclProfiler
-# nccl_model = NcclProfiler(devices, server.target).profile()
-# print(nccl_model)
-
-tf.reset_default_graph()
-opt = model_fn(BATCHSIZE)
-init = tf.global_variables_initializer()
-gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
-
-with open("model.pb", "w") as fo:
-    fo.write(pbtf.MessageToString(gdef))
+from profiler import NcclProfiler
+nccl_model = NcclProfiler(devices, server.target).profile()
 
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
+    .fill_batchsize(BATCHSIZE)
     .replace_placeholder(BATCHSIZE)
     .use_collective()
-    .verbose()
-    .set_bandwidth(intra=2810, inter=2810) # single worker g9
-    # .set_nccl_model(nccl_model)
-    # .set_bandwidth(intra=816, inter=816) # single machine two workers g9
+    # .verbose()
+    .set_bandwidth(intra=2810, inter=2810)
+    .set_nccl_model(nccl_model)
     .evaluate(prof_dict, "simulated.json")
 )
 

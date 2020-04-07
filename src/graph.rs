@@ -414,7 +414,13 @@ impl Tensor {
     pub fn get_shape(&self) -> Vec<usize> {
         // sucks: the output shape of BroadcastGradientArgs is always unknown even if inputs are fixed
         // and ops like `Sum` (requires the dimension to sum along with) and `Fill` operates differently with different inputs
-        self.node().raw_node.attr["_output_shapes"].get_list().shape[self.index].dim.iter().map(|x| x.size.try_into().ok()).collect::<Option<_>>().unwrap_or_else(Vec::new)
+        let mut shape: Vec<_> = self.node().raw_node.attr["_output_shapes"].get_list().shape[self.index].dim.iter().map(|x| x.size.try_into().ok()).collect();
+        if let Some(batchsize) = self.node().graph().options.get("fill_batchsize") {
+            if self.has_flag(Self::IS_BATCHED) && self.has_flag(Self::IS_FROM_INPUT) && shape[0].is_none() {
+                shape[0] = Some(batchsize.parse().unwrap());
+            }
+        }
+        shape.into_iter().collect::<Option<_>>().unwrap_or_else(Vec::new)
     }
 
     pub fn get_size(&self) -> u64 {

@@ -223,6 +223,10 @@ class TGE:
         self._set_option("replace_placeholder", batchsize)
 
     @chain
+    def fill_batchsize(self, batchsize):
+        self._set_option("fill_batchsize", batchsize)
+
+    @chain
     def verbose(self):
         self._set_option("log_forms", True)
         self._set_option("log_groups", True)
