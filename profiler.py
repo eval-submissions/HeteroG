@@ -64,8 +64,9 @@ class NcclProfiler:
         return result
 
 class Profiler:
-    def __init__(self, graph_def, target=None, sinks=["GradientDescent"]):
+    def __init__(self, graph_def, batchsize, target=None, sinks=["GradientDescent"]):
         self.graph_def = graph_def
+        self.batchsize = batchsize
         self.names = { node.name for node in graph_def.node }
         self.sinks = sinks
         self.target = target
@@ -85,7 +86,7 @@ class Profiler:
             sess.run(init)
 
             placeholders = (node.outputs[0] for node in graph.get_operations() if node.node_def.op == 'Placeholder')
-            input_dict = { p: np.random.rand(*p.shape.as_list()) for p in placeholders }
+            input_dict = { p: np.random.rand(self.batchsize, *p.shape.as_list()[1:]) for p in placeholders }
 
             run_meta = tf.compat.v1.RunMetadata()
             run_opt = tf.compat.v1.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)#, output_partition_graphs=True)
