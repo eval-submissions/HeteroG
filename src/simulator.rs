@@ -145,6 +145,8 @@ impl Simulator for SimpleSimulator {
                 let to = device_dict[&node.device[..]];
                 let size = nodes[input_id].attr.get("_tge_input_sizes").and_then(|x| x.get_list().i.get(index)).copied().unwrap_or(0) as _;
 
+                // info!("{}:{} {}->{} {}", name, index, from, to, size);
+
                 tensorbufs.entry((input_id, index, from)).and_modify(|x| x.1 += 1).or_insert((size, 1, false));
                 tasks[task_dict[input_id]].out_tensors.push((input_id, index, from));
 

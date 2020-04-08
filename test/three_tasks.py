@@ -1,35 +1,35 @@
-# def model_fn(bsize=None):
+# def model_fn():
 #     from tensorflow.contrib.slim.nets import vgg
-#     x = tf.placeholder(tf.float32, shape=(bsize, 224, 224, 3))
-#     y = tf.placeholder(tf.float32, shape=(bsize, 1000))
+#     x = tf.placeholder(tf.float32, shape=(None, 224, 224, 3))
+#     y = tf.placeholder(tf.float32, shape=(None, 1000))
 #     output, _ = vgg.vgg_19(x, 1000)
 #     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
 #     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
 #     return optimizer
 
-def model_fn(bsize=None):
-    from tensorflow.contrib.slim.nets import resnet_v2
-    x = tf.placeholder(tf.float32, shape=(bsize, 224, 224, 3))
-    y = tf.placeholder(tf.float32, shape=(bsize, 1000))
-    output, _ = resnet_v2.resnet_v2_101(x, 1000)
-    output = tf.contrib.slim.flatten(output)
-    loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
-    optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
-    return optimizer
+# def model_fn():
+#     from tensorflow.contrib.slim.nets import resnet_v2
+#     x = tf.placeholder(tf.float32, shape=(None, 224, 224, 3))
+#     y = tf.placeholder(tf.float32, shape=(None, 1000))
+#     output, _ = resnet_v2.resnet_v2_101(x, 1000)
+#     output = tf.contrib.slim.flatten(output)
+#     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
+#     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
+#     return optimizer
 
-# def model_fn(bsize):
-#     x = tf.placeholder(tf.float32, shape=(bsize, 1024))
-#     y = tf.placeholder(tf.float32, shape=(bsize, 10,))
+# def model_fn():
+#     x = tf.placeholder(tf.float32, shape=(None, 1024))
+#     y = tf.placeholder(tf.float32, shape=(None, 10,))
 #     hidden = tf.contrib.slim.fully_connected(x, 256, activation_fn=tf.nn.softmax)
 #     output = tf.contrib.slim.fully_connected(hidden, 10, activation_fn=tf.nn.softmax)
 #     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
 #     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
 #     return optimizer
 
-# def model_fn(bsize):
+# def model_fn():
 #     slim = tf.contrib.slim
-#     x = tf.placeholder(tf.float32, shape=(bsize, 32, 32, 3))
-#     y = tf.placeholder(tf.float32, shape=(bsize, 1000))
+#     x = tf.placeholder(tf.float32, shape=(None, 32, 32, 3))
+#     y = tf.placeholder(tf.float32, shape=(None, 1000))
 #     net = slim.conv2d(x, 32, [5, 5])
 #     net = slim.max_pool2d(net, [2, 2], 2)
 #     net = slim.conv2d(net, 64, [5, 5])
@@ -41,6 +41,15 @@ def model_fn(bsize=None):
 #     acc = tf.reduce_mean(tf.nn.softmax(net) * y)
 #     optimizer = tf.train.GradientDescentOptimizer(0.001).minimize(tf.reduce_sum(loss))
 #     return optimizer
+
+def model_fn():
+    from tensorflow.contrib.slim.nets import inception
+    x = tf.placeholder(tf.float32, shape=(None, 224, 224, 3))
+    y = tf.placeholder(tf.float32, shape=(None, 1000))
+    output, _ = inception.inception_v3(x, 1000)
+    loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
+    optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
+    return optimizer
 
 import time
 import tensorflow as tf
@@ -64,7 +73,7 @@ def setup_workers(workers, protocol="grpc"):
 
 setup_workers(["10.28.1.24:3806", "10.28.1.16:3901", "10.28.1.17:3901"])
 
-BATCHSIZE=288
+BATCHSIZE=200
 
 devices = (
     "/job:worker/replica:0/task:0/device:GPU:0",
@@ -82,16 +91,19 @@ config = dist.update_config_proto(tf.ConfigProto())
 config.ClearField("device_filters")
 server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc", config=config)
 
-opt = model_fn(None)
+opt = model_fn()
 init = tf.global_variables_initializer()
 gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+
+with open("model.pb", "w") as fo:
+    fo.write(pbtf.MessageToString(gdef))
 
 import tge
 
 # options = [[0, 1], [1, 0], [0, 2], [2, 0], [1, 1]]
 # strategy = { node.name: [np.random.randint(0, 2)] + options[np.random.randint(0, len(options))] for node in gdef.node }
 
-strategy = { node.name: [1, 2, 2, 2, 2, 2, 2] for node in gdef.node }
+strategy = { node.name: [1, 2, 2, 1, 1, 1, 1] for node in gdef.node }
 
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
@@ -140,31 +152,23 @@ toc = time.perf_counter()
 from profiler import Profiler
 prof_dict = {}
 tf.reset_default_graph()
-opt = model_fn(BATCHSIZE // 12)
+opt = model_fn()
 init = tf.global_variables_initializer()
 gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
-p = Profiler(gdef, server.target)
+p = Profiler(gdef, BATCHSIZE // 8, server.target)
 for node in gdef.node:
-    prof_dict[(node.name, 1)] = [ p.profile(node.name, device) for device in devices ]
-    prof_dict[(node.name, 12)] = [ p.profile(node.name, device) for device in devices ]
+    prof_dict[(node.name, 1)] = [ p.profile(node.name, device) // 7 for device in devices ]
+    prof_dict[(node.name, 8)] = [ p.profile(node.name, device) for device in devices ]
 
 # from profiler import NcclProfiler
 # nccl_model = NcclProfiler(devices, server.target).profile()
 # print(nccl_model)
 
-tf.reset_default_graph()
-opt = model_fn(BATCHSIZE)
-init = tf.global_variables_initializer()
-gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
-
-with open("model.pb", "w") as fo:
-    fo.write(pbtf.MessageToString(gdef))
-
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
     .replace_placeholder(BATCHSIZE)
     .use_collective()
-    .verbose()
+    # .verbose()
     .set_bandwidth(intra=2810, inter=2810) # single worker g9
     # .set_nccl_model(nccl_model)
     # .set_bandwidth(intra=816, inter=816) # single machine two workers g9
