@@ -676,7 +676,6 @@ class feature_item(threading.Thread):
         print("Group:",self.group[0])
     def post_parallel_process(self):
         for i in range(sample_times+1):
-            self.cal_entropy = self.outputs[-2]
             if self.rewards[i] > self.best_reward:
                 self.best_reward = self.rewards[i]
                 self.best_replica_num = list()
@@ -718,7 +717,7 @@ class feature_item(threading.Thread):
 
 
         for index in range(sample_times):
-            new_loss,new_global_mems=self.place_gnn.learn(ftr_in=self.features,
+            new_loss,new_global_mems,entropy=self.place_gnn.learn(ftr_in=self.features,
                             bias_in=self.biases,
                             nb_nodes=self.nb_nodes,
                             replica_num_array=np.array(self.replica_masks[index]),
@@ -730,6 +729,7 @@ class feature_item(threading.Thread):
                             mems = global_mems,
                             init_group=self.init_group)
             global_mems = new_global_mems
+            self.cal_entropy = entropy
         '''
         for i in range(sample_times):
             if self.oom[i] == False:
@@ -966,7 +966,7 @@ class new_place_GNN():
 
         for item1,item2 in zip(self.mems,mems):
             feed_dict[item1]=item2
-        unique,log_device_choices,log_prob,pro_group,indices,loss,mems,_ = self.sess.run([self.unique_group,self.log_device_choices[0],self.log_prob,self.pro_group,self.indices,self.loss,self.new_mems,self.train_op],
+        entropy,unique,log_device_choices,log_prob,pro_group,indices,loss,mems,_ = self.sess.run([self.entropy,self.unique_group,self.log_device_choices[0],self.log_prob,self.pro_group,self.indices,self.loss,self.new_mems,self.train_op],
                      feed_dict=feed_dict)
         print("device_choice_log1:",log_device_choices)
         print("Indices:", indices)
@@ -976,14 +976,13 @@ class new_place_GNN():
 
 
 
-        return loss,mems
+        return loss,mems,entropy
     def get_replica_num_prob_and_entropy(self,ftr_in,bias_in,nb_nodes,mems,sample_group,init_group):
         fetch_list =[item for item in self.device_choices]
         fetch_list.append(self.ps_or_reduce)
         fetch_list.append(self.logits_before)
         fetch_list.append(self.logits)
         fetch_list.append(self.group)
-        fetch_list.append(self.entropy)
         fetch_list.append(self.group)
 
 
