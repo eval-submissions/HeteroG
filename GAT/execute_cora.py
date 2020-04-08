@@ -241,9 +241,6 @@ class strategy_pool(object):
 
         #    self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
-
-        self.rewards = [item["reward"] for item in self.strategies]
-
     def get_length(self):
         return len(self.strategies)
 
@@ -435,26 +432,25 @@ class Environment(object):
         return name_cost_dict
 
 sample_prob = 0.1
+def random_func1(output):
+    return np.array(list(map(random_choice, output)))
 def random_choice(item):
-    np.random.seed()
-    choice1 = np.random.choice(item.size, p=item)
-    #return choice1
-    choice2 = np.random.randint(0,item.size)
-    choices = [choice1,choice2]
-    return choices[np.random.choice(2,p=[sample_prob,1-sample_prob])]
+    return np.random.randint(0,item.size)
+
 
 def sample_func1(output):
-    return np.array(list(map(random_choice, output)))
-def random_func1(item):
-    return  random_choice(item)
+    return np.array(list(map(sample_choice, output)))
+def sample_choice(item):
+    return np.random.choice(item.size, p=item)
 
+
+def argmax_func1(output):
+    return np.array(list(map(argmax_choice, output)))
 def argmax_choice(item):
     choice1 = np.argmax(item)
     return choice1
-def argmax_func1(output):
-    return np.array(list(map(argmax_choice, output)))
-def argmax_random_func1(item):
-    return  argmax_choice(item)
+
+
 import threading
 
 
@@ -577,16 +573,27 @@ class feature_item(threading.Thread):
         if i == sample_times:
             device_choice = np.array(list(map(argmax_func1, self.outputs[0:len(devices)])))
         else:
-            device_choice = np.array(list(map(sample_func1, self.outputs[0:len(devices)])))
+            np.random.seed()
+            sample_or_not = True if np.random.choice(2, p=[sample_prob,1-sample_prob])==0 else False
+            if sample_or_not:
+                device_choice = np.array(list(map(sample_func1, self.outputs[0:len(devices)])))
+            else:
+                device_choice = np.array(list(map(random_func1, self.outputs[0:len(devices)])))
+
         # device_choice = self.outputs[0:max_replica_num]
         device_choice = np.transpose(device_choice)
-        logger.info("[INFO]:Device choice:{}".format(device_choice))
 
         device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
+        logger.info("[INFO]:Device choice:{}".format(device_choice))
+
         if i == sample_times:
-            ps_or_reduce = np.array(list(map(argmax_random_func1, self.outputs[len(devices)])))
+            ps_or_reduce = np.array(list(map(argmax_choice, self.outputs[len(devices)])))
         else:
-            ps_or_reduce = np.array(list(map(random_func1, self.outputs[len(devices)])))
+            if sample_or_not:
+                ps_or_reduce = np.array(list(map(sample_choice, self.outputs[len(devices)])))
+            else:
+                ps_or_reduce = np.array(list(map(random_choice, self.outputs[len(devices)])))
+
         # ps_or_reduce = self.outputs[max_replica_num]
         # group =  np.array(list(map(random_func1,self.outputs[-1])))
         group = self.outputs[-1]
@@ -653,7 +660,7 @@ class feature_item(threading.Thread):
     def train(self,epoch):
         global global_mems,sample_prob
         tr_step = 0
-        co_entropy = 1
+        co_entropy = 100
         tr_size = self.features.shape[0]
         '''
         if self.strategy_pool.get_length()>0:
@@ -837,14 +844,14 @@ class new_place_GNN():
             for i in range(0,len(devices)):
                 oi = tf.nn.softmax(output[:,i*(max_replica_num+1):(i+1)*(max_replica_num+1)])
                 self.device_choices.append(oi)
-                #log_oi = tf.nn.log_softmax(output[:,i*(len(devices)+1)-1:(i+1)*(len(devices)+1)-1])
-                log_oi = tf.log(oi+10e-8)
+                log_oi = tf.nn.log_softmax(output[:,i*(max_replica_num+1):(i+1)*(max_replica_num+1)])
+                #log_oi = tf.log(oi+10e-8)
                 self.log_device_choices.append(log_oi)
                 sum = sum + tf.reduce_mean(tf.reduce_sum((log_oi* oi), 1))
             ps_or_reduce_prob = tf.nn.softmax(output[:,-2:])
             self.ps_or_reduce = ps_or_reduce_prob
-            #self.log_ps_reduce = tf.nn.log_softmax(output[:,-2:])
-            self.log_ps_reduce = tf.log( self.ps_or_reduce+10e-8)
+            self.log_ps_reduce = tf.nn.log_softmax(output[:,-2:])
+            #self.log_ps_reduce = tf.log( self.ps_or_reduce+10e-8)
             self.entropy = tf.reduce_sum(self.log_ps_reduce * ps_or_reduce_prob, 1)
             self.entropy = -(tf.reduce_mean(self.entropy) + sum / len(devices))
 
@@ -872,8 +879,8 @@ class new_place_GNN():
                 indices = tf.concat((_range, self.sample_device_choice[:, j][:, tf.newaxis]), axis=1)
                 log_prob = tf.gather_nd(self.log_device_choices[j], indices)
                 log_prob = tf.gather(log_prob, unique_group)
-                mask = tf.gather(self.replica_num_array[:,j], unique_group)
-                log_prob = tf.boolean_mask(log_prob,mask)
+                #mask = tf.gather(self.replica_num_array[:,j], unique_group)
+                #log_prob = tf.boolean_mask(log_prob,mask)
                 self.place_loss.append(tf.reduce_sum(log_prob) * self.time_ratio)
             self.place_loss = tf.add_n(self.place_loss)
 
@@ -884,7 +891,7 @@ class new_place_GNN():
         self.loss = -reward
         place_loss = -place_reward
         group_loss = -group_reward
-        train_place = model.training(place_loss, lr, l2_coef,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='place_nn'))
+        train_place = model.training(place_loss,lr , l2_coef,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='place_nn'))
         train_group =model.training(group_loss, lr, 0,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='group_nn'))
         #self.train_op =tf.cond(self.train_place,lambda:train_place,lambda:train_group)
         self.train_op =tf.group(train_place,train_group)
