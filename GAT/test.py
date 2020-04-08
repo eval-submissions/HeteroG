@@ -35,12 +35,18 @@ if prefix=="data/graph7":
 else:
     sink=["GradientDescent"]
 class Environment(object):
-    def __init__(self,gdef_path,devices,folder):
+    def __init__(self,gdef_path,null_gdef_path,devices,folder):
 
         self.gdef = graph_pb2.GraphDef()
         with open(gdef_path,"r")as f:
             txt = f.read()
         pbtf.Parse(txt,self.gdef)
+
+        self.null_gdef = graph_pb2.GraphDef()
+        with open(null_gdef_path,"r")as f:
+            txt = f.read()
+        pbtf.Parse(txt,self.null_gdef)
+
         self.folder = folder
         self.strategy_reward_dict=dict()
         self.name_cost_dict = self.get_name_cost_dict()
@@ -51,26 +57,41 @@ class Environment(object):
         with open("nccl_model.pkl","rb") as f:
             self.nccl_model=pkl.load(f)
 
-
-
     def get_reward(self,strategy,index_id_dict,trace=""):
-        if self.strategy_reward_dict.get(str(strategy),None):
-            time= self.strategy_reward_dict.get(str(strategy))
+        bandwidth = config_dict.get("bandwidth",None)
+        if bandwidth==None:
+            intra = "5000"
+            inter = "1250"
         else:
-            bandwidth = config_dict.get("bandwidth",None)
-            if bandwidth==None:
-                intra = "5000"
-                inter = "1250"
-            else:
-                intra = bandwidth[0]
-                inter = bandwidth[1]
-            time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices,sink).set_nccl_model(self.nccl_model).use_collective().custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).set_bandwidth(intra,inter).evaluate(self.name_cost_dict,trace)
-            time = time_mem_tuple[0]
-            mem_list = time_mem_tuple[1]
-            time = float(time) / (10 ** 3)
-            if any(np.array(mem_list) > np.array(device_mems)):
-                time = time * 10
-            self.strategy_reward_dict[str(strategy)]=time
+            intra = bandwidth[0]
+            inter = bandwidth[1]
+        time_mem_tuple = tge.TGE(copy.deepcopy(self.gdef), self.devices,sink).set_nccl_model(self.nccl_model).use_collective().custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).set_bandwidth(intra,inter).evaluate(self.name_cost_dict,trace)
+        time = time_mem_tuple[0]
+        mem_list = time_mem_tuple[1]
+        time = float(time) / (10 ** 3)
+        if any(np.array(mem_list) > np.array(device_mems)):
+            time = time * 10
+            print("oom")
+        self.strategy_reward_dict[str(strategy)]=time
+        return np.float32(time)
+
+    def get_null_reward(self,strategy,index_id_dict,trace=""):
+        bandwidth = config_dict.get("bandwidth",None)
+        if bandwidth==None:
+            intra = "5000"
+            inter = "1250"
+        else:
+            intra = bandwidth[0]
+            inter = bandwidth[1]
+        time_mem_tuple = tge.TGE(copy.deepcopy(self.null_gdef), self.devices,sink).fill_batchsize(288).set_nccl_model(self.nccl_model).use_collective().custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).set_bandwidth(intra,inter).evaluate(self.name_cost_dict,trace)
+        time = time_mem_tuple[0]
+        mem_list = time_mem_tuple[1]
+        time = float(time) / (10 ** 3)
+
+        if any(np.array(mem_list) > np.array(device_mems)):
+            time = time * 10
+            print("oom")
+        self.strategy_reward_dict[str(strategy)]=time
         return np.float32(time)
 
     def get_name_cost_dict(self):
@@ -80,7 +101,7 @@ class Environment(object):
 
         return name_cost_dict
 
-env = Environment(prefix+"/graph.pbtxt",devices,prefix)
+env = Environment(prefix+"/graph.pbtxt",prefix+"/null_graph.pbtxt",devices,prefix)
 dataset = load_cora(prefix,NewWhiteSpaceTokenizer())
 index_id_dict = dataset.network.get_indexer(N_TYPE_NODE).index_id_dict
 feature_matrix, feature_masks = dataset.feature_matrix(bag_of_words=False, sparse=False)
@@ -96,6 +117,8 @@ for _strategy in strategies:
     arr_strategy = np.array(strategy)
     print("strategy:",_strategy)
     print(env.get_reward(arr_strategy,index_id_dict,prefix+"/"+str(_strategy)+".json"))
+    print(env.get_null_reward(arr_strategy,index_id_dict,prefix+"/"+str(_strategy)+"_null.json"))
+
 '''
 name_cost_dict = env.get_name_cost_dict()
 cost = list(name_cost_dict.values())
