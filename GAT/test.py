@@ -76,6 +76,10 @@ class Environment(object):
         return np.float32(time)
 
     def get_null_reward(self,strategy,index_id_dict,trace=""):
+        name_list = [nodedef.name for nodedef in self.null_gdef.node]
+        strategy = {index_id_dict[index]: strategy_int for index, strategy_int in enumerate(strategy)}
+        strategy = {name: strategy.get(name, list(strategy.values())[0]) for name in name_list}
+
         bandwidth = config_dict.get("bandwidth",None)
         if bandwidth==None:
             intra = "5000"
@@ -83,7 +87,7 @@ class Environment(object):
         else:
             intra = bandwidth[0]
             inter = bandwidth[1]
-        time_mem_tuple = tge.TGE(copy.deepcopy(self.null_gdef), self.devices,sink).fill_batchsize(288).set_nccl_model(self.nccl_model).use_collective().custom({index_id_dict[index]:strategy_int for index,strategy_int in enumerate(strategy)}).set_bandwidth(intra,inter).evaluate(self.name_cost_dict,trace)
+        time_mem_tuple = tge.TGE(copy.deepcopy(self.null_gdef), self.devices,sink).fill_batchsize(288).set_nccl_model(self.nccl_model).use_collective().custom(strategy).set_bandwidth(intra,inter).evaluate(self.name_cost_dict,trace)
         time = time_mem_tuple[0]
         mem_list = time_mem_tuple[1]
         time = float(time) / (10 ** 3)
