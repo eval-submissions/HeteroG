@@ -689,7 +689,7 @@ class feature_item(threading.Thread):
     def train(self,epoch):
         global global_mems,sample_prob
         tr_step = 0
-        co_entropy = 100
+        co_entropy = 1
         tr_size = self.features.shape[0]
         '''
         if self.strategy_pool.get_length()>0:
@@ -910,6 +910,7 @@ class new_place_GNN():
             self.indices = tf.concat((_range, self.sample_device_choice[:, 0][:, tf.newaxis]), axis=1)
             self.log_prob = tf.gather_nd(self.log_device_choices[0], self.indices)
             self.log_prob = tf.gather(self.log_prob,unique_group)
+            self.unique_group = unique_group
             self.place_loss.append(tf.reduce_sum(self.log_prob) * self.time_ratio)
 
             #rest device choice n*(m+1)
@@ -965,10 +966,11 @@ class new_place_GNN():
 
         for item1,item2 in zip(self.mems,mems):
             feed_dict[item1]=item2
-        log_device_choices,log_prob,pro_group,indices,loss,mems,_ = self.sess.run([self.log_device_choices[0],self.log_prob,self.pro_group,self.indices,self.loss,self.new_mems,self.train_op],
+        unique,log_device_choices,log_prob,pro_group,indices,loss,mems,_ = self.sess.run([self.unique_group,self.log_device_choices[0],self.log_prob,self.pro_group,self.indices,self.loss,self.new_mems,self.train_op],
                      feed_dict=feed_dict)
         print("device_choice_log1:",log_device_choices)
         print("Indices:", indices)
+        print("unique group:", unique)
         print("gather Log prob:", log_prob)
         print("Time ratio:",time_ratio)
 
