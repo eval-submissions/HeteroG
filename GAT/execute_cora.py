@@ -611,9 +611,9 @@ class feature_item(threading.Thread):
 
     def parallel_process_output_unit(self,i):
         if i == sample_times:
-            device_choice = np.array(list(map(argmax_func1, self.outputs[0:max_replica_num])))
+            device_choice = np.array(list(map(argmax_func1, self.outputs[0:len(devices)])))
         else:
-            device_choice = np.array(list(map(sample_func1, self.outputs[0:max_replica_num])))
+            device_choice = np.array(list(map(sample_func1, self.outputs[0:len(devices)])))
         # device_choice = self.outputs[0:max_replica_num]
         device_choice = np.transpose(device_choice)
 
@@ -793,9 +793,9 @@ class new_place_GNN():
             self.is_train = tf.placeholder(dtype=tf.bool, shape=(),name="is_train")
             self.init_group = tf.placeholder(dtype=tf.int32, shape=(None,),name="init_group")
             self.sample_ps_or_reduce = tf.placeholder(dtype=tf.int32, shape=(None,),name="sample_ps_or_reduce")
-            self.sample_device_choice = tf.placeholder(dtype=tf.int32, shape=(None,max_replica_num,),name="sample_device_choice")
+            self.sample_device_choice = tf.placeholder(dtype=tf.int32, shape=(None,len(devices),),name="sample_device_choice")
             self.sample_group = tf.placeholder(dtype=tf.int32, shape=(None,),name="sample_group")
-            self.replica_num_array = tf.placeholder(dtype=tf.float32, shape=(None,max_replica_num),name="replica_num_array")
+            self.replica_num_array = tf.placeholder(dtype=tf.float32, shape=(None,len(devices)),name="replica_num_array")
             self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
             self.train_place = tf.placeholder(dtype=tf.bool, shape=(),name="train_place")
@@ -864,18 +864,11 @@ class new_place_GNN():
                 seed=None)
             output,self.new_mems = transformer(log_resh,self.mems,n_layer,d_model,n_head,d_head,d_inner,0.1,0.1,initializer,True,mem_len=128)
             output = tf.reshape(output, [-1,d_model])
-            output = tf.layers.dense(output,max_replica_num*(len(devices)+1)+1)
+            output = tf.layers.dense(output,(max_replica_num+1)*(len(devices))+2)
 
             sum = 0
-            o1 = tf.nn.softmax(output[:,0:len(devices)])
-            self.device_choices.append(o1)
-            #log_o1 = tf.nn.log_softmax(output[:,0:len(devices)])
-            log_o1 = tf.log(o1+10e-8)
-            self.log_device_choices.append(log_o1)
-
-            sum = sum + tf.reduce_mean(tf.reduce_sum(log_o1 * o1, 1))
-            for i in range(1,max_replica_num):
-                oi = tf.nn.softmax(output[:,i*(len(devices)+1)-1:(i+1)*(len(devices)+1)-1])
+            for i in range(0,len(devices)):
+                oi = tf.nn.softmax(output[:,i*(max_replica_num+1):(i+1)*(max_replica_num+1)])
                 self.device_choices.append(oi)
                 #log_oi = tf.nn.log_softmax(output[:,i*(len(devices)+1)-1:(i+1)*(len(devices)+1)-1])
                 log_oi = tf.log(oi+10e-8)
@@ -902,19 +895,9 @@ class new_place_GNN():
             log_prob = tf.gather(log_prob,unique_group)
             self.place_loss.append(tf.reduce_sum(log_prob )* self.time_ratio)
 
-            #first device choice n*m
-            #one_hot_sample = tf.one_hot(self.sample_device_choice[i][:, 0], len(devices))
-            #prob = tf.reduce_sum(self.device_choices_prob[0] * one_hot_sample, 1) * self.replica_num_array[i][:, 0] + (1 - self.replica_num_array[i][:, 0])
-
-
-            self.indices = tf.concat((_range, self.sample_device_choice[:, 0][:, tf.newaxis]), axis=1)
-            self.log_prob = tf.gather_nd(self.log_device_choices[0], self.indices)
-            self.log_prob = tf.gather(self.log_prob,unique_group)
-            self.unique_group = unique_group
-            self.place_loss.append(tf.reduce_sum(self.log_prob) * self.time_ratio)
 
             #rest device choice n*(m+1)
-            for j in range(1,max_replica_num):
+            for j in range(0,len(devices)):
                 #one_hot_sample = tf.one_hot(self.sample_device_choice[i][:,j], len(devices)+1)
                 #prob = tf.reduce_sum(self.device_choices_prob[j] * one_hot_sample, 1) * self.replica_num_array[i][:,j]+(1-self.replica_num_array[i][:,j])
                 indices = tf.concat((_range, self.sample_device_choice[:, j][:, tf.newaxis]), axis=1)
