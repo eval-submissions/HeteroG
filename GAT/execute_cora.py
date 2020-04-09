@@ -533,6 +533,8 @@ class feature_item(threading.Thread):
         self.oom = []
         self.train_place = False
         self.counter=0
+        self.co_entropy = 100
+        self.co_group_entropy = 100
 
 
     def set_session_and_network(self,sess,place_gnn):
@@ -558,7 +560,6 @@ class feature_item(threading.Thread):
         self.ps_or_reduces = mp.Manager().list(range(sample_times+1))
         self.group =mp.Manager().list(range(sample_times+1))
         self.oom = mp.Manager().list(range(sample_times+1))
-        co_entropy = 0
         self.thres = []
 
         self.outputs = self.place_gnn.get_replica_num_prob_and_entropy(
@@ -660,7 +661,7 @@ class feature_item(threading.Thread):
     def train(self,epoch):
         global global_mems,sample_prob
         tr_step = 0
-        co_entropy = 100
+
         tr_size = self.features.shape[0]
         '''
         if self.strategy_pool.get_length()>0:
@@ -689,7 +690,7 @@ class feature_item(threading.Thread):
 
 
         for index in range(sample_times):
-            new_loss,new_global_mems,entropy=self.place_gnn.learn(ftr_in=self.features,
+            new_loss,new_global_mems,entropy,group_entropy=self.place_gnn.learn(ftr_in=self.features,
                             bias_in=self.biases,
                             nb_nodes=self.nb_nodes,
                             replica_num_array=np.array(self.replica_masks[index]),
@@ -697,11 +698,18 @@ class feature_item(threading.Thread):
                             sample_device_choice = np.array(self.device_choices[index]),
                             sample_group=np.array(self.group[index]),
                             time_ratio = ((self.rewards[index])-self.avg)/np.abs(self.avg),
-                            coef_entropy=co_entropy,
+                            coef_entropy=self.co_entropy,
+                            coef_group_entropy=self.co_group_entropy,
                             mems = global_mems,
                             init_group=self.init_group)
             global_mems = new_global_mems
             self.cal_entropy = entropy
+            self.group_entropy =group_entropy
+            if self.cal_entropy > 1:
+                self.co_entropy = self.co_entropy / 2
+            if self.cal_entropy < 0.01:
+                self.co_entropy = self.co_entropy * 2
+
         '''
         for i in range(sample_times):
             if self.oom[i] == False:
@@ -726,7 +734,7 @@ class feature_item(threading.Thread):
             pool_strategy = self.strategy_pool.choose_strategy()
             if pool_strategy==None:
                 return
-            new_loss,new_global_mems,entropy=self.place_gnn.learn(ftr_in=self.features,
+            new_loss,new_global_mems,entropy,group_entropy=self.place_gnn.learn(ftr_in=self.features,
                             bias_in=self.biases,
                             nb_nodes=self.nb_nodes,
                             replica_num_array=np.array(pool_strategy["replica_mask"]),
@@ -734,14 +742,17 @@ class feature_item(threading.Thread):
                             sample_device_choice = np.array(pool_strategy["device_choice"]),
                             sample_group=np.array(pool_strategy["group"]),
                             time_ratio = ((pool_strategy["reward"])-self.avg)/np.abs(self.avg),
-                            coef_entropy=co_entropy,
+                            coef_entropy=self.co_entropy,
+                            coef_group_entropy=self.co_group_entropy,
                             mems = global_mems,
                             init_group=self.init_group)
             global_mems = new_global_mems
             self.cal_entropy = entropy
-
-                
-
+            self.group_entropy = group_entropy
+            if self.cal_entropy > 1:
+                self.co_entropy = self.co_entropy / 2
+            if self.cal_entropy < 0.01:
+                self.co_entropy = self.co_entropy * 2
 
     def run(self):
         while True:
@@ -772,6 +783,8 @@ class new_place_GNN():
             self.replica_num_array = tf.placeholder(dtype=tf.float32, shape=(None,len(devices)),name="replica_num_array")
             self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
+            self.coef_group_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="co_group_entropy")
+
             self.train_place = tf.placeholder(dtype=tf.bool, shape=(),name="train_place")
             self.mems = [tf.placeholder(tf.float32,[128, bsz, d_model]) for _ in range(n_layer)]
 
@@ -886,7 +899,7 @@ class new_place_GNN():
 
         #self.place_loss = 100*self.place_loss
         place_reward =  self.place_loss+self.coef_entropy * self.entropy
-        group_reward = (self.group_loss+self.coef_entropy*self.group_entropy)
+        group_reward = (self.group_loss+self.coef_group_entropy*self.group_entropy)
         reward = place_reward+group_reward
         self.loss = -reward
         place_loss = -place_reward
@@ -907,7 +920,7 @@ class new_place_GNN():
     def get_a_cell(self):
         return tf.nn.rnn_cell.BasicLSTMCell(num_units=64)
 
-    def learn(self,ftr_in,bias_in,nb_nodes,replica_num_array,sample_ps_or_reduce,sample_device_choice,sample_group,time_ratio,coef_entropy,mems,init_group):
+    def learn(self,ftr_in,bias_in,nb_nodes,replica_num_array,sample_ps_or_reduce,sample_device_choice,sample_group,time_ratio,coef_entropy,coef_group_entropy,mems,init_group):
         feed_dict = {}
         feed_dict[self.ftr_in]=ftr_in
         feed_dict[self.bias_in]=bias_in
@@ -921,21 +934,25 @@ class new_place_GNN():
         feed_dict[self.sample_group] = sample_group
         feed_dict[self.time_ratio]=time_ratio
         feed_dict[self.coef_entropy]=coef_entropy
+        feed_dict[self.coef_group_entropy]=coef_group_entropy
         feed_dict[self.init_group]=init_group
 
         for item1,item2 in zip(self.mems,mems):
             feed_dict[item1]=item2
-        entropy,unique,log_device_choices,log_prob,pro_group,indices,loss,mems,_ = self.sess.run([self.entropy,self.unique_group,self.log_device_choices[0],self.log_prob,self.pro_group,self.indices,self.loss,self.new_mems,self.train_op],
+        group_entropy,entropy,unique,log_device_choices,log_prob,pro_group,indices,loss,mems,_ = self.sess.run([self.group_entropy,self.entropy,self.unique_group,self.log_device_choices[0],self.log_prob,self.pro_group,self.indices,self.loss,self.new_mems,self.train_op],
                      feed_dict=feed_dict)
         print("device_choice_log1:",log_device_choices)
         print("Indices:", indices)
         print("unique group:", unique)
         print("gather Log prob:", log_prob)
         print("Time ratio:",time_ratio)
+        print("place entropy:",entropy)
+        print("group entropy:",group_entropy)
 
 
 
-        return loss,mems,entropy
+
+        return loss,mems,entropy,group_entropy
     def get_replica_num_prob_and_entropy(self,ftr_in,bias_in,nb_nodes,mems,sample_group,init_group):
         fetch_list =[item for item in self.device_choices]
         fetch_list.append(self.ps_or_reduce)
