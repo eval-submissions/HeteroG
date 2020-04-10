@@ -388,9 +388,9 @@ class Environment(object):
         else:
             intra = bandwidth[0]
             inter = bandwidth[1]
-        _tge = tge.TGE(copy.deepcopy(self.gdef), self.devices,sink)
+        _tge = tge.TGE(copy.deepcopy(self.null_gdef), self.devices,sink)
 
-        time_mem_tuple = _tge.custom(strategy).replace_placeholder(self.batch_size).set_nccl_model(self.nccl_model).use_collective().set_bandwidth(intra,inter).evaluate(self.name_cost_dict)
+        time_mem_tuple = _tge.custom(strategy).fill_batchsize(self.batch_size).set_nccl_model(self.nccl_model).use_collective().set_bandwidth(intra,inter).evaluate(self.name_cost_dict)
         time = time_mem_tuple[0]
         mem_list = time_mem_tuple[1]
         time = float(time)/(10**3)
@@ -512,12 +512,12 @@ class feature_item(threading.Thread):
 
         self.pool = pool
         self.gdef = graph_pb2.GraphDef()
-        with open(folder_path+"/graph.pbtxt","r")as f:
+        with open(folder_path+"/null_graph.pbtxt","r")as f:
             txt = f.read()
         pbtf.Parse(txt,self.gdef)
         self.init_group = tge.TGE(copy.deepcopy(self.gdef ), devices, sink).get_groups()
         print(self.init_group)
-        self.env = Environment(folder_path+"/graph.pbtxt",devices,folder_path,self.batch_size,self.pool,self.init_group,sink)
+        self.env = Environment(folder_path+"/null_graph.pbtxt",devices,folder_path,self.batch_size,self.pool,self.init_group,sink)
         self.average_reward=0
         self.best_reward = 1-sys.maxsize
         self.best_replica_num = list()

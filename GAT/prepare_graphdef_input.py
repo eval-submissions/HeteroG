@@ -18,6 +18,7 @@ sys.path.append('../')
 from profiler import Profiler
 from profiler import NcclProfiler
 from tensorflow.distribute.cluster_resolver import TFConfigClusterResolver
+import traceback
 
 config_dict =dict()
 if os.path.exists("config.txt"):
@@ -110,9 +111,9 @@ def model_fn(model_name,batch_size):
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
         optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
         return optimizer
-def generate_edge_file(gdef,null_gdef,folder):
+def generate_edge_file(null_gdef,folder):
     with open(folder+"graph.pbtxt","w") as f:
-        f.write(str(gdef))
+        f.write(pbtf.MessageToString(null_gdef))
     name_list = [nodedef.name for nodedef in null_gdef.node]
     item_list=[]
     for i,nodedef in enumerate(null_gdef.node):
@@ -130,7 +131,7 @@ def generate_edge_file(gdef,null_gdef,folder):
             else:
                 input_node_idx = name_list.index(input)
                 #output_node_idx = i
-                input_nodedef = gdef.node[input_node_idx]
+                input_nodedef = null_gdef.node[input_node_idx]
                 #output_shape = input_nodedef.attr["_output_shapes"].list.shape[index]
                 #size = 1
                 #for dim in output_shape.dim:
@@ -155,18 +156,13 @@ def generate_feature_file(folder,index):
     with open(folder + "null_graph.pbtxt", "w") as f:
         f.write(pbtf.MessageToString(null_gdef))
     tf.reset_default_graph()
-    opt = model_fn(models[index],batch_size)
-    init = tf.global_variables_initializer()
-    gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
 
-    generate_edge_file(gdef,null_gdef,folder)
+    generate_edge_file(null_gdef,folder)
     if os.path.exists("op_type_dict.json"):
         with open("op_type_dict.json", "r") as f:
             op_type_dict=json.load(f)
     else:
         op_type_dict = dict()
-
-    profiler = Profiler(gdef)
     replica_num = [1,2,3,4,6,8,12]
     item_list=[]
     times_dict=dict()
@@ -180,11 +176,11 @@ def generate_feature_file(folder,index):
                 txt = f.read()
             pbtf.Parse(txt, run_metadata)
         else:
-            opt = model_fn(models[index],batch_size/replica_num[replica_times])
-            init = tf.global_variables_initializer()
-            gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
-            profiler = Profiler(gdef,server.target)
-        for i,nodedef in enumerate(gdef.node):
+            #opt = model_fn(models[index],batch_size/replica_num[replica_times])
+            #init = tf.global_variables_initializer()
+            #gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+            profiler = Profiler(null_gdef,int(batch_size/replica_num[replica_times]),server.target)
+        for i,nodedef in enumerate(null_gdef.node):
             times = times_dict.get(nodedef.name,'')
             if op_type_dict.get(nodedef.op,-1)==-1:
                 op_type_dict[nodedef.op] = len(op_type_dict.keys())
@@ -195,6 +191,7 @@ def generate_feature_file(folder,index):
                 except Exception as ex:
                     print(sys.stderr, 'profile error: ', ex)
                     print(nodedef)
+                    traceback.print_exc()
                     time = 0
                 new_time = time
                 item=final_dict.get((nodedef.name,replica_num[replica_times]),None)
@@ -204,8 +201,8 @@ def generate_feature_file(folder,index):
                 item.append(new_time)
                 times+=str(new_time)+" "
             times_dict[nodedef.name] = times
-    name_list = [nodedef.name for nodedef in gdef.node]
-    for i, nodedef in enumerate(gdef.node):
+    name_list = [nodedef.name for nodedef in null_gdef.node]
+    for i, nodedef in enumerate(null_gdef.node):
         size=0
         for j,input in enumerate(nodedef.input):
             if ":" in input:
@@ -219,7 +216,7 @@ def generate_feature_file(folder,index):
             else:
                 input_node_idx = name_list.index(input)
                 #output_node_idx = i
-                input_nodedef = gdef.node[input_node_idx]
+                input_nodedef = null_gdef.node[input_node_idx]
                 output_shape = input_nodedef.attr["_output_shapes"].list.shape[index]
                 local_size=1
                 for dim in output_shape.dim:
@@ -227,7 +224,7 @@ def generate_feature_file(folder,index):
                 size+=local_size
         times = times_dict[nodedef.name]
         item_list.append("{} {} {}{} {}".format(nodedef.name, op_type_dict[nodedef.op],times,size,batch_size))
-    for nodedef in enumerate(null_gdef.node):
+    for i,nodedef in enumerate(null_gdef.node):
         if nodedef.name not in name_list:
             item_list.append("{} {} {}{} {}".format(nodedef.name, op_type_dict[nodedef.op], 0, 0, batch_size))
 
