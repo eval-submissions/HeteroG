@@ -694,13 +694,27 @@ class feature_item(threading.Thread):
         print("[{}] Rewards = {}".format(self.folder_path, self.rewards))
         print("[{}] epoch = {}".format(self.folder_path, epoch))
 
+        new_loss, group_entropy, group_kl = self.place_gnn.learn_group(ftr_in=self.features,
+                                                                                  bias_in=self.biases,
+                                                                                  nb_nodes=self.nb_nodes,
+                                                                                  sample_group=np.array(self.group[0]),
+                                                                                  time_ratio=sum(self.rewards)/len(self.rewards),
+                                                                                  coef_group_entropy=self.co_group_entropy,
+                                                                                  init_group=self.init_group,
+                                                                                  group_lr=self.group_lr,
+                                                                                  place_lr=self.place_lr)
+        self.group_entropy = group_entropy
 
+        if self.group_entropy > 100 or group_kl > 10:
+            self.co_group_entropy = max(1, self.co_group_entropy / 2)
+        if self.group_entropy < 1 or group_kl < 0.01:
+            self.co_group_entropy = min(1000, self.co_group_entropy * 2)
 
         for index in range(sample_times):
-            logger.info("sample_ps:{}".format(self.ps_or_reduces[index]))
-            logger.info("sample_device_choices:{}".format(self.device_choices[index]))
+            logger.debug("sample_ps:{}".format(self.ps_or_reduces[index]))
+            logger.debug("sample_device_choices:{}".format(self.device_choices[index]))
 
-            new_loss,new_global_mems,entropy,group_entropy,group_kl,place_kl=self.place_gnn.learn(ftr_in=self.features,
+            new_loss,new_global_mems,entropy,place_kl=self.place_gnn.learn_place(ftr_in=self.features,
                             bias_in=self.biases,
                             nb_nodes=self.nb_nodes,
                             sample_ps_or_reduce = np.array(self.ps_or_reduces[index]),
@@ -715,16 +729,14 @@ class feature_item(threading.Thread):
                             place_lr = self.place_lr)
             global_mems = new_global_mems
             self.cal_entropy = entropy
-            self.group_entropy = group_entropy
-
+            print("place entropy:", self.cal_entropy)
+            print("group entropy:", self.group_entropy)
+            print("place kl:", place_kl)
+            print("group kl:", group_kl)
             if self.cal_entropy > 100 or place_kl>10 :
                 self.co_entropy = max(1,self.co_entropy / 2)
             if self.cal_entropy < 1 or place_kl<0.01:
                 self.co_entropy = min(self.co_entropy * 2,1000)
-            if self.group_entropy > 100 or group_kl>10:
-                self.co_group_entropy = max(1,self.co_group_entropy / 2)
-            if self.group_entropy < 1 or group_kl<0.01:
-                self.co_group_entropy = min(1000,self.co_group_entropy * 2)
             '''
             if group_kl>10:
                 self.group_lr = self.group_lr/2
@@ -760,7 +772,22 @@ class feature_item(threading.Thread):
             pool_strategy = self.strategy_pool.choose_strategy()
             if pool_strategy==None:
                 return
-            new_loss,new_global_mems,entropy,group_entropy,group_kl,place_kl=self.place_gnn.learn(ftr_in=self.features,
+            new_loss, group_entropy, group_kl = self.place_gnn.learn_group(ftr_in=self.features,
+                                                                           bias_in=self.biases,
+                                                                           nb_nodes=self.nb_nodes,
+                                                                           sample_group=np.array(pool_strategy["group"]),
+                                                                           time_ratio=pool_strategy["reward"],
+                                                                           coef_group_entropy=self.co_group_entropy,
+                                                                           init_group=self.init_group,
+                                                                           group_lr=self.group_lr,
+                                                                           place_lr=self.place_lr)
+            self.group_entropy = group_entropy
+
+            if self.group_entropy > 100 or group_kl > 10:
+                self.co_group_entropy = max(1, self.co_group_entropy / 2)
+            if self.group_entropy < 1 or group_kl < 0.01:
+                self.co_group_entropy = min(1000, self.co_group_entropy * 2)
+            new_loss,new_global_mems,entropy,place_kl=self.place_gnn.learn_place(ftr_in=self.features,
                             bias_in=self.biases,
                             nb_nodes=self.nb_nodes,
                             sample_ps_or_reduce = np.array(pool_strategy["ps_or_reduce"]),
@@ -776,17 +803,15 @@ class feature_item(threading.Thread):
                             )
             global_mems = new_global_mems
             self.cal_entropy = entropy
-            self.group_entropy = group_entropy
-
+            print("place entropy:", self.cal_entropy)
+            print("group entropy:", self.group_entropy)
+            print("place kl:", place_kl)
+            print("group kl:", group_kl)
 
             if self.cal_entropy > 100:
                 self.co_entropy = max(1,self.co_entropy / 2)
             if self.cal_entropy < 0.01:
                 self.co_entropy = min(self.co_entropy * 2,1000)
-            if self.group_entropy > 100:
-                self.co_group_entropy = max(1,self.co_group_entropy / 2)
-            if self.group_entropy < 0.01:
-                self.co_group_entropy = min(self.co_group_entropy * 2,1000)
             '''
             if group_kl>10:
                 self.group_lr = self.group_lr/2
@@ -855,10 +880,7 @@ class new_place_GNN():
             self.group = tf.random.categorical(log_pro_group,1,dtype=tf.int32)
             self.group = tf.reshape(self.group,[-1])
             #_,real_group = tf.unique(self.group)
-            group = tf.cond(self.is_train,lambda:self.sample_group,lambda:self.group)
-            unique_group,_ =tf.unique(group)
-            #group = tf.cond(self.is_train,lambda:tf.unique(self.sample_group[0])[0],lambda:group)
-            self.unique_group = unique_group
+
             self.group_entropy = tf.reduce_sum(self.pro_group * log_pro_group, 1)
             self.group_entropy = -tf.reduce_sum(self.group_entropy)
 
@@ -871,6 +893,12 @@ class new_place_GNN():
             self.indices = tf.concat((_range1, self.sample_group[:, tf.newaxis]), axis=1)
             self.log_prob = tf.gather_nd(self.log_pro_group, self.indices)
             self.group_loss = tf.reduce_sum(self.log_prob) * self.time_ratio
+
+            group = tf.cond(self.is_train,lambda:self.sample_group,lambda:self.group)
+            unique_group,_ =tf.unique(group)
+            #group = tf.cond(self.is_train,lambda:tf.unique(self.sample_group[0])[0],lambda:group)
+            self.unique_group = unique_group
+
 
         with tf.variable_scope("place_nn"):
             with tf.device("/device:GPU:1"):
@@ -952,14 +980,14 @@ class new_place_GNN():
         #self.place_loss = 100*self.place_loss
         place_reward =  self.place_loss+self.coef_entropy * self.entropy
         group_reward = (self.group_loss+self.coef_group_entropy*self.group_entropy)
-        reward = place_reward+group_reward
-        self.loss = -reward
-        place_loss = -place_reward
-        group_loss = -group_reward
-        train_place = model.training(place_loss,self.place_lr , l2_coef,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='place_nn'))
-        train_group =model.training(group_loss, self.group_lr, l2_coef,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='group_nn'))
-        #self.train_op =tf.cond(self.train_place,lambda:train_place,lambda:train_group)
-        self.train_op =tf.group(train_place,train_group)
+        #self.loss = -reward
+        self.place_loss = -place_reward
+        self.group_loss = -group_reward
+
+        self.train_place_op = model.training(self.place_loss,self.place_lr , l2_coef,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='place_nn'))
+        self.train_group_op =model.training(self.group_loss, self.group_lr, l2_coef,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='group_nn'))
+
+        #self.train_op =tf.group(train_place,train_group)
 
 
         '''
@@ -972,7 +1000,7 @@ class new_place_GNN():
     def get_a_cell(self):
         return tf.nn.rnn_cell.BasicLSTMCell(num_units=64)
 
-    def learn(self,ftr_in,bias_in,nb_nodes,sample_ps_or_reduce,sample_device_choice,sample_group,time_ratio,coef_entropy,coef_group_entropy,mems,init_group,group_lr,place_lr):
+    def learn_place(self,ftr_in,bias_in,nb_nodes,sample_ps_or_reduce,sample_device_choice,sample_group,time_ratio,coef_entropy,coef_group_entropy,mems,init_group,group_lr,place_lr):
         feed_dict = {}
         feed_dict[self.ftr_in]=ftr_in
         feed_dict[self.bias_in]=bias_in
@@ -988,6 +1016,8 @@ class new_place_GNN():
         feed_dict[self.coef_group_entropy]=coef_group_entropy
         feed_dict[self.previous_device_choices]=self.previous_outputs[:len(devices)]
         feed_dict[self.pre_pro_group]=self.previous_outputs[len(devices)]
+        feed_dict[self.train_place] = True
+
 
         feed_dict[self.group_lr]=group_lr
         feed_dict[self.place_lr]=place_lr
@@ -1000,20 +1030,46 @@ class new_place_GNN():
 
         fetch_list =[item for item in self.device_choices]
         fetch_list.append(self.pro_group)
-        fetch_list.extend([self.before_log_prob,self.group_kl,self.place_kl,self.group_entropy,self.entropy,self.unique_group,self.log_device_choices[0],self.log_prob,self.pro_group,self.indices,self.loss,self.new_mems,self.train_op])
+        fetch_list.extend([self.before_log_prob,self.place_kl,self.entropy,self.unique_group,self.log_device_choices[0],self.log_prob,self.pro_group,self.indices,self.place_loss,self.new_mems,self.train_place_op])
 
         outputs= self.sess.run(fetch_list,
                      feed_dict=feed_dict)
         self.previous_outputs = outputs
 
-        before_log_prob,group_kl, place_kl, group_entropy, entropy, unique, log_device_choices, log_prob, pro_group, indices, loss, mems, _ = outputs[len(devices)+1:]
+        before_log_prob, place_kl, entropy, unique, log_device_choices, log_prob, pro_group, indices, loss, mems, _ = outputs[len(devices)+1:]
         logger.debug("before prob:{},indices:{},unique group:{},gather:{}".format(before_log_prob,indices,unique,log_prob))
-        print("Time ratio:",time_ratio)
-        print("place entropy:",entropy)
-        print("group entropy:",group_entropy)
-        print("place kl:",place_kl)
-        print("group kl:",group_kl)
-        return loss,mems,entropy,group_entropy,group_kl,place_kl
+
+        return loss,mems,entropy,place_kl
+
+    def learn_group(self,ftr_in,bias_in,nb_nodes,sample_group,time_ratio,coef_group_entropy,init_group,group_lr,place_lr):
+        feed_dict = {}
+        feed_dict[self.ftr_in] = ftr_in
+        feed_dict[self.bias_in] = bias_in
+        feed_dict[self.nb_node] = nb_nodes
+        feed_dict[self.is_train] = True
+        feed_dict[self.train_place] = False
+        feed_dict[self.attn_drop] = 0
+        feed_dict[self.ffd_drop] = 0
+        feed_dict[self.sample_group] = sample_group
+        feed_dict[self.time_ratio] = time_ratio
+        feed_dict[self.coef_group_entropy] = coef_group_entropy
+        feed_dict[self.pre_pro_group] = self.previous_outputs_group
+
+        feed_dict[self.group_lr] = group_lr
+        feed_dict[self.place_lr] = place_lr
+
+        feed_dict[self.init_group] = init_group
+
+
+        fetch_list = []
+        fetch_list.extend(
+            [self.pro_group,self.group_kl, self.group_entropy, self.group_loss,
+             self.train_group_op])
+
+        outputs = self.sess.run(fetch_list,feed_dict=feed_dict)
+
+        self.previous_outputs_group,group_kl, group_entropy, loss, _ = outputs
+        return loss, group_entropy, group_kl
     def get_replica_num_prob_and_entropy(self,ftr_in,bias_in,nb_nodes,mems,sample_group,init_group):
         fetch_list =[item for item in self.device_choices]
         fetch_list.append(self.ps_or_reduce)
@@ -1043,6 +1099,7 @@ class new_place_GNN():
         if self.first_time:
             self.previous_outputs = outputs[:len(devices)]
             self.previous_outputs.append(outputs[-2])
+            self.previous_outputs_group = outputs[-2]
             self.first_time=False
         return outputs
 
@@ -1079,13 +1136,13 @@ def architecture_three():
                 #model.wait_sample()
                 start = time.time()
                 model.sync_sample_and_parallel_process()
-                logger.info("sync_sample_and_parallel_process time:{}".format(time.time()-start))
+                logger.debug("sync_sample_and_parallel_process time:{}".format(time.time()-start))
                 start = time.time()
                 model.post_parallel_process()
-                logger.info("post_parallel_process time:{}".format(time.time()-start))
+                logger.debug("post_parallel_process time:{}".format(time.time()-start))
                 start = time.time()
                 model.train(epoch)
-                logger.info("train time:{}".format(time.time()-start))
+                logger.debug("train time:{}".format(time.time()-start))
 
             '''
             for model in models:
@@ -1102,7 +1159,7 @@ def architecture_three():
             if epoch % (show_interval*30 )== 0:
                 start = time.time()
                 saver.save(sess, checkpt_file)
-                logger.info("save time:{}".format(time.time() - start))
+                logger.debug("save time:{}".format(time.time() - start))
 
         sess.close()
 
