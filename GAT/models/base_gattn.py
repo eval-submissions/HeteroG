@@ -18,7 +18,7 @@ class BaseGAttN:
         # training op
         train_op = opt.minimize(loss+lossL2,colocate_gradients_with_ops=True,var_list=vars)
         
-        return train_op
+        return train_op,lossL2
 
     def preshape(logits, labels, nb_classes):
         new_sh_lab = [-1]
