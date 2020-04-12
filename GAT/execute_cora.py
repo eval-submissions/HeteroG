@@ -553,7 +553,7 @@ class feature_item(threading.Thread):
         self.init_group = tge.TGE(copy.deepcopy(self.gdef ), devices, sink).get_groups()
         with open(folder_path+"/new_cost.pkl", "rb") as f:
             name_cost_dict = pkl.load(f)
-        self.init_group = group_around_topk_costs(self.gdef,self.init_group,name_cost_dict,group_num)
+        #self.init_group = group_around_topk_costs(self.gdef,self.init_group,name_cost_dict,group_num)
         print(self.init_group)
         self.env = Environment(folder_path+"/null_graph.pbtxt",devices,folder_path,self.batch_size,self.pool,self.init_group,sink)
         self.average_reward=0
