@@ -25,6 +25,7 @@ import pickle as pkl
 import multiprocessing as mp
 from multiprocessing import Pool
 from utils import adapt_batchsize
+from utils import group_around_topk_costs
 import logging
 import math
 def InitLog():
@@ -84,7 +85,7 @@ n_head=8
 d_head=64
 d_model=512
 d_inner=2048
-group_num = 10
+group_num = 50
 bsz =1
 
 global_mems = [np.zeros([128, bsz, d_model], dtype=np.float32) for layer in range(n_layer)]
@@ -549,6 +550,9 @@ class feature_item(threading.Thread):
             txt = f.read()
         pbtf.Parse(txt,self.gdef)
         self.init_group = tge.TGE(copy.deepcopy(self.gdef ), devices, sink).get_groups()
+        with open(folder_path+"/new_cost.pkl", "rb") as f:
+            name_cost_dict = pkl.load(f)
+        self.init_group = group_around_topk_costs(self.gdef,self.init_group,name_cost_dict,group_num)
         print(self.init_group)
         self.env = Environment(folder_path+"/null_graph.pbtxt",devices,folder_path,self.batch_size,self.pool,self.init_group,sink)
         self.average_reward=0
