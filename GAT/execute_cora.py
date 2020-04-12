@@ -465,7 +465,10 @@ def random_func1(output):
     return np.array(list(map(random_choice, output)))
 def random_choice(item):
     np.random.seed()
-    return np.random.randint(0,item.size)
+    choice = []
+    choice.append(np.random.choice(item.size, p=item))
+    choice.append(np.random.randint(0,item.size))
+    return choice[np.random.choice(2, p=[sample_prob,1-sample_prob])]
 
 
 def sample_func1(output):
@@ -563,7 +566,7 @@ class feature_item(threading.Thread):
         self.oom = []
         self.train_place = False
         self.counter=0
-        self.co_entropy = 0.001*5
+        self.co_entropy = 0.001*1
         self.co_group_entropy = 5
         self.group_lr = lr[0]
         self.place_lr = lr[1]
