@@ -737,7 +737,7 @@ class feature_item(threading.Thread):
                             sample_ps_or_reduce = np.array(self.ps_or_reduces[index]),
                             sample_device_choice = np.array(self.device_choices[index]),
                             sample_group=np.array(self.group[index]),
-                            time_ratio = 0.01*((self.rewards[index])-self.avg)/np.abs(self.avg),
+                            time_ratio = 0.01*self.avg/self.rewards[index],
                             coef_entropy=self.co_entropy,
                             coef_group_entropy=self.co_group_entropy,
                             mems = global_mems,
@@ -753,6 +753,8 @@ class feature_item(threading.Thread):
             print("entropy loss:",-self.cal_entropy*self.co_entropy)
             print("place loss:",place_loss)
             print("place+entropy loss:",new_loss)
+            print("time ratio:",0.01*self.avg/self.rewards[index])
+
             #print("group kl:", group_kl)
             '''
             if self.cal_entropy > 100 or place_kl>10 :
@@ -786,7 +788,7 @@ class feature_item(threading.Thread):
                             sample_ps_or_reduce = np.array(pool_strategy["ps_or_reduce"]),
                             sample_device_choice = np.array(pool_strategy["device_choice"]),
                             sample_group=np.array(pool_strategy["group"]),
-                            time_ratio = 0.01*((pool_strategy["reward"])-self.avg)/np.abs(self.avg),
+                            time_ratio = 0.01*self.avg/pool_strategy["reward"],
                             coef_entropy=self.co_entropy,
                             coef_group_entropy=self.co_group_entropy,
                             mems = global_mems,
@@ -804,6 +806,7 @@ class feature_item(threading.Thread):
             print("entropy loss:",-self.cal_entropy*self.co_entropy)
             print("place loss:",place_loss)
             print("place+entropy loss:",new_loss)
+            print("time ratio:",0.01*self.avg/pool_strategy["reward"])
 
             #print("group kl:", group_kl)
             '''
