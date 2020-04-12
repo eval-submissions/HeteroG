@@ -293,6 +293,7 @@ class strategy_pool(object):
     def insert(self,reward,device_choice,replica_mask,ps_or_reduce,group,force_insert=False):
         strategy_list = self.get_stratey_list(device_choice, ps_or_reduce)
         if force_insert:
+            return
             self.strategies.append({"replica_mask": replica_mask, "strategy_list": strategy_list, "reward": reward,
                                     "device_choice": device_choice, "ps_or_reduce": ps_or_reduce,"group":group})
 
