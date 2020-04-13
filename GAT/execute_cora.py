@@ -571,10 +571,13 @@ class feature_item(threading.Thread):
         self.oom = []
         self.train_place = False
         self.counter=0
-        self.co_entropy = 0.001*5
+        self.small_co = 0.001*5
+        self.large_co =self.small_co*50
+        self.co_entropy = self.small_co
         self.co_group_entropy = 5
         self.group_lr = lr[0]
         self.place_lr = lr[1]
+        self.record_time =[]
 
 
     def set_session_and_network(self,sess,place_gnn):
@@ -769,7 +772,13 @@ class feature_item(threading.Thread):
             '''
 
         times = max(self.rewards)*max(self.rewards)
-
+        self.record_time.append(str(times))
+        if len(self.record_time)>20:
+            self.record_time = self.record_time[-20:]
+        if len(self.record_time)==20 and len(set(self.record_time))<5:
+            self.co_entropy = self.large_co
+        else:
+            self.co_entropy = self.small_co
         if epoch % show_interval == 0:
             print("[{}] step = {}".format(self.folder_path,epoch))
             print("[{}] time = {}".format(self.folder_path,times))
