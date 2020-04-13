@@ -553,7 +553,7 @@ class feature_item(threading.Thread):
         self.init_group = tge.TGE(copy.deepcopy(self.gdef ), devices, sink).get_groups()
         with open(folder_path+"/new_cost.pkl", "rb") as f:
             name_cost_dict = pkl.load(f)
-        #self.init_group = group_around_topk_costs(self.gdef,self.init_group,name_cost_dict,group_num)
+        self.init_group = group_around_topk_costs(self.gdef,self.init_group,name_cost_dict,group_num)
         print(self.init_group)
         self.env = Environment(folder_path+"/null_graph.pbtxt",devices,folder_path,self.batch_size,self.pool,self.init_group,sink)
         self.average_reward=0
@@ -618,10 +618,10 @@ class feature_item(threading.Thread):
             sample_or_not = True if np.random.choice(2, p=[sample_prob,1-sample_prob])==0 else False
             if sample_or_not:
                 device_choice = np.array(list(map(sample_func1, self.outputs[0:len(devices)])))
-                logger.debug("device_choice sample result:{}".format(device_choice))
+                #logger.debug("device_choice sample result:{}".format(device_choice))
             else:
                 device_choice = np.array(list(map(random_func1, self.outputs[0:len(devices)])))
-                logger.debug("device_choice random result:{}".format(device_choice))
+                #logger.debug("device_choice random result:{}".format(device_choice))
 
         # device_choice = self.outputs[0:max_replica_num]
         device_choice = np.transpose(device_choice)
@@ -634,11 +634,11 @@ class feature_item(threading.Thread):
         else:
             if sample_or_not:
                 ps_or_reduce = np.array(list(map(sample_choice, self.outputs[len(devices)])))
-                logger.debug("ps_or_reduce sample result:{}".format(ps_or_reduce))
+                #logger.debug("ps_or_reduce sample result:{}".format(ps_or_reduce))
 
             else:
                 ps_or_reduce = np.array(list(map(random_choice, self.outputs[len(devices)])))
-                logger.debug("ps_or_reduce random result:{}".format(ps_or_reduce))
+                #logger.debug("ps_or_reduce random result:{}".format(ps_or_reduce))
 
         # ps_or_reduce = self.outputs[max_replica_num]
         # group =  np.array(list(map(random_func1,self.outputs[-1])))
@@ -726,7 +726,7 @@ class feature_item(threading.Thread):
             if len(set(self.rewards))==1:
                 sample_prob=0.7
             '''
-            sample_prob = min(0.1+0.1*(epoch//30),0.9)
+            sample_prob = min(0.1+0.1*(epoch//30),0.7)
         print("[{}] sample_prob = {}".format(self.folder_path, sample_prob))
         print("[{}] train_place = {}".format(self.folder_path, self.train_place))
         print("[{}] Rewards = {}".format(self.folder_path, self.rewards))
@@ -1033,7 +1033,7 @@ class new_place_GNN():
         self.previous_outputs = outputs
 
         place_reward,l2_loss,before_log_prob, place_kl, entropy, unique, log_device_choices, log_prob, indices, loss, mems, _ = outputs[len(devices):]
-        logger.debug("previous_outputs:{}".format(self.previous_outputs[:len(devices)]))
+        #logger.debug("previous_outputs:{}".format(self.previous_outputs[:len(devices)]))
 
         return -place_reward,l2_loss,loss,mems,entropy,place_kl
 
@@ -1129,13 +1129,13 @@ def architecture_three():
                 #model.wait_sample()
                 start = time.time()
                 model.sync_sample_and_parallel_process()
-                logger.debug("sync_sample_and_parallel_process time:{}".format(time.time()-start))
+                #logger.debug("sync_sample_and_parallel_process time:{}".format(time.time()-start))
                 start = time.time()
                 model.post_parallel_process()
-                logger.debug("post_parallel_process time:{}".format(time.time()-start))
+                #logger.debug("post_parallel_process time:{}".format(time.time()-start))
                 start = time.time()
                 model.train(epoch)
-                logger.debug("train time:{}".format(time.time()-start))
+                #logger.debug("train time:{}".format(time.time()-start))
 
             '''
             for model in models:
@@ -1152,7 +1152,7 @@ def architecture_three():
             if epoch % (show_interval*30 )== 0:
                 start = time.time()
                 saver.save(sess, checkpt_file)
-                logger.debug("save time:{}".format(time.time() - start))
+                #logger.debug("save time:{}".format(time.time() - start))
 
         sess.close()
 
