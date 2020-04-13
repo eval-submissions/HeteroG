@@ -70,7 +70,7 @@ batch_size = 1
 nb_epochs = 100000
 patience = 100
 lr = config_dict.get("learning_rate", 0.01)  # learning rate
-l2_coef = 0.002  # weight decay
+l2_coef = 0.0002  # weight decay
 hid_units = [512]  # numbers of hidden units per each attention head in each layer
 n_heads = [4, 4]  # additional entry for the output layer
 place_hid_units = [1024, 256]
@@ -571,7 +571,7 @@ class feature_item(threading.Thread):
         self.oom = []
         self.train_place = False
         self.counter=0
-        self.co_entropy = 0.001*1
+        self.co_entropy = 0.001*5
         self.co_group_entropy = 5
         self.group_lr = lr[0]
         self.place_lr = lr[1]
