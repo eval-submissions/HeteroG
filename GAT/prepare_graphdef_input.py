@@ -15,6 +15,7 @@ from tensorflow.core.framework import step_stats_pb2
 import google.protobuf.text_format as pbtf
 import pickle as pkl
 sys.path.append('../')
+sys.path.append('./modeltransformer/')
 from profiler import Profiler
 from profiler import NcclProfiler
 from tensorflow.distribute.cluster_resolver import TFConfigClusterResolver
@@ -112,9 +113,12 @@ def model_fn(model_name,batch_size):
         optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
         return optimizer
     elif model_name=="transformer":
-        from transformer-tensorflow.transformer import Transformer
-
-        transformer = Transformer(
+        import modeltransformer.transformer as transf
+        from modeltransformer.data import DatasetManager
+        dm = DatasetManager("wmt14")
+        dm.maybe_download_data_files()
+        dm.load_vocab()
+        transformer = transf.Transformer(
             num_heads=8,
             d_model=512,
             d_ff=2048,
@@ -127,11 +131,9 @@ def model_fn(model_name,batch_size):
             seq_len=10,
             max_steps=300000,
         )
-        with open("transformer-tensorflow/word.json","r") as f:
-            words = json.load(f)
-        transformer.build_model("wmt14", words["source"], words["target"], **train_params)
-
-        return transformer._train_op
+        transformer.build_model("wmt14", dm.source_id2word, dm.target_id2word, 0,**train_params)
+        optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(transformer._loss)
+        return optimizer
 def generate_edge_file(null_gdef,folder):
     with open(folder+"graph.pbtxt","w") as f:
         f.write(pbtf.MessageToString(null_gdef))
@@ -190,17 +192,10 @@ def generate_feature_file(folder,index):
     for replica_times in range(len(replica_num)):
         tf.reset_default_graph()
         run_metadata = None
-        run_meta_file_name = "run_metadata"+str(int(batch_size/replica_num[replica_times]))+".pbtxt"
-        if os.path.exists(folder+run_meta_file_name):
-            run_metadata = tf.RunMetadata()
-            with open(folder+run_meta_file_name, "r")as f:
-                txt = f.read()
-            pbtf.Parse(txt, run_metadata)
-        else:
             #opt = model_fn(models[index],batch_size/replica_num[replica_times])
             #init = tf.global_variables_initializer()
             #gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
-            profiler = Profiler(null_gdef,int(batch_size/replica_num[replica_times]),server.target)
+        profiler = Profiler(null_gdef,int(batch_size/replica_num[replica_times]),server.target)
         for i,nodedef in enumerate(null_gdef.node):
             times = times_dict.get(nodedef.name,'')
             if op_type_dict.get(nodedef.op,-1)==-1:
@@ -257,8 +252,10 @@ def generate_feature_file(folder,index):
     with open(folder+"cost.pkl", "wb") as f:
         pkl.dump(final_dict,f)
 
-models = ["vgg19","resnet200","resnet50","resnet101","resnet152","inceptionv3"]#,"bert"]
+models = ["vgg19","resnet200","resnet50","resnet101","resnet152","inceptionv3","transformer"]
 for i in range(len(models)):
+    if i!=6:
+        continue
     tf.reset_default_graph()
     folder = "data/graph"+str(i+1)+"/"
     generate_feature_file(folder,i)

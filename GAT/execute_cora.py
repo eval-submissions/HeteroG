@@ -106,7 +106,7 @@ print('residual: ' + str(residual))
 print('nonlinearity: ' + str(nonlinearity))
 print('model: ' + str(model))
 feature_folders = config_dict.get("inputs",["data/graph1", "data/graph2", "data/graph3", "data/graph4", "data/graph5", "data/graph6","data/graph7"])
-sinks =  config_dict.get("sinks",[["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"],["group_deps_1","loss/Mean","global_step/add"]])
+sinks =  config_dict.get("sinks",[["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"],["GradientDescent"]])
 sample_times = 3
 devices = config_dict.get("devices", [
     "/job:worker/replica:0/task:0/device:GPU:0",
@@ -373,13 +373,11 @@ class Environment(object):
             self.nccl_model=pkl.load(f)
 
 
-        if "graph7" in folder_path:
-            self.null_gdef =self.gdef
-        else:
-            self.null_gdef = graph_pb2.GraphDef()
-            with open(folder_path+"/null_graph.pbtxt","r")as f:
-                txt = f.read()
-            pbtf.Parse(txt,self.null_gdef)
+
+        self.null_gdef = graph_pb2.GraphDef()
+        with open(folder_path+"/null_graph.pbtxt","r")as f:
+            txt = f.read()
+        pbtf.Parse(txt,self.null_gdef)
 
         if os.path.exists(folder_path+"/best_time.log"):
             with open(folder_path+"/best_time.log", "r") as f:
