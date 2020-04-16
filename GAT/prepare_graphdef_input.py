@@ -111,6 +111,27 @@ def model_fn(model_name,batch_size):
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
         optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
         return optimizer
+    elif model_name=="transformer":
+        from transformer-tensorflow.transformer import Transformer
+
+        transformer = Transformer(
+            num_heads=8,
+            d_model=512,
+            d_ff=2048,
+            model_name=model_name,
+            tf_sess_config=dict(allow_soft_placement=True)
+        )
+        train_params = dict(
+            learning_rate=1e-4,
+            batch_size=batch_size,
+            seq_len=10,
+            max_steps=300000,
+        )
+        with open("transformer-tensorflow/word.json","r") as f:
+            words = json.load(f)
+        transformer.build_model("wmt14", words["source"], words["target"], **train_params)
+
+        return transformer._train_op
 def generate_edge_file(null_gdef,folder):
     with open(folder+"graph.pbtxt","w") as f:
         f.write(pbtf.MessageToString(null_gdef))
