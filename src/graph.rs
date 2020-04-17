@@ -315,7 +315,7 @@ impl Node {
                     set_form(&mut random_node, &self.form.code());
                     random_node.input.push(shape_node.name.clone());
                     random_node.attr.insert("T".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_INT32)));
-                    random_node.attr.insert("dtype".into(), AttrValue::new().apply(|x| x.set_field_type(DataType::DT_FLOAT)));
+                    random_node.attr.insert("dtype".into(), get_dtype(&self.raw_node, 0));
 
                     target.pb.node.push(shape_node);
                     target.pb.node.push(random_node);

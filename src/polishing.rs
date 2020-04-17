@@ -1,5 +1,7 @@
 use oh_my_rust::*;
 use crate::graph::*;
+use crate::proto::graph::GraphDef;
+use crate::proto::node_def::NodeDef;
 
 // if we do not remove these, we need to modify this field so that it has the correct node name of replicated operators
 pub fn remove_collocation_hint(target: &mut Target) {
@@ -55,4 +57,26 @@ pub fn destruct_names(target: &mut Target) {
             *input = input.replace('/', "__");
         }
     }
+}
+
+pub fn fuse_mini_batch(nodes: &[NodeDef], times: usize) -> Vec<NodeDef> {
+    let mut result = Vec::with_capacity(nodes.len() * times);
+
+    for i in 0..times {
+        for mut node in nodes.iter().cloned() {
+            node.name = format!("tge_fuse_batch_{}/{}", i, node.name);
+            for input in node.input.iter_mut() {
+                if input.starts_with('^') {
+                    *input = format!("^tge_fuse_batch_{}/{}", i, &input[1..]);
+                } else {
+                    *input = format!("tge_fuse_batch_{}/{}", i, input);
+                }
+            }
+            result.push(node)
+        }
+    }
+
+    todo!();
+
+    result
 }
