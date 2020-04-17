@@ -554,10 +554,16 @@ class feature_item(threading.Thread):
         with open(folder_path+"/null_graph.pbtxt","r")as f:
             txt = f.read()
         pbtf.Parse(txt,self.gdef)
-        self.init_group = tge.TGE(copy.deepcopy(self.gdef ), devices, sink).get_groups()
-        with open(folder_path+"/new_cost.pkl", "rb") as f:
-            name_cost_dict = pkl.load(f)
-        self.init_group = group_around_topk_costs(self.gdef,self.init_group,name_cost_dict,group_num)
+        if os.path.exists(folder_path+"/init_group.json"):
+            with open(folder_path+"/init_group.json","r") as f:
+                self.init_group =json.load(f)
+        else:
+            self.init_group = tge.TGE(copy.deepcopy(self.gdef ), devices, sink).get_groups()
+            with open(folder_path+"/new_cost.pkl", "rb") as f:
+                name_cost_dict = pkl.load(f)
+            self.init_group = group_around_topk_costs(self.gdef,self.init_group,name_cost_dict,group_num)
+            with open(folder_path+"/init_group.json","w") as f:
+                json.dump(self.init_group,f)
         print(self.init_group)
         self.env = Environment(folder_path+"/null_graph.pbtxt",devices,folder_path,self.batch_size,self.pool,self.init_group,sink)
         self.average_reward=0
