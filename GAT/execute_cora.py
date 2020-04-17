@@ -494,6 +494,7 @@ class feature_item(threading.Thread):
         self.dataset = load_cora(folder_path,NewWhiteSpaceTokenizer())
         adj = self.dataset.adj_matrix(sparse=True)
         feature_matrix, feature_masks = self.dataset.feature_matrix(bag_of_words=False, sparse=False)
+        '''
         self.batch_size = int(feature_matrix[0,-1])
 
 
@@ -501,6 +502,11 @@ class feature_item(threading.Thread):
             self.batch_size=global_batch_size
         else:
             self.batch_size = int((self.batch_size//global_batch_size)*global_batch_size)
+        '''
+        if "data/graph7" in folder_path:
+            self.batch_size = 288*6
+        else:
+            self.batch_size = 48*6
 
 
         self.event = event

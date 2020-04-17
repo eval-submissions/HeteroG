@@ -186,7 +186,7 @@ class Transformer(BaseModelMixin):
                 tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits, labels=dec_target_ohe))
 
             #optim = tf.train.AdamOptimizer(learning_rate=self._learning_rate,
-                                           beta1=0.9, beta2=0.98, epsilon=1e-9)
+                       #                    beta1=0.9, beta2=0.98, epsilon=1e-9)
             #self._train_op = optim.minimize(self._loss)
 
         #with tf.variable_scope(self.model_name + '_summary'):

@@ -171,7 +171,10 @@ def generate_nccl_model():
 
 
 def generate_feature_file(folder,index):
-    batch_size=48
+    if "data/graph7" in folder:
+        batch_size = 288
+    else:
+        batch_size=48
     final_dict=dict()
     opt = model_fn(models[index],None)
     init = tf.global_variables_initializer()
