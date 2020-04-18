@@ -50,8 +50,12 @@ class Environment(object):
         self.name_cost_dict = self.get_name_cost_dict()
         self.devices =devices
         self._tge = tge.TGE(self.gdef, devices)
-        self.global_batch_size = 288*6 if "graph7" in null_gdef_path else 48*6
-
+        if "graph7" in null_gdef_path:
+            self.global_batch_size = 288*6
+        elif "graph8" in null_gdef_path:
+            self.global_batch_size = 12 * 6
+        else:
+            self.global_batch_size =  48*6
         with open("nccl_model.pkl","rb") as f:
             self.nccl_model=pkl.load(f)
 

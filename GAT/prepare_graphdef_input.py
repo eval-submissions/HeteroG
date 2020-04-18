@@ -16,6 +16,8 @@ import google.protobuf.text_format as pbtf
 import pickle as pkl
 sys.path.append('../')
 sys.path.append('./modeltransformer/')
+sys.path.append('./bert/')
+
 from profiler import Profiler
 from profiler import NcclProfiler
 from tensorflow.distribute.cluster_resolver import TFConfigClusterResolver
@@ -134,6 +136,21 @@ def model_fn(model_name,batch_size):
         transformer.build_model("wmt14", dm.source_id2word, dm.target_id2word, 0,**train_params)
         optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(transformer._loss)
         return optimizer
+    elif model_name=="bert":
+        from bert.runsquad import new_model_fn_builder
+        import modeling
+        bert_config = modeling.BertConfig.from_json_file("bert/bert_large/bert_config.json")
+        model = new_model_fn_builder(bert_config)
+        features = {}
+        features["input_ids"]= tf.placeholder(tf.int32,shape=(batch_size,128))
+        features["input_mask"] = tf.placeholder(tf.int32,shape=(batch_size,128))
+        features["segment_ids"]=tf.placeholder(tf.int32,shape=(batch_size,128))
+        features["start_positions"] = tf.placeholder(tf.int32,shape=(batch_size,))
+        features["end_positions"] =tf.placeholder(tf.int32,shape=(batch_size,))
+        loss = model(features)
+        optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(loss)
+        return optimizer
+
 def generate_edge_file(null_gdef,folder):
     with open(folder+"graph.pbtxt","w") as f:
         f.write(pbtf.MessageToString(null_gdef))
@@ -173,6 +190,8 @@ def generate_nccl_model():
 def generate_feature_file(folder,index):
     if "data/graph7" in folder:
         batch_size = 288
+    elif "data/graph8" in folder:
+        batch_size = 6
     else:
         batch_size=48
     final_dict=dict()
@@ -189,7 +208,10 @@ def generate_feature_file(folder,index):
             op_type_dict=json.load(f)
     else:
         op_type_dict = dict()
-    replica_num = [1,2,3,4,6,8,12]
+    if "data/graph8" in folder:
+        replica_num = [1, 2, 3, 6, 6, 6, 6]
+    else:
+        replica_num = [1, 2, 3, 4, 6, 8, 12]
     item_list=[]
     times_dict=dict()
     for replica_times in range(len(replica_num)):
@@ -255,9 +277,9 @@ def generate_feature_file(folder,index):
     with open(folder+"cost.pkl", "wb") as f:
         pkl.dump(final_dict,f)
 
-models = ["vgg19","resnet200","resnet50","resnet101","resnet152","inceptionv3","transformer"]
+models = ["vgg19","resnet200","resnet50","resnet101","resnet152","inceptionv3","transformer","bert"]
 for i in range(len(models)):
-    if i!=6:
+    if i!=7:
         continue
     tf.reset_default_graph()
     folder = "data/graph"+str(i+1)+"/"
