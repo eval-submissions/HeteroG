@@ -142,11 +142,11 @@ def model_fn(model_name,batch_size):
         bert_config = modeling.BertConfig.from_json_file("bert/bert_large/bert_config.json")
         model = new_model_fn_builder(bert_config)
         features = {}
-        features["input_ids"]= tf.placeholder(tf.int32,shape=(batch_size,128))
-        features["input_mask"] = tf.placeholder(tf.int32,shape=(batch_size,128))
-        features["segment_ids"]=tf.placeholder(tf.int32,shape=(batch_size,128))
-        features["start_positions"] = tf.placeholder(tf.int32,shape=(batch_size,))
-        features["end_positions"] =tf.placeholder(tf.int32,shape=(batch_size,))
+        features["input_ids"]= tf.cast(100*tf.placeholder(tf.float32,shape=(batch_size,128)),tf.int32)
+        features["input_mask"] = tf.cast(100*tf.placeholder(tf.float32,shape=(batch_size,128)),tf.int32)
+        features["segment_ids"]=tf.cast(100*tf.placeholder(tf.float32,shape=(batch_size,128)),tf.int32)
+        features["start_positions"] = tf.cast(100*tf.placeholder(tf.float32,shape=(batch_size,)),tf.int32)
+        features["end_positions"] =tf.cast(100*tf.placeholder(tf.float32,shape=(batch_size,)),tf.int32)
         loss = model(features)
         optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(loss)
         return optimizer
@@ -191,7 +191,7 @@ def generate_feature_file(folder,index):
     if "data/graph7" in folder:
         batch_size = 288
     elif "data/graph8" in folder:
-        batch_size = 6
+        batch_size = 12
     else:
         batch_size=48
     final_dict=dict()
@@ -209,7 +209,7 @@ def generate_feature_file(folder,index):
     else:
         op_type_dict = dict()
     if "data/graph8" in folder:
-        replica_num = [1, 2, 3, 6, 6, 6, 6]
+        replica_num = [1, 2, 3, 6, 12, 12, 12]
     else:
         replica_num = [1, 2, 3, 4, 6, 8, 12]
     item_list=[]

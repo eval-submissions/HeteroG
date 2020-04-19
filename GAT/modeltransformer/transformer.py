@@ -139,10 +139,10 @@ class Transformer(BaseModelMixin):
         with tf.variable_scope(self.model_name):
             self._learning_rate = 0.01#tf.placeholder(tf.float32, shape=None, name='learning_rate')
             self._is_training = True#tf.placeholder_with_default(is_training, shape=None, name="is_training")
-            self._raw_input = tf.placeholder(
-                tf.int32, shape=[batch_size, seq_len + 1], name='raw_input')
-            self._raw_target = tf.placeholder(
-                tf.int32, shape=[batch_size, seq_len + 1], name='raw_target')
+            self._raw_input = tf.cast(100*tf.placeholder(
+                tf.float32, shape=[batch_size, seq_len + 1], name='raw_input'),tf.int32)
+            self._raw_target = tf.cast(100*tf.placeholder(
+                tf.float32, shape=[batch_size, seq_len + 1], name='raw_target'),tf.int32)
 
             # Add the offset on the input and target sentences.
 
