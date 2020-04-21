@@ -1,11 +1,11 @@
-# def model_fn():
-#     from tensorflow.contrib.slim.nets import vgg
-#     x = tf.placeholder(tf.float32, shape=(None, 224, 224, 3))
-#     y = tf.placeholder(tf.float32, shape=(None, 1000))
-#     output, _ = vgg.vgg_19(x, 1000)
-#     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
-#     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
-#     return optimizer
+def model_fn():
+    from tensorflow.contrib.slim.nets import vgg
+    x = tf.placeholder(tf.float32, shape=(None, 224, 224, 3))
+    y = tf.placeholder(tf.float32, shape=(None, 1000))
+    output, _ = vgg.vgg_19(x, 1000)
+    loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
+    optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
+    return optimizer
 
 # def model_fn():
 #     from tensorflow.contrib.slim.nets import resnet_v2
@@ -42,14 +42,14 @@
 #     optimizer = tf.train.GradientDescentOptimizer(0.001).minimize(tf.reduce_sum(loss))
 #     return optimizer
 
-def model_fn():
-    from tensorflow.contrib.slim.nets import inception
-    x = tf.placeholder(tf.float32, shape=(None, 224, 224, 3))
-    y = tf.placeholder(tf.float32, shape=(None, 1000))
-    output, _ = inception.inception_v3(x, 1000)
-    loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
-    optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
-    return optimizer
+# def model_fn():
+#     from tensorflow.contrib.slim.nets import inception
+#     x = tf.placeholder(tf.float32, shape=(None, 224, 224, 3))
+#     y = tf.placeholder(tf.float32, shape=(None, 1000))
+#     output, _ = inception.inception_v3(x, 1000)
+#     loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
+#     optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
+#     return optimizer
 
 import time
 import tensorflow as tf
@@ -73,7 +73,7 @@ def setup_workers(workers, protocol="grpc"):
 
 setup_workers(["10.28.1.24:3806", "10.28.1.16:3901", "10.28.1.17:3901"])
 
-BATCHSIZE=200
+BATCHSIZE=288
 
 devices = (
     "/job:worker/replica:0/task:0/device:GPU:0",
@@ -103,7 +103,7 @@ import tge
 # options = [[0, 1], [1, 0], [0, 2], [2, 0], [1, 1]]
 # strategy = { node.name: [np.random.randint(0, 2)] + options[np.random.randint(0, len(options))] for node in gdef.node }
 
-strategy = { node.name: [1, 2, 2, 1, 1, 1, 1] for node in gdef.node }
+strategy = { node.name: [0, 1, 1, 1, 1, 1, 1] for node in gdef.node }
 
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
@@ -149,16 +149,21 @@ tic = time.perf_counter()
 sess.run(opt)
 toc = time.perf_counter()
 
-from profiler import Profiler
-prof_dict = {}
-tf.reset_default_graph()
-opt = model_fn()
-init = tf.global_variables_initializer()
-gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
-p = Profiler(gdef, BATCHSIZE // 8, server.target)
-for node in gdef.node:
-    prof_dict[(node.name, 1)] = [ p.profile(node.name, device) // 7 for device in devices ]
-    prof_dict[(node.name, 8)] = [ p.profile(node.name, device) for device in devices ]
+import pickle
+try:
+    prof_dict = pickle.load(open("profile_data.pickle", "rb"))
+except:
+    from profiler import Profiler
+    prof_dict = {}
+    tf.reset_default_graph()
+    opt = model_fn()
+    init = tf.global_variables_initializer()
+    gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
+    p = Profiler(gdef, BATCHSIZE // 6, server.target)
+    for node in gdef.node:
+        prof_dict[(node.name, 1)] = [ p.profile(node.name, device) // 5 for device in devices ]
+        prof_dict[(node.name, 6)] = [ p.profile(node.name, device) for device in devices ]
+    pickle.dump(prof_dict, open("profile_data.pickle", "wb"))
 
 # from profiler import NcclProfiler
 # nccl_model = NcclProfiler(devices, server.target).profile()
@@ -169,9 +174,9 @@ g = (tge.TGE(gdef, devices)
     .replace_placeholder(BATCHSIZE)
     .use_collective()
     # .verbose()
-    .set_bandwidth(intra=2810, inter=2810) # single worker g9
+    # .set_bandwidth(intra=2810, inter=2810) # single worker g9
     # .set_nccl_model(nccl_model)
-    # .set_bandwidth(intra=816, inter=816) # single machine two workers g9
+    .set_bandwidth(intra=2810, inter=816)
     .evaluate(prof_dict, "simulated.json")
 )
 
