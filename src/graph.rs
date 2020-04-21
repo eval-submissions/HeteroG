@@ -417,7 +417,7 @@ impl Tensor {
         let mut shape: Vec<_> = self.node().raw_node.attr["_output_shapes"].get_list().shape[self.index].dim.iter().map(|x| x.size.try_into().ok()).collect();
         if let Some(batchsize) = self.node().graph().options.get("fill_batchsize") {
             // if self.has_flag(Self::IS_BATCHED) && self.has_flag(Self::IS_FROM_INPUT) && shape[0].is_none() && shape[1..].iter().all(|x| x.is_some()) {
-            if shape[0].is_none() { // relax the requirement
+            if !shape.is_empty() && shape[0].is_none() { // relax the requirement
                 shape[0] = Some(batchsize.parse().unwrap());
             }
         }
