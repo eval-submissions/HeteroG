@@ -122,46 +122,35 @@ max_replica_num = config_dict.get("max_replica_num", len(devices))
 show_interval = 3
 num_cores = mp.cpu_count()
 device_mems = config_dict.get("device_mems", [16 * 10e9, 16 * 10e9, 16 * 10e9, 16 * 10e9])
-def find_index(array, item):
-    for idx, val in enumerate(array):
-        if val == item:
-            return idx
-    return len(array)
 
-def find_replica_num(array,item):
-    counter=0
-    for idx, val in enumerate(array):
-        if val!=item:
-            counter+=1
-    return counter
-def post_func1(item):
-    item1=list(item[:len(item)-1])
-    batch_size = item[-1]
-    if sum(item1)==0:
-        item1[0]=1
-        return item1
-    while sum(item1)>batch_size:
-        index = item1.index(max(item1))
-        item1[index]-=1
-    while batch_size%sum(item1):
-        index = item1.index(max(item1))
-        item1[index]-=1
-    return np.array(item1)
-def post_func2(item1):
-    replica_mask = np.array([1 for item in item1],dtype=np.int32)
-    return replica_mask
+sample_prob = 0.1
+
+
 def post_process_device_choice(device_choice,batch_size):
+    def post_func1(item):
+        item1 = list(item[:len(item) - 1])
+        batch_size = item[-1]
+        if sum(item1) == 0:
+            item1[0] = 1
+            return item1
+        while sum(item1) > batch_size:
+            index = item1.index(max(item1))
+            item1[index] -= 1
+        while batch_size % sum(item1):
+            index = item1.index(max(item1))
+            item1[index] -= 1
+        return np.array(item1)
 
+    def post_func2(item1):
+        replica_mask = np.array([1 for item in item1], dtype=np.int32)
+        return replica_mask
     #post process and align to batch size
     new_batch_size=np.ones(shape=(device_choice.shape[0],1)) * batch_size
     device_choice=np.array(list(map(post_func1,np.concatenate((device_choice,new_batch_size),axis=1))),dtype=np.int32)
     replica_mask = np.array(list(map(post_func2,device_choice)),dtype=np.int32)
     return device_choice,replica_mask
 
-def comp_fc(item):
-    item1 = item[:int(len(item)/2)]
-    item2 = item[int(len(item)/2):]
-    return 0 if all(item1 == item2) else 1
+
 class strategy_pool(object):
     def __init__(self,folder_path,node_num,index_id_dict,env,batch_size,init_group,sink):
         self.folder_path = folder_path
@@ -275,6 +264,8 @@ class strategy_pool(object):
         return new_device_array.tolist()
 
     def save_strategy_pool(self):
+        if len(self.strategies)==0:
+            return
         with open(self.folder_path + "/pool.pkl", "wb") as f:
             pkl.dump(list(self.strategies),f)
         with open(self.folder_path + "/pool.log", "w") as f:
@@ -291,6 +282,10 @@ class strategy_pool(object):
         return masks
 
     def insert(self,reward,device_choice,replica_mask,ps_or_reduce,group,force_insert=False):
+        def comp_fc(item):
+            item1 = item[:int(len(item) / 2)]
+            item2 = item[int(len(item) / 2):]
+            return 0 if all(item1 == item2) else 1
         strategy_list = self.get_stratey_list(device_choice, ps_or_reduce)
         if force_insert:
             return
@@ -354,7 +349,7 @@ def reward_func(item):
             new_device_array[item[j]]+=1
     return new_device_array
 class Environment(object):
-    def __init__(self,gdef_path,devices,folder_path,batch_size,pool,init_group,sink):
+    def __init__(self,gdef_path,devices,folder_path,batch_size,init_group,sink):
 
         self.gdef = graph_pb2.GraphDef()
         with open(gdef_path,"r")as f:
@@ -365,7 +360,6 @@ class Environment(object):
         self.best_strategy = mp.Manager().dict()
         self.best_strategy["time"] = sys.maxsize
         self.batch_size = batch_size
-        self.pool = pool
         self.devices =devices
         self.sink =sink
         self.init_group = init_group
@@ -460,49 +454,14 @@ class Environment(object):
             name_cost_dict = pkl.load(f)
         return name_cost_dict
 
-sample_prob = 0.1
-def random_func1(output):
-    return np.array(list(map(random_choice, output)))
-def random_choice(item):
-    np.random.seed()
-    choice = []
-    choice.append(np.random.choice(item.size, p=item))
-    choice.append(np.random.randint(0,item.size))
-    return choice[np.random.choice(2, p=[sample_prob,1-sample_prob])]
 
 
-def sample_func1(output):
-    return np.array(list(map(sample_choice, output)))
-def sample_choice(item):
-    return np.random.choice(item.size, p=item)
-
-
-def argmax_func1(output):
-    return np.array(list(map(argmax_choice, output)))
-def argmax_choice(item):
-    choice1 = np.argmax(item)
-    return choice1
-
-
-import threading
-
-
-
-class feature_item(threading.Thread):
-    def __init__(self,folder_path,pool,event,event2,sink):
-        super(feature_item, self).__init__()
+class Graph_item():
+    def __init__(self,folder_path,sink):
         self.dataset = load_cora(folder_path,NewWhiteSpaceTokenizer())
         adj = self.dataset.adj_matrix(sparse=True)
         feature_matrix, feature_masks = self.dataset.feature_matrix(bag_of_words=False, sparse=False)
-        '''
-        self.batch_size = int(feature_matrix[0,-1])
 
-
-        if self.batch_size<global_batch_size:
-            self.batch_size=global_batch_size
-        else:
-            self.batch_size = int((self.batch_size//global_batch_size)*global_batch_size)
-        '''
         if "data/graph7" in folder_path:
             self.batch_size = 288*6
         elif "data/graph8" in folder_path:
@@ -510,22 +469,16 @@ class feature_item(threading.Thread):
         else:
             self.batch_size = 48*6
 
-
-        self.event = event
-        self.event.set()
-        self.event2 = event2
-        self.event2.clear()
         self.sink = sink
         if "graph1" in folder_path:
             self.master=True
         else:
             self.master = False
+
+        ####preprocess features################
         feature_matrix = StandardScaler().fit_transform(feature_matrix)
-
-        labels, label_masks = self.dataset.label_list_or_matrix(one_hot=False)
-
-        train_node_indices, test_node_indices, train_masks, test_masks = self.dataset.split_train_and_test(training_rate=0.8)
-
+        self.nb_nodes = feature_matrix.shape[0]
+        '''
         self.pre_nb_nodes = feature_matrix.shape[0]
         pad_num = 0 if self.pre_nb_nodes%bsz==0 else bsz-self.pre_nb_nodes%bsz
         if pad_num:
@@ -534,28 +487,23 @@ class feature_item(threading.Thread):
 
         indptr = np.pad(adj.indptr, (0, pad_num), "edge")
         adj = csr_matrix((adj.data, adj.indices, indptr), shape=(self.nb_nodes,self.nb_nodes))
-
+        '''
         self.ft_size = feature_matrix.shape[1]
         self.need_sample = False
 
         self.biases = process.preprocess_adj_bias(adj)
 
-        train_mask=train_masks
-        val_mask=test_masks
-        test_mask=test_masks
 
         self.index_id_dict = self.dataset.network.get_indexer(N_TYPE_NODE).index_id_dict
         self.features = feature_matrix[np.newaxis]
 
-        self.train_mask = train_mask[np.newaxis]
-        self.val_mask = val_mask[np.newaxis]
-        self.test_mask = test_mask[np.newaxis]
 
-        self.pool = pool
         self.gdef = graph_pb2.GraphDef()
         with open(folder_path+"/null_graph.pbtxt","r")as f:
             txt = f.read()
         pbtf.Parse(txt,self.gdef)
+
+        #####process init group#####
         if os.path.exists(folder_path+"/init_group.json"):
             with open(folder_path+"/init_group.json","r") as f:
                 self.init_group =json.load(f)
@@ -567,18 +515,18 @@ class feature_item(threading.Thread):
             with open(folder_path+"/init_group.json","w") as f:
                 json.dump(self.init_group,f)
         print(self.init_group)
-        self.env = Environment(folder_path+"/null_graph.pbtxt",devices,folder_path,self.batch_size,self.pool,self.init_group,sink)
+
+        ########################create simulator###########################################
+        self.env = Environment(folder_path+"/null_graph.pbtxt",devices,folder_path,self.batch_size,self.init_group,sink)
         self.average_reward=0
         self.best_reward = 1-sys.maxsize
         self.best_replica_num = list()
         self.best_device_choice = np.zeros(shape=(self.nb_nodes, len(devices)), dtype=np.int32)
         self.best_ps_or_reduce = list()
         self.folder_path = folder_path
-
+        ##############create strategy pool#############################
         self.strategy_pool = strategy_pool(folder_path,self.nb_nodes,self.index_id_dict,self.env,self.batch_size,self.init_group,self.sink)
         self.best_group= self.strategy_pool.choose_strategy()["group"] if self.strategy_pool.choose_strategy()!=None else np.arange(max(self.init_group)+1)
-
-        self.mutex = threading.Lock()
         self.avg = None
         self.oom = []
         self.train_place = False
@@ -586,9 +534,7 @@ class feature_item(threading.Thread):
         self.small_co = 0.001*5
         self.large_co =self.small_co*50
         self.co_entropy = self.small_co
-        self.co_group_entropy = 5
-        self.group_lr = lr[0]
-        self.place_lr = lr[1]
+        self.place_lr = lr
         self.record_time =[]
 
 
@@ -596,12 +542,6 @@ class feature_item(threading.Thread):
         self.sess =sess
         self.place_gnn = place_gnn
 
-    def sample_one_time(self):
-        self.sample()
-        self.proc = mp.Process(target=self.parallel_process_output, args=())
-        self.proc.start()
-    def wait_sample(self):
-        self.proc.join()
 
     def sync_sample_and_parallel_process(self):
         self.sample()
@@ -617,15 +557,37 @@ class feature_item(threading.Thread):
         self.oom = mp.Manager().list(range(sample_times+1))
         self.thres = []
 
-        self.outputs = self.place_gnn.get_replica_num_prob_and_entropy(
+        self.outputs = self.place_gnn.get_replica_num_prob(
             ftr_in=self.features,
             bias_in=self.biases,
             nb_nodes=self.nb_nodes,
             mems=global_mems,
-            sample_group=np.array(self.best_group),
             init_group = self.init_group)
 
     def parallel_process_output_unit(self,i):
+        def random_func1(output):
+            return np.array(list(map(random_choice, output)))
+
+        def random_choice(item):
+            np.random.seed()
+            choice = []
+            choice.append(np.random.choice(item.size, p=item))
+            choice.append(np.random.randint(0, item.size))
+            return choice[np.random.choice(2, p=[sample_prob, 1 - sample_prob])]
+
+        def sample_func1(output):
+            return np.array(list(map(sample_choice, output)))
+
+        def sample_choice(item):
+            return np.random.choice(item.size, p=item)
+
+        def argmax_func1(output):
+            return np.array(list(map(argmax_choice, output)))
+
+        def argmax_choice(item):
+            choice1 = np.argmax(item)
+            return choice1
+
         if i == sample_times:
             device_choice = np.array(list(map(argmax_func1, self.outputs[0:len(devices)])))
         else:
@@ -633,28 +595,19 @@ class feature_item(threading.Thread):
             sample_or_not = True if np.random.choice(2, p=[sample_prob,1-sample_prob])==0 else False
             if sample_or_not:
                 device_choice = np.array(list(map(sample_func1, self.outputs[0:len(devices)])))
-                #logger.debug("device_choice sample result:{}".format(device_choice))
             else:
                 device_choice = np.array(list(map(random_func1, self.outputs[0:len(devices)])))
-                #logger.debug("device_choice random result:{}".format(device_choice))
 
-        # device_choice = self.outputs[0:max_replica_num]
-        device_choice = np.transpose(device_choice)
-
+        device_choice = np.transpose(device_choice)  # from shape[device_num , group_num] to [group_num, device_num]
         device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
-        #logger.info("[INFO]:Device choice:{}".format(device_choice))
 
         if i == sample_times:
             ps_or_reduce = np.array(list(map(argmax_choice, self.outputs[len(devices)])))
         else:
             if sample_or_not:
                 ps_or_reduce = np.array(list(map(sample_choice, self.outputs[len(devices)])))
-                #logger.debug("ps_or_reduce sample result:{}".format(ps_or_reduce))
-
             else:
                 ps_or_reduce = np.array(list(map(random_choice, self.outputs[len(devices)])))
-                #logger.debug("ps_or_reduce random result:{}".format(ps_or_reduce))
-
         # ps_or_reduce = self.outputs[max_replica_num]
         # group =  np.array(list(map(random_func1,self.outputs[-1])))
         group = self.outputs[-1]
@@ -672,34 +625,6 @@ class feature_item(threading.Thread):
 
     def parallel_process_output(self):
         for i in range(sample_times+1):
-            '''
-            if i==sample_times:
-                device_choice = np.array(list(map(argmax_func1, self.outputs[0:max_replica_num])))
-            else:
-                device_choice = np.array(list(map(sample_func1, self.outputs[0:max_replica_num])))
-            #device_choice = self.outputs[0:max_replica_num]
-            device_choice = np.transpose(device_choice)
-
-            device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
-            if i==sample_times:
-                ps_or_reduce = np.array(list(map(argmax_random_func1, self.outputs[max_replica_num])))
-            else:
-                ps_or_reduce = np.array(list(map(random_func1, self.outputs[max_replica_num])))
-            #ps_or_reduce = self.outputs[max_replica_num]
-            #group =  np.array(list(map(random_func1,self.outputs[-1])))
-            group =self.outputs[-1]
-            _reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group)
-            if not out_of_memory:
-                self.oom.append(False)
-            else:
-                self.oom.append(True)
-
-            self.rewards.append(_reward)
-            self.ps_or_reduces.append(ps_or_reduce)
-            self.device_choices.append(device_choice)
-            self.group.append(group)
-            self.replica_masks.append(replica_mask)
-            '''
             p=mp.Process(target=self.parallel_process_output_unit, args=(i,))
             self.thres.append(p)
             p.start()
@@ -720,27 +645,8 @@ class feature_item(threading.Thread):
 
     def train(self,epoch):
         global global_mems,sample_prob
-        tr_step = 0
-
-        tr_size = self.features.shape[0]
-        '''
-        if self.strategy_pool.get_length()>0:
-            pool_strategy = self.strategy_pool.choose_strategy()
-            self.rewards.append(pool_strategy["reward"])
-            self.device_choices.append(pool_strategy["device_choice"])
-            self.ps_or_reduces.append((pool_strategy["ps_or_reduce"]))
-            self.replica_masks.append(pool_strategy["replica_mask"])
-            self.group.append(pool_strategy["group"])
-        '''
         self.avg = np.mean(self.rewards) if self.avg==None else (self.avg+np.mean(self.rewards))/2
         if self.master:
-
-            '''
-            if sample_prob<0.9:
-                sample_prob+=0.01
-            if len(set(self.rewards))==1:
-                sample_prob=0.7
-            '''
             sample_prob = min(0.1+0.1*(epoch//30),0.7)
         print("[{}] sample_prob = {}".format(self.folder_path, sample_prob))
         print("[{}] train_place = {}".format(self.folder_path, self.train_place))
@@ -756,13 +662,10 @@ class feature_item(threading.Thread):
                             nb_nodes=self.nb_nodes,
                             sample_ps_or_reduce = np.array(self.ps_or_reduces[index]),
                             sample_device_choice = np.array(self.device_choices[index]),
-                            sample_group=np.array(self.group[index]),
                             time_ratio = 0.01*self.avg/self.rewards[index],
                             coef_entropy=self.co_entropy,
-                            coef_group_entropy=self.co_group_entropy,
                             mems = global_mems,
                             init_group=self.init_group,
-                            group_lr=self.group_lr,
                             place_lr = self.place_lr)
             global_mems = new_global_mems
             self.cal_entropy = entropy
@@ -775,13 +678,6 @@ class feature_item(threading.Thread):
             print("place+entropy loss:",new_loss)
             print("time ratio:",0.01*self.avg/self.rewards[index])
 
-            #print("group kl:", group_kl)
-            '''
-            if self.cal_entropy > 100 or place_kl>10 :
-                self.co_entropy = max(1,self.co_entropy / 2)
-            if self.cal_entropy < 1 or place_kl<0.01:
-                self.co_entropy = min(self.co_entropy * 2,1000)
-            '''
 
         times = max(self.rewards)*max(self.rewards)
         self.record_time.append(str(times))
@@ -813,19 +709,15 @@ class feature_item(threading.Thread):
                             nb_nodes=self.nb_nodes,
                             sample_ps_or_reduce = np.array(pool_strategy["ps_or_reduce"]),
                             sample_device_choice = np.array(pool_strategy["device_choice"]),
-                            sample_group=np.array(pool_strategy["group"]),
                             time_ratio = 0.01*self.avg/pool_strategy["reward"],
                             coef_entropy=self.co_entropy,
-                            coef_group_entropy=self.co_group_entropy,
                             mems = global_mems,
                             init_group=self.init_group,
-                            group_lr = self.group_lr,
                             place_lr = self.place_lr
                             )
             global_mems = new_global_mems
             self.cal_entropy = entropy
             print("place entropy:", self.cal_entropy)
-            #print("group entropy:", self.group_entropy)
             print("coefficient:",self.co_entropy)
             print("place kl:", place_kl)
             print("l2_loss:",l2_loss)
@@ -833,21 +725,6 @@ class feature_item(threading.Thread):
             print("place loss:",place_loss)
             print("place+entropy loss:",new_loss)
             print("time ratio:",0.01*self.avg/pool_strategy["reward"])
-
-            #print("group kl:", group_kl)
-            '''
-            if self.cal_entropy > 100:
-                self.co_entropy = max(1,self.co_entropy / 2)
-            if self.cal_entropy < 0.01:
-                self.co_entropy = min(self.co_entropy * 2,1000)
-            '''
-    def run(self):
-        while True:
-            self.event.wait()
-            self.sample()
-            self.process_output()
-            self.event.clear()
-            self.event2.set()
 
 
 class new_place_GNN():
@@ -867,51 +744,15 @@ class new_place_GNN():
             self.sample_ps_or_reduce = tf.placeholder(dtype=tf.int32, shape=(None,),name="sample_ps_or_reduce")
             self.sample_device_choice = tf.placeholder(dtype=tf.int32, shape=(None,len(devices),),name="sample_device_choice")
             self.previous_device_choices = tf.placeholder(dtype=tf.float32, shape=(len(devices),None,max_replica_num+1),name="previous_device_choices")
-            self.pre_pro_group= tf.placeholder(dtype=tf.float32, shape=(None,None),name="previous_group")
-            self.sample_group = tf.placeholder(dtype=tf.int32, shape=(None,),name="sample_group")
             self.replica_num_array = tf.placeholder(dtype=tf.float32, shape=(None,len(devices)),name="replica_num_array")
             self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
-            self.coef_group_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="co_group_entropy")
 
             self.train_place = tf.placeholder(dtype=tf.bool, shape=(),name="train_place")
             self.mems = [tf.placeholder(tf.float32,[128, bsz, d_model]) for _ in range(n_layer)]
-            self.group_lr = tf.placeholder(dtype=tf.float32, shape=(),name="group_lr")
             self.place_lr = tf.placeholder(dtype=tf.float32, shape=(),name="place_lr")
 
         with tf.variable_scope("group_nn"):
-            '''
-            with tf.device("/device:GPU:0"):
-                group = model.inference(self.ftr_in, group_num, self.nb_node, self.is_train,
-                                         0,0,
-                                         bias_mat=self.bias_in,
-                                         hid_units=hid_units, n_heads=n_heads,
-                                         residual=residual, activation=nonlinearity)
-            group =tf.reshape(group, [-1,group_num])
-            group =tf.unsorted_segment_max(group, self.init_group,tf.reduce_max(self.init_group)+1)
-            #_,sample_group = tf.unique(self.sample_group)
-
-            KLDivergence = tf.keras.losses.KLDivergence()
-
-            self.pro_group = tf.nn.softmax(group)
-            self.group_kl  = KLDivergence(self.pro_group,self.pre_pro_group)
-            self.log_pro_group = tf.log(self.pro_group+10e-8)
-            log_pro_group = tf.nn.log_softmax(group)
-            self.group = tf.random.categorical(log_pro_group,1,dtype=tf.int32)
-            self.group = tf.reshape(self.group,[-1])
-            self.group_entropy = tf.reduce_sum(self.pro_group * log_pro_group, 1)
-            self.group_entropy = -tf.reduce_sum(self.group_entropy)
-            _range1 = tf.range(tf.shape(self.sample_group)[0])[:, tf.newaxis]
-            self.indices = tf.concat((_range1, self.sample_group[:, tf.newaxis]), axis=1)
-            self.log_prob = tf.gather_nd(self.log_pro_group, self.indices)
-            self.group_loss = tf.reduce_sum(self.log_prob) * self.time_ratio
-            group = tf.cond(self.is_train,lambda:self.sample_group,lambda:self.group)
-            unique_group,_ =tf.unique(group)
-            self.unique_group = unique_group
-            '''
-            self.group_loss=0
-            self.group_entropy=0
-            KLDivergence = tf.keras.losses.KLDivergence()
             group = self.init_group
             self.group = group
             unique_group,_ =tf.unique(group)
@@ -971,10 +812,7 @@ class new_place_GNN():
             self.place_kl = kl
 
             self.place_reward = []
-            #one_hot_sample = tf.one_hot(self.sample_group[i], group_num)
-            #print("one_hot_sample.shape")
-            #print(one_hot_sample.shape)
-            #prob = tf.reduce_sum( self.pro_group * one_hot_sample, 1)
+
             indices = tf.concat((_range, self.sample_ps_or_reduce[:, tf.newaxis]), axis=1)
             log_prob = tf.gather_nd(self.log_ps_reduce, indices)
             #log_prob = tf.gather(log_prob,unique_group)
@@ -983,43 +821,21 @@ class new_place_GNN():
 
             #rest device choice n*(m+1)
             for j in range(0,len(devices)):
-                #one_hot_sample = tf.one_hot(self.sample_device_choice[i][:,j], len(devices)+1)
-                #prob = tf.reduce_sum(self.device_choices_prob[j] * one_hot_sample, 1) * self.replica_num_array[i][:,j]+(1-self.replica_num_array[i][:,j])
                 indices = tf.concat((_range, self.sample_device_choice[:, j][:, tf.newaxis]), axis=1)
                 log_prob = tf.gather_nd(self.log_device_choices[j], indices)
-                #log_prob = tf.gather(log_prob, unique_group)
                 self.before_log_prob =self.log_device_choices[j]
                 self.indices = indices
                 self.log_prob = log_prob
-                #mask = tf.gather(self.replica_num_array[:,j], unique_group)
-                #log_prob = tf.boolean_mask(log_prob,mask)
                 self.place_reward.append(tf.reduce_sum(log_prob) * self.time_ratio)
             self.place_reward = tf.add_n(self.place_reward)
 
-        #self.place_loss = 100*self.place_loss
         place_reward =  self.place_reward+self.coef_entropy * self.entropy
-        group_reward = (self.group_loss+self.coef_group_entropy*self.group_entropy)
         #self.loss = -reward
         self.place_loss = -place_reward
-        self.group_loss = -group_reward
 
         self.train_place_op,self.loss_l2 = model.training(self.place_loss,self.place_lr , l2_coef,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='place_nn'))
-        #self.train_group_op =model.training(self.group_loss, self.group_lr, l2_coef,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='group_nn'))
 
-        #self.train_op =tf.group(train_place,train_group)
-
-
-        '''
-        for op in tf.get_default_graph().get_operations():
-            if op.node_def.op in variable_ops:
-                op._set_device("/device:CPU:0")
-
-        '''
-
-    def get_a_cell(self):
-        return tf.nn.rnn_cell.BasicLSTMCell(num_units=64)
-
-    def learn_place(self,ftr_in,bias_in,nb_nodes,sample_ps_or_reduce,sample_device_choice,sample_group,time_ratio,coef_entropy,coef_group_entropy,mems,init_group,group_lr,place_lr):
+    def learn_place(self,ftr_in,bias_in,nb_nodes,sample_ps_or_reduce,sample_device_choice,time_ratio,coef_entropy,mems,init_group,place_lr):
         feed_dict = {}
         feed_dict[self.ftr_in]=ftr_in
         feed_dict[self.bias_in]=bias_in
@@ -1029,15 +845,12 @@ class new_place_GNN():
         feed_dict[self.ffd_drop]=0.1
         feed_dict[self.sample_ps_or_reduce]=sample_ps_or_reduce
         feed_dict[self.sample_device_choice]=sample_device_choice
-        feed_dict[self.sample_group] = sample_group
         feed_dict[self.time_ratio]=time_ratio
         feed_dict[self.coef_entropy]=coef_entropy
-        feed_dict[self.coef_group_entropy]=coef_group_entropy
         feed_dict[self.previous_device_choices]=self.previous_outputs[:len(devices)]
         feed_dict[self.train_place] = True
 
 
-        feed_dict[self.group_lr]=group_lr
         feed_dict[self.place_lr]=place_lr
 
         feed_dict[self.init_group]=init_group
@@ -1058,36 +871,8 @@ class new_place_GNN():
 
         return -place_reward,l2_loss,loss,mems,entropy,place_kl
 
-    def learn_group(self,ftr_in,bias_in,nb_nodes,sample_group,time_ratio,coef_group_entropy,init_group,group_lr,place_lr):
-        feed_dict = {}
-        feed_dict[self.ftr_in] = ftr_in
-        feed_dict[self.bias_in] = bias_in
-        feed_dict[self.nb_node] = nb_nodes
-        feed_dict[self.is_train] = True
-        feed_dict[self.train_place] = False
-        feed_dict[self.attn_drop] = 0
-        feed_dict[self.ffd_drop] = 0
-        feed_dict[self.sample_group] = sample_group
-        feed_dict[self.time_ratio] = time_ratio
-        feed_dict[self.coef_group_entropy] = coef_group_entropy
-        feed_dict[self.pre_pro_group] = self.previous_outputs_group
 
-        feed_dict[self.group_lr] = group_lr
-        feed_dict[self.place_lr] = place_lr
-
-        feed_dict[self.init_group] = init_group
-
-
-        fetch_list = []
-        fetch_list.extend(
-            [self.pro_group,self.group_kl, self.group_entropy, self.group_loss,
-             self.train_group_op])
-
-        outputs = self.sess.run(fetch_list,feed_dict=feed_dict)
-
-        self.previous_outputs_group,group_kl, group_entropy, loss, _ = outputs
-        return loss, group_entropy, group_kl
-    def get_replica_num_prob_and_entropy(self,ftr_in,bias_in,nb_nodes,mems,sample_group,init_group):
+    def get_replica_num_prob(self,ftr_in,bias_in,nb_nodes,mems,init_group):
         fetch_list =[item for item in self.device_choices]
         fetch_list.append(self.ps_or_reduce)
         fetch_list.append(self.logits_before)
@@ -1101,7 +886,6 @@ class new_place_GNN():
         feed_dict[self.bias_in]=bias_in
         feed_dict[self.nb_node]=nb_nodes
         feed_dict[self.is_train]=False
-        feed_dict[self.sample_group]=sample_group
         feed_dict[self.attn_drop]=0
         feed_dict[self.ffd_drop]=0
         feed_dict[self.init_group] = init_group
@@ -1118,18 +902,13 @@ class new_place_GNN():
         return outputs
 
 
-def architecture_three():
-    global  global_pool,models
+def main_entry():
+    models = []
     for i,feature_folder in enumerate(feature_folders):
-        event = threading.Event()
-        event2 = threading.Event()
-
-        item = feature_item(feature_folder,global_pool,event,event2,sinks[i])
-        item.setDaemon(True)
+        item = Graph_item(feature_folder,sinks[i])
         models.append(item)
     config = tf.ConfigProto(allow_soft_placement=True)
     config.gpu_options.allow_growth = True
-    #config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
     with tf.Session(config=config) as sess:
         place_gnn = new_place_GNN(sess,ft_size=models[0].ft_size)
 
@@ -1146,53 +925,16 @@ def architecture_three():
 
         for epoch in range(nb_epochs):
             for model in models:
-                #model.sample_one_time()
-                #model.wait_sample()
-                start = time.time()
+
                 model.sync_sample_and_parallel_process()
-                #logger.debug("sync_sample_and_parallel_process time:{}".format(time.time()-start))
-                start = time.time()
                 model.post_parallel_process()
-                #logger.debug("post_parallel_process time:{}".format(time.time()-start))
-                start = time.time()
                 model.train(epoch)
-                #logger.debug("train time:{}".format(time.time()-start))
-
-            '''
-            for model in models:
-                model.sample_one_time()
-
-            for model in models:
-                model.wait_sample()
-            for model in models:
-                model.post_parallel_process()
-
-            for model in models:
-                model.train(epoch)
-            '''
             if epoch % (show_interval*30 )== 0:
-                start = time.time()
                 saver.save(sess, checkpt_file)
-                #logger.debug("save time:{}".format(time.time() - start))
 
         sess.close()
 
-import signal
-def handler(signum, frame):
-    global  global_pool,models
-    try:
-        for model in models:
-            model.proc.terminate()
-    except:
-        pass
-    sys.exit()
 
 if __name__ == '__main__':
 
-    models = list()
-    global_pool = Pool(1)
-    signal.signal(signal.SIGINT, handler)
-    signal.signal(signal.SIGTERM, handler)
-
-    architecture_three()
-                                                                                                                                                                                      
+    main_entry()
