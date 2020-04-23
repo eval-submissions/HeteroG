@@ -11,6 +11,7 @@ import sys
 from tensorflow.python.client import timeline
 from tensorflow.distribute.cluster_resolver import TFConfigClusterResolver
 sys.path.append('../')
+import multiprocessing as mp
 
 config_dict =dict()
 if os.path.exists("activate_config.txt"):
@@ -43,67 +44,73 @@ class Activater():
         self.sinks = sinks
         self.server=None
 
+    def activate_unit(self,path,graph_def):
+        setup_workers(workers, "grpc")
+        tf.reset_default_graph()
+        resolver = TFConfigClusterResolver()
+        cluster = resolver.cluster_spec()
+        dist = tf.distribute.experimental.MultiWorkerMirroredStrategy(
+            tf.distribute.experimental.CollectiveCommunication.NCCL)
+        config = dist.update_config_proto(tf.ConfigProto())
+        config.ClearField("device_filters")
+        config.allow_soft_placement = True  # log_device_placement=True)
+        config.gpu_options.allow_growth = True
+        server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc",
+                                           config=config)
+        target = server.target
+
+        tf.import_graph_def(graph_def)
+        graph = tf.get_default_graph()
+        init = graph.get_operation_by_name("import/init/replica_0")
+        sess = tf.Session(target, config=config)  # , config=tf.ConfigProto(allow_soft_placement=False))
+        sess.run(init)
+        input_dict = None
+        '''
+        placeholders = [node.outputs[0] for node in graph.get_operations() if node.node_def.op == 'Placeholder']
+        shapes = [(p.shape.as_list()) for p in placeholders ]
+        for shape in shapes:
+            shape[0]=batch_size
+        input_dict = { p: np.random.rand(*shapes[i]) for i,p in enumerate(placeholders) }
+        '''
+        opt = []
+        for sink in self.sinks:
+            for i in range(10):
+                try:
+                    op = graph.get_operation_by_name('import/' + sink + "/replica_" + str(i))
+                    opt.append(op)
+                except:
+                    break
+        # opt = [graph.get_operation_by_name('import/' + x) for x in self.sinks]
+        for j in range(10):  # warm up
+            sess.run(opt, feed_dict=input_dict)
+
+        times= []
+        for j in range(10):
+            tmp = time.time()
+            sess.run(opt, feed_dict=input_dict)
+            times.append(time.time()-tmp)
+        avg_time = sum(times)/len(times)
+        print(path,times,"average time:", avg_time)
+        print(" ")
+
+
+        run_meta = tf.RunMetadata()
+        run_opt = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE, output_partition_graphs=True)
+        sess.run(opt, feed_dict=input_dict,
+                 options=run_opt,
+                 run_metadata=run_meta
+                 )
+        tl = timeline.Timeline(run_meta.step_stats)
+        with open(path.split(".")[0] + "_timeline.json", "w") as fo:
+            fo.write(tl.generate_chrome_trace_format())
+
     def activate(self,batch_size):
         for k,graph_def in enumerate(self.graph_defs):
-            setup_workers(workers, "grpc")
-            tf.reset_default_graph()
-            resolver = TFConfigClusterResolver()
-            cluster = resolver.cluster_spec()
-            dist = tf.distribute.experimental.MultiWorkerMirroredStrategy(
-                tf.distribute.experimental.CollectiveCommunication.NCCL)
-            self.config = dist.update_config_proto(tf.ConfigProto())
-            self.config.ClearField("device_filters")
-            self.config.allow_soft_placement = True  # log_device_placement=True)
-            self.config.gpu_options.allow_growth = True
-            if self.server!=None:
-                self.server.close()
-            self.server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc",
-                                               config=self.config)
-            self.target = self.server.target
+            p = mp.Process(target=self.activate_unit, args=(self.path[k],graph_def,))
+            p.start()
+            p.join()
+            p.terminate()
 
-            tf.import_graph_def(graph_def)
-            graph = tf.get_default_graph()
-            init = graph.get_operation_by_name("import/init/replica_0")
-            sess = tf.Session(self.target,config=self.config)#, config=tf.ConfigProto(allow_soft_placement=False))
-            sess.run(init)
-            input_dict = None
-            '''
-            placeholders = [node.outputs[0] for node in graph.get_operations() if node.node_def.op == 'Placeholder']
-            shapes = [(p.shape.as_list()) for p in placeholders ]
-            for shape in shapes:
-                shape[0]=batch_size
-            input_dict = { p: np.random.rand(*shapes[i]) for i,p in enumerate(placeholders) }
-            '''
-            opt=[]
-            for sink in self.sinks:
-                for i in range(10):
-                    try:
-                        op=graph.get_operation_by_name('import/' + sink+"/replica_"+str(i))
-                        opt.append(op)
-                    except:
-                        break
-            #opt = [graph.get_operation_by_name('import/' + x) for x in self.sinks]
-            for j in range(10):  #warm up
-                sess.run(opt, feed_dict=input_dict)
-
-            start_time = time.time()
-            for j in range(10):
-                tmp =time.time()
-                sess.run(opt,feed_dict=input_dict)
-                print(time.time()-tmp)
-            avg_time = (time.time()-start_time)/10
-            print(self.path[k])
-            print("average time:",avg_time)
-
-            run_meta = tf.RunMetadata()
-            run_opt = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE, output_partition_graphs=True)
-            sess.run(opt, feed_dict=input_dict,
-                     options=run_opt,
-                     run_metadata=run_meta
-                     )
-            tl = timeline.Timeline(run_meta.step_stats)
-            with open(self.path[k].split(".")[0]+"_timeline.json", "w") as fo:
-                fo.write(tl.generate_chrome_trace_format())
 
 workers = ["10.28.1.26:3901","10.28.1.17:3901","10.28.1.16:3901"]
 os.environ["TF_CONFIG"] = '{ "cluster": { "worker": ["10.28.1.26:3901","10.28.1.17:3901","10.28.1.16:3901"]  }, "task": {"type": "worker", "index": 0} }'
