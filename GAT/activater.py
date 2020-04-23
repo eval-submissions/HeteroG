@@ -10,7 +10,6 @@ import pickle as pkl
 import sys
 from tensorflow.python.client import timeline
 from tensorflow.distribute.cluster_resolver import TFConfigClusterResolver
-prefix=sys.argv[1]
 sys.path.append('../')
 
 config_dict =dict()
@@ -41,21 +40,12 @@ class Activater():
             pbtf.Parse(txt,gdef)
             self.graph_defs.append(gdef)
 
-        resolver = TFConfigClusterResolver()
-        cluster = resolver.cluster_spec()
-        dist = tf.distribute.experimental.MultiWorkerMirroredStrategy(
-            tf.distribute.experimental.CollectiveCommunication.NCCL)
-        self.config = dist.update_config_proto(tf.ConfigProto())
-        self.config.ClearField("device_filters")
-        self.config.allow_soft_placement = True  # log_device_placement=True)
-        self.config.gpu_options.allow_growth = True
-        self.server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc", config=self.config)
-
         self.sinks = sinks
-        self.target = self.server.target
+        self.server=None
 
     def activate(self,batch_size):
         for k,graph_def in enumerate(self.graph_defs):
+            setup_workers(workers, "grpc")
             tf.reset_default_graph()
             resolver = TFConfigClusterResolver()
             cluster = resolver.cluster_spec()
@@ -65,6 +55,11 @@ class Activater():
             self.config.ClearField("device_filters")
             self.config.allow_soft_placement = True  # log_device_placement=True)
             self.config.gpu_options.allow_growth = True
+            if self.server!=None:
+                self.server.close()
+            self.server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc",
+                                               config=self.config)
+            self.target = self.server.target
 
             tf.import_graph_def(graph_def)
             graph = tf.get_default_graph()
@@ -88,12 +83,14 @@ class Activater():
                     except:
                         break
             #opt = [graph.get_operation_by_name('import/' + x) for x in self.sinks]
-            for j in range(3):  #warm up
+            for j in range(10):  #warm up
                 sess.run(opt, feed_dict=input_dict)
 
             start_time = time.time()
             for j in range(10):
+                tmp =time.time()
                 sess.run(opt,feed_dict=input_dict)
+                print(time.time()-tmp)
             avg_time = (time.time()-start_time)/10
             print(self.path[k])
             print("average time:",avg_time)
@@ -110,8 +107,7 @@ class Activater():
 
 workers = ["10.28.1.26:3901","10.28.1.17:3901","10.28.1.16:3901"]
 os.environ["TF_CONFIG"] = '{ "cluster": { "worker": ["10.28.1.26:3901","10.28.1.17:3901","10.28.1.16:3901"]  }, "task": {"type": "worker", "index": 0} }'
-if prefix=="yes":
-    setup_workers(workers, "grpc")
+
 
 act = Activater(activate_graphs,sinks=sinks)
 act.activate(288)

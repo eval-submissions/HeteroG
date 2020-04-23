@@ -77,7 +77,7 @@ class Environment(object):
         self.strategy_reward_dict[str(strategy)]=time
         return np.float32(time)
 
-    def get_null_reward(self,strategy,index_id_dict,trace=""):
+    def get_null_reward(self,strategy,index_id_dict,trace="",record_name = None):
         name_list = [nodedef.name for nodedef in self.null_gdef.node]
         strategy = {index_id_dict[index]: strategy_int for index, strategy_int in enumerate(strategy)}
         strategy = {name: strategy.get(name, list(strategy.values())[0]) for name in name_list}
@@ -98,6 +98,11 @@ class Environment(object):
             time = time * 10
             print("oom")
         self.strategy_reward_dict[str(strategy)]=time
+
+        if record_name:
+            record_graph_def = tge.TGE(copy.deepcopy(self.null_gdef), self.devices, sink).custom(strategy).replace_placeholder(self.global_batch_size).use_collective().compile().get_result()
+            with open(self.folder+"/"+record_name, "w") as f:
+                f.write(pbtf.MessageToString(record_graph_def))
         return np.float32(time)
 
     def get_name_cost_dict(self):
@@ -123,7 +128,7 @@ for _strategy in strategies:
     arr_strategy = np.array(strategy)
     print("strategy:",_strategy)
     #print(env.get_reward(arr_strategy,index_id_dict,prefix+"/"+str(_strategy)+".json"))
-    print(env.get_null_reward(arr_strategy,index_id_dict,prefix+"/"+str(_strategy)+"_null.json"))
+    print(env.get_null_reward(arr_strategy,index_id_dict,prefix+"/"+str(_strategy)+"_null.json",str(_strategy)+".pbtxt"))
 
 '''
 name_cost_dict = env.get_name_cost_dict()
