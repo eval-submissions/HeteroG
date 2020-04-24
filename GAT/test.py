@@ -29,6 +29,9 @@ devices=config_dict.get("devices", [
     "/job:tge/replica:0/task:1/device:GPU:0",
     "/job:tge/replica:0/task:1/device:GPU:1"
 ])
+
+
+
 device_mems=config_dict.get("device_mems", [16*10e9,16*10e9,16*10e9,16*10e9])
 
 sink=["GradientDescent"]

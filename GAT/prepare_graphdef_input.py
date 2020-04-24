@@ -38,6 +38,8 @@ devices=config_dict.get("devices", [
 
 ])
 
+workers = config_dict.get("workers", ["10.28.1.26:3901","10.28.1.17:3901","10.28.1.16:3901"])
+
 def setup_workers(workers, protocol="grpc"):
 
 
@@ -50,8 +52,18 @@ def setup_workers(workers, protocol="grpc"):
 
 
 #workers = ["10.28.1.26:3901", "10.28.1.25:3901","10.28.1.24:3901","10.28.1.17:3901","10.28.1.16:3901"]
-workers = ["10.28.1.26:3901","10.28.1.17:3901","10.28.1.16:3901"]
-os.environ["TF_CONFIG"] = '{ "cluster": { "worker": ["10.28.1.26:3901","10.28.1.17:3901","10.28.1.16:3901"]  }, "task": {"type": "worker", "index": 0} }'
+#workers = ["10.28.1.26:3901","10.28.1.17:3901","10.28.1.16:3901"]
+#os.environ["TF_CONFIG"] = '{ "cluster": { "worker": ["10.28.1.26:3901","10.28.1.17:3901","10.28.1.16:3901"]  }, "task": {"type": "worker", "index": 0} }'
+
+clus = dict()
+clus["cluster"] = {"worker": workers}
+clus["task"] = {"type": "worker", "index": 0}
+os.environ["TF_CONFIG"] = json.dumps(clus)
+
+
+
+
+
 setup_workers(workers, "grpc")
 
 resolver = TFConfigClusterResolver()
