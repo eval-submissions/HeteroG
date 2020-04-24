@@ -100,6 +100,7 @@ class Activater():
                  options=run_opt,
                  run_metadata=run_meta
                  )
+        tf.contrib.tfprof.model_analyzer.print_model_analysis(tf.get_default_graph(),run_meta=run_meta,tfprof_options =tf.contrib.tfprof.model_analyzer.PRINT_ALL_TIMING_MEMORY)
         tl = timeline.Timeline(run_meta.step_stats)
         with open(path.split(".")[0] + "_timeline.json", "w") as fo:
             fo.write(tl.generate_chrome_trace_format())
