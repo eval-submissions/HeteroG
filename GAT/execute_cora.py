@@ -107,7 +107,7 @@ print('nonlinearity: ' + str(nonlinearity))
 print('model: ' + str(model))
 feature_folders = config_dict.get("inputs",["data/graph1", "data/graph2", "data/graph3", "data/graph4", "data/graph5", "data/graph6","data/graph7","data/graph8"])
 sinks =  config_dict.get("sinks",[["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"], ["GradientDescent"],["GradientDescent"],["GradientDescent"]])
-sample_times = 10
+sample_times = 3
 devices = config_dict.get("devices", [
     "/job:worker/replica:0/task:0/device:GPU:0",
     "/job:worker/replica:0/task:0/device:GPU:1",
@@ -658,7 +658,7 @@ class Graph_item():
         global global_mems,sample_prob
         self.avg = np.mean(self.rewards) if self.avg==None else (self.avg+np.mean(self.rewards))/2
         if self.master:
-            sample_prob = min(0.1+0.1*(epoch//30),0.7)
+            sample_prob = min(0.1+0.1*(epoch//60),0.7)
         print("[{}] sample_prob = {}".format(self.folder_path, sample_prob))
         print("[{}] train_place = {}".format(self.folder_path, self.train_place))
         print("[{}] Rewards = {}".format(self.folder_path, self.rewards))
