@@ -187,6 +187,18 @@ class strategy_pool(object):
             self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
 
 
+        group = np.array(self.init_group)
+        device_choice = np.ones(shape=(self.init_group_num, len(devices)), dtype=np.int32)
+        for item in device_choice:
+            item[0]=2
+            item[1]=2
+        device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
+        ps_or_reduce = np.ones(shape=(self.init_group_num, ), dtype=np.int32)
+        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="partial_nccl_dp_graph.pbtxt",record_best=False,from_strategy_pool=True)
+        if not out_of_memory:
+            self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
+
+
         # even data parallel 2
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
 
@@ -288,7 +300,6 @@ class strategy_pool(object):
             return 0 if all(item1 == item2) else 1
         strategy_list = self.get_stratey_list(device_choice, ps_or_reduce)
         if force_insert:
-            return
             self.strategies.append({"replica_mask": replica_mask, "strategy_list": strategy_list, "reward": reward,
                                     "device_choice": device_choice, "ps_or_reduce": ps_or_reduce,"group":group})
 
