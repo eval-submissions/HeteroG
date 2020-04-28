@@ -1,6 +1,4 @@
 import tensorflow as tf
-from tensorflow.keras import layers
-import dgl.function as fn
 from dgl.nn.tensorflow import edge_softmax, GATConv
 
 class GAT(tf.keras.Model):
@@ -30,7 +28,7 @@ class GAT(tf.keras.Model):
             tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True))
         ]
 
-        self.final = tf.keras.layers.Dense(3, activation='softmax') # put 0, 1, 2 replicas
+        self.final = tf.keras.layers.Dense(3, activation=tf.nn.log_softmax) # put 0, 1, 2 replicas
 
     def set_graphs(self, computation_graph, device_graph):
         self.computation_graph = computation_graph

@@ -33,5 +33,5 @@ def get_data(gdef, prof_data, topo):
             g.add_edge(i, reverse_dict[x])
             g.add_edge(reverse_dict[x], i)
     g.add_edges(g.nodes(), g.nodes()) # self-loops are required for GAT
-    prof_data = { key: [(times[0] + times[1]) / 2 * time_ratio for _, time_ratio in topo["devices"]] for key, times in prof_data.items() }
+    prof_data = { key: [int((times[0] + times[1]) / 2 * time_ratio) for _, time_ratio in topo["devices"]] for key, times in prof_data.items() }
     return { "gdef": gdef, "prof_data": prof_data, "graph": g, "features": features }
