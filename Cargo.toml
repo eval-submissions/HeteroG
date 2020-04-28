@@ -16,5 +16,6 @@ panic = 'abort'
 protobuf = "=2.10.2"
 taken = "0.1"
 crossbeam-channel = "0.4"
+rand = "0.7"
 oh-my-rust = { git = "https://github.com/ylxdzsw/oh-my-rust" }
 scoped = { git = "https://github.com/ylxdzsw/scoped" }

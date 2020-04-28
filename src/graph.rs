@@ -45,8 +45,16 @@ impl Graph {
 
         let mut g = Box::new(Graph { nodes: Vec::with_capacity(nodes.len()), ..Default::default() });
 
-        // not always optimal, but good enough since the input is actually mostly ordered
         let mut queue: std::collections::VecDeque::<_> = nodes.iter().collect();
+
+        // additional step to shuffle apply gradient nodes to improve control dependency for collective nodes
+        let indexes: Vec<usize> = nodes.iter().enumerate().filter(|(_, x)| x.op == "ApplyGradientDescent").map(|(i, _)| i).collect();
+        for i in (1..indexes.len()).rev() {
+            let j: usize = rand::random();
+            queue.swap(indexes[i], indexes[j % i]);
+        }
+
+        // not always optimal, but good enough since the input is actually mostly ordered
         'outer: while let Some(node_def) = queue.pop_front() {
             for input in node_def.input.iter() {
                 let input = if input.starts_with('^') {

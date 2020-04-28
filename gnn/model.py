@@ -11,7 +11,7 @@ class GAT(tf.keras.Model):
         num_rnn_hidden = 16
 
         self.computation_gat_layers = [
-            GATConv(computation_feature_length, num_hidden, num_hidden, *GAT_options, False, tf.nn.elu),
+            GATConv(computation_feature_length, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
             GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
             GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
             GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
