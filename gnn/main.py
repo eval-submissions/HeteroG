@@ -24,18 +24,26 @@ topo1 = gen_topo([
 ])
 data1 = get_data(gdef, prof_dict, topo1)
 topo2 = gen_topo([
-    ("/job:worker/replica:0/task:0/device:GPU:0", 1),
+    ("/job:worker/replica:0/task:0/device:GPU:0", 1.5),
     ("/job:worker/replica:0/task:0/device:GPU:1", 1.2),
-])
+], intra=10)
 data2 = get_data(gdef, prof_dict, topo2)
 
 with tf.device("/gpu:0"):
     model = GAT(4, 1)
+
+    try:
+        model.load_weights('model.checkpoint')
+        info("load saved weight")
+    except:
+        info("no saved weight")
+        pass
+
     optimizer = tf.keras.optimizers.Adam(learning_rate=0.002, epsilon=1e-8)
 
     # initialize graph
     dur = []
-    for epoch in range(20):
+    for epoch in range(100):
         if epoch % 2 == 0:
             topo, data = topo1, data1
         else:
@@ -59,5 +67,15 @@ with tf.device("/gpu:0"):
         if epoch >= 3:
             dur.append(time.time() - t0)
             info(np.mean(dur))
+
+        if epoch % 10 == 0:
+            model.save_weights('model.checkpoint')
+
+        p = np.argmax(logp.numpy(), axis=2)
+        count = {}
+        for i in range(p.shape[0]):
+            d = tuple(p[i, :])
+            count[d] = count.get(d, 0) + 1
+        info(count)
 
         info(loss.numpy(), loss_env)

@@ -5,13 +5,14 @@ class GAT(tf.keras.Model):
     def __init__(self, computation_feature_length, device_feature_length):
         super(GAT, self).__init__()
 
-        num_hidden = 8
+        num_hidden = 16
         num_heads = 8
         GAT_options = (0.5, 0.5, 0.2) # feat_drop_rate, attn_drop_rate, negative_slope
-        num_rnn_hidden = 8
+        num_rnn_hidden = 16
 
         self.computation_gat_layers = [
             GATConv(computation_feature_length, num_hidden, num_hidden, *GAT_options, False, tf.nn.elu),
+            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
             GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
             GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
             GATConv(num_hidden * num_heads, num_hidden, 1, *GAT_options, False, None)
@@ -25,6 +26,7 @@ class GAT(tf.keras.Model):
         ]
 
         self.rnn_layers = [
+            tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True)),
             tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True))
         ]
 
