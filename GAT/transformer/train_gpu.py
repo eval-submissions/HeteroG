@@ -6,7 +6,7 @@ import os
 import math
 import time
 
-from absl import flags
+from tra import flags
 import absl.logging as _logging  # pylint: disable=unused-import
 
 import tensorflow as tf

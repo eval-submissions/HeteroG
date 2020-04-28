@@ -377,25 +377,44 @@ class Environment(object):
         with open("nccl_model.pkl","rb") as f:
             self.nccl_model=pkl.load(f)
 
-
+        bandwidth = config_dict.get("bandwidth",None)
+        if bandwidth==None:
+            self.intra = "5000"
+            self.inter = "1250"
+        else:
+            self.intra = bandwidth[0]
+            self.inter = bandwidth[1]
 
         self.null_gdef = graph_pb2.GraphDef()
         with open(folder_path+"/null_graph.pbtxt","r")as f:
             txt = f.read()
         pbtf.Parse(txt,self.null_gdef)
-
+        self.name_cost_dict = self.get_name_cost_dict()
         if os.path.exists(folder_path+"/best_time.log"):
             with open(folder_path+"/best_time.log", "r") as f:
                 tmp = json.load(f)
                 for key,value in tmp.items():
                     self.best_strategy[key] = value
+            with open(self.folder_path+"/best_time.log", "w") as f:
+
+                cost_dict=dict()
+                for key, value in self.name_cost_dict.items():
+                    name = key[0]
+                    replica_num=key[1]
+                    if replica_num==1:
+                        cost_dict[name] = value
+                self.best_strategy["cost"] = cost_dict
+                json.dump(self.best_strategy.copy(), f)
+            _tge = tge.TGE(copy.deepcopy(self.null_gdef), self.devices, sink)
+            time_mem_tuple = _tge.custom(self.best_strategy["strategy"]).fill_batchsize(self.batch_size).set_nccl_model(self.nccl_model).use_collective().set_bandwidth(self.intra, self.inter).evaluate(self.name_cost_dict,self.folder_path+"/best_graph.json")
+
             best_graph_def =tge.TGE(copy.deepcopy(self.null_gdef), self.devices, self.sink).custom(self.best_strategy["strategy"]).replace_placeholder(batch_size).use_collective().compile().get_result()
             with open(self.folder_path+"/best_graph.pbtxt", "w") as f:
                 f.write(str(best_graph_def))
 
 
 
-        self.name_cost_dict = self.get_name_cost_dict()
+
 
     def get_reward2(self,device_choice,ps_or_reduce,index_id_dict,sink,group,record=False,record_name=None,record_best=True,from_strategy_pool=False):
         out_of_memory=False
@@ -415,16 +434,10 @@ class Environment(object):
         strategy = {index_id_dict[index]:new_device_array[group[self.init_group[index]]].tolist() for index in range(len(index_id_dict))}
         strategy = {name: strategy.get(name, list(strategy.values())[0]) for name in name_list}
 
-        bandwidth = config_dict.get("bandwidth",None)
-        if bandwidth==None:
-            intra = "5000"
-            inter = "1250"
-        else:
-            intra = bandwidth[0]
-            inter = bandwidth[1]
+
         _tge = tge.TGE(copy.deepcopy(self.null_gdef), self.devices,sink)
 
-        time_mem_tuple = _tge.custom(strategy).fill_batchsize(self.batch_size).set_nccl_model(self.nccl_model).use_collective().set_bandwidth(intra,inter).evaluate(self.name_cost_dict)
+        time_mem_tuple = _tge.custom(strategy).fill_batchsize(self.batch_size).set_nccl_model(self.nccl_model).use_collective().set_bandwidth(self.intra,self.inter).evaluate(self.name_cost_dict)
         time = time_mem_tuple[0]
         mem_list = time_mem_tuple[1]
         time = float(time)/(10**3)
@@ -443,8 +456,8 @@ class Environment(object):
                 cost_dict=dict()
                 for key, value in self.name_cost_dict.items():
                     name = key[0]
-                    batch_size=key[1]
-                    if batch_size==self.batch_size:
+                    replica_num=key[1]
+                    if replica_num==1:
                         cost_dict[name] = value
                 self.best_strategy["cost"] = cost_dict
                 json.dump(self.best_strategy.copy(), f)

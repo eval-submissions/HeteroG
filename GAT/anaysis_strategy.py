@@ -2,7 +2,9 @@ import numpy as np
 import json
 import re
 import sys
-
+import tensorflow as tf
+import google.protobuf.text_format as pbtf
+from tensorflow.core.framework import graph_pb2
 
 prefix=sys.argv[1]
 logfile = open(prefix+"/analysis.log","w")
@@ -48,4 +50,58 @@ for item in sorted_tuple:
     print("Name:",name," Strategy:",strategy," Cost:",cost)
     logfile.write("Name:{} Strategy:{} Cost:{}\n".format(name,strategy,cost))
 
+null_gdef = graph_pb2.GraphDef()
+with open(prefix+"/null_graph.pbtxt", "r")as f:
+    txt = f.read()
+pbtf.Parse(txt, null_gdef)
+global_name_list = [nodedef.name for nodedef in null_gdef.node]
+
+strategy_name_dict = dict()
+for name,strategy in best_strategy.items():
+    if strategy_name_dict.get(str(strategy),None)==None:
+        strategy_name_dict[str(strategy)] = list()
+    name_list = strategy_name_dict.get(str(strategy),list())
+    try:
+        input_node_idx = global_name_list.index(name)
+    except:
+        continue
+    # output_node_idx = i
+    input_nodedef = null_gdef.node[input_node_idx]
+    if input_nodedef.op!="ApplyGradientDescent":
+        continue
+    size = 0
+    for output_shape in input_nodedef.attr["_output_shapes"].list.shape:
+        local_size = 1
+        for dim in output_shape.dim:
+            local_size *= np.abs(dim.size)
+        size += local_size
+    name_list.append((name,size,name_cost_dict.get(name,[0])[0]))
+
+logfile.close()
+import numpy as np
+import matplotlib.pyplot as plt
+colors = ["green","blue","red","yellow","black"]
+fig = plt.figure()
+ax = plt.subplot()
+for i,key in enumerate(sorted(strategy_name_dict)):
+    tup = strategy_name_dict[key]
+    size = [float(item[1]) for item in tup]
+    cost = [float(item[2]) for item in tup]
+
+    ax.scatter(size, cost, c=colors[i%len(colors)],label=key)
+plt.xlabel('size(Byte)')
+plt.ylabel('cost(ms)')
+plt.title(prefix)
+ax.legend()
+fig.savefig(prefix+"/analysis.png")
+
+
+logfile = open(prefix+"/apply_gradient_analysis.log","w")
+for i,key in enumerate(strategy_name_dict):
+    logfile.write(key+"\n")
+    tup = strategy_name_dict[key]
+    for tup_item in tup:
+        name = tup_item[0]
+        size = tup_item[1]
+        logfile.write("    name:{},size:{}Byte\n".format(name,size))
 logfile.close()
