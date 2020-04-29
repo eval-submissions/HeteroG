@@ -233,11 +233,13 @@ class TGE:
 
     @chain
     def use_nccl(self):
-        self._set_option("allreduce_implementation", 'nccl')
+        # self._set_option("allreduce_implementation", 'nccl')
+        pass
 
     @chain
     def use_collective(self):
-        self._set_option("allreduce_implementation", 'collective')
+        # self._set_option("allreduce_implementation", 'collective')
+        pass
 
     @chain
     def custom(self, decisions): # for backward compatibility

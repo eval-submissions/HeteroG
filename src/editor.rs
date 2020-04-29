@@ -3,7 +3,7 @@ use std::convert::TryInto;
 use crate::graph::*;
 use std::collections::{BTreeSet, BTreeMap};
 
-pub fn edit(graph: &mut Graph, target: &mut Target, strategy: &BTreeMap<&str, (Vec<usize>, bool)>) { // devices (the same definition of form), is Ring reduce
+pub fn edit(graph: &mut Graph, target: &mut Target, strategy: &BTreeMap<&str, (Vec<usize>, u8)>) { // devices (the same definition of form), aggregation_method
     let allow_split_input = graph.options.contains_key("replace_placeholder");
 
     // do replications as the user requested
@@ -64,10 +64,10 @@ pub fn edit(graph: &mut Graph, target: &mut Target, strategy: &BTreeMap<&str, (V
                 if grad.node().form.is_part() { // is_part implies ndev > 1
                     let full = match s {
                         // alternatively, we can allow this and perform a post transfer?
-                        Some((_, true)) if grad.node().form.devices == node.form.devices => match graph.options.get("allreduce_implementation").map(|x| &x[..]) {
-                            Some("nccl") => grad.all_reduce_nccl(&grad.node().form, &node.form.clone(), target),
-                            Some("collective") => grad.all_reduce_collective(&grad.node().form, &node.form.clone(), target),
-                            None => grad.all_reduce_ring(&grad.node().form, &node.form.clone(), target),
+                        Some((_, m @ 1..=3)) if grad.node().form.devices == node.form.devices => match m {
+                            1 => grad.all_reduce_collective(&grad.node().form, &node.form.clone(), target),
+                            2 => grad.all_reduce_ring(&grad.node().form, &node.form.clone(), target),
+                            3 => grad.all_reduce_nccl(&grad.node().form, &node.form.clone(), target),
                             _ => unreachable!()
                         },
                         _ => {

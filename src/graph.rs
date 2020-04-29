@@ -708,7 +708,7 @@ impl Tensor {
             nccl.attr.insert("num_devices".into(), AttrValue::new().apply(|x| x.set_i(from.ndev() as _)));
             nccl.attr.insert("shared_name".into(), AttrValue::new().apply(|x| x.set_s(self.original_name().into_bytes())));
             nccl.input.push(self.as_form(from, target)[i].clone());
-            // TODO: tensor size
+            set_input_size(&mut nccl, 0, self.get_size() / from.ndev() as u64);
 
             target.pb.node.push(nccl)
         }

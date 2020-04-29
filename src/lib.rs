@@ -60,7 +60,7 @@ unsafe extern fn edit_graph(graph: *mut Graph, target: *mut Target, strategy_raw
     let strategy = strategy_str.lines().map(|line| {
         let line = line.split_ascii_whitespace().collect::<Vec<_>>();
         let name = <&str>::clone(&line[0]);
-        let method = line[1].parse::<u8>().unwrap() != 0;
+        let method = line[1].parse::<u8>().unwrap();
         let places = line[2..].iter().map(|x| x.parse().unwrap()).collect(); // assume sorted
         (name, (places, method))
     }).collect();
