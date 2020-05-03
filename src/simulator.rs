@@ -2,7 +2,6 @@
 
 use oh_my_rust::*;
 use taken::*;
-use crossbeam_channel;
 use std::convert::TryInto;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, VecDeque, HashMap};
 use std::sync::{Arc, Mutex};
@@ -295,6 +294,7 @@ impl Simulator for SimpleSimulator {
     }
 }
 
+// use crossbeam_channel;
 // include!("../deprecated/multithreaded_simulator.rs");
 
 fn parse_input(x: &str) -> (&str, usize) {

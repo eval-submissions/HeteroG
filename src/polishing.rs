@@ -76,7 +76,5 @@ pub fn fuse_mini_batch(nodes: &[NodeDef], times: usize) -> Vec<NodeDef> {
         }
     }
 
-    todo!();
-
-    result
+    todo!()
 }

@@ -489,13 +489,13 @@ impl Tensor {
                             unimplemented!()
                         }
 
-                        if self.has_flag(Self::IS_BATCHED) {
-                            self.resplit(&self.node().form, form, target)
-                        } else {
+                        // if self.has_flag(Self::IS_BATCHED) {
+                        //     self.resplit(&self.node().form, form, target)
+                        // } else {
                             // unimplemented!("cannot resplit a unbatched tensor")
                             // there is currently a hack in resplit that copy parts if the number matches. Move this logic out and mark this case a bug.
                             self.resplit(&self.node().form, form, target)
-                        }
+                        // }
                     },
                 }
             };
