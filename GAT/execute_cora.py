@@ -16,7 +16,7 @@ import copy
 import sys
 import os
 import scipy.sparse as sp
-
+import traceback
 import pickle
 sys.path.append('../')
 import tge
@@ -85,7 +85,7 @@ n_head=8
 d_head=64
 d_model=512
 d_inner=2048
-group_num = 50
+group_num = 2000
 bsz =1
 
 global_mems = [np.zeros([128, bsz, d_model], dtype=np.float32) for layer in range(n_layer)]
@@ -176,94 +176,94 @@ class strategy_pool(object):
 
         # even data parallel 1
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
+        if False:
+            group = np.array(self.init_group)
+            device_choice = np.ones(shape=(self.init_group_num, len(devices)), dtype=np.int32)*2
 
-        group = np.array(self.init_group)
-        device_choice = np.ones(shape=(self.init_group_num, len(devices)), dtype=np.int32)*2
-
-        device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
-        ps_or_reduce = np.ones(shape=(self.init_group_num, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="full_nccl_dp_graph.pbtxt",record_best=False,from_strategy_pool=True)
-        if not out_of_memory:
-            self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
-
-
-        group = np.array(self.init_group)
-        device_choice = np.ones(shape=(self.init_group_num, len(devices)), dtype=np.int32)
-        for item in device_choice:
-            item[0]=2
-            item[1]=2
-        device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
-        ps_or_reduce = np.ones(shape=(self.init_group_num, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="partial_nccl_dp_graph.pbtxt",record_best=False,from_strategy_pool=True)
-        if not out_of_memory:
-            self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
+            device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
+            ps_or_reduce = np.ones(shape=(self.init_group_num, ), dtype=np.int32)
+            reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="full_nccl_dp_graph.pbtxt",record_best=False,from_strategy_pool=True)
+            if not out_of_memory:
+                self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
 
 
-        # even data parallel 2
-        #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
+            group = np.array(self.init_group)
+            device_choice = np.ones(shape=(self.init_group_num, len(devices)), dtype=np.int32)
+            for item in device_choice:
+                item[0]=2
+                item[1]=2
+            device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
+            ps_or_reduce = np.ones(shape=(self.init_group_num, ), dtype=np.int32)
+            reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="partial_nccl_dp_graph.pbtxt",record_best=False,from_strategy_pool=True)
+            if not out_of_memory:
+                self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
 
-        group = np.array(self.init_group)
-        device_choice = np.ones(shape=(self.init_group_num, len(devices)), dtype=np.int32)
 
-        device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
-        ps_or_reduce = np.ones(shape=(self.init_group_num, ), dtype=np.int32)
-        reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="nccl_dp_graph.pbtxt",record_best=False,from_strategy_pool=True)
-        if not out_of_memory:
-            self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
+            # even data parallel 2
+            #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
 
-    #    self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
+            group = np.array(self.init_group)
+            device_choice = np.ones(shape=(self.init_group_num, len(devices)), dtype=np.int32)
 
-        group = np.array(self.init_group)
-        device_choice = np.ones(shape=(self.init_group_num, len(devices)), dtype=np.int32)
-
-        device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
-        ps_or_reduce = np.zeros(shape=(self.init_group_num,), dtype=np.int32)
-        reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group,
-                                                     record=True, record_name="grpc_dp_graph.pbtxt", record_best=False,
-                                                     from_strategy_pool=True)
-        if not out_of_memory:
-            self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
+            device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
+            ps_or_reduce = np.ones(shape=(self.init_group_num, ), dtype=np.int32)
+            reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="nccl_dp_graph.pbtxt",record_best=False,from_strategy_pool=True)
+            if not out_of_memory:
+                self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
 
         #    self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
+            group = np.array(self.init_group)
+            device_choice = np.ones(shape=(self.init_group_num, len(devices)), dtype=np.int32)
 
-        group = np.array(self.init_group)
-        device_choice = np.array([np.arange(len(devices))%1 for i in range(self.init_group_num)])
+            device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
+            ps_or_reduce = np.zeros(shape=(self.init_group_num,), dtype=np.int32)
+            reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group,
+                                                         record=True, record_name="grpc_dp_graph.pbtxt", record_best=False,
+                                                         from_strategy_pool=True)
+            if not out_of_memory:
+                self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
 
-        device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
-        ps_or_reduce = np.ones(shape=(self.init_group_num,), dtype=np.int32)
-        reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group,
-                                                     record=True, record_name="single_graph.pbtxt",
-                                                     record_best=False, from_strategy_pool=True)
-        if not out_of_memory:
-            self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
-
-        group = np.array(self.init_group)
-        device_choice = np.array([np.arange(len(devices))%1 for i in range(self.init_group_num)])
-        for i,item in enumerate(device_choice):
-            item[i%len(devices)]=1
-
-        device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
-        ps_or_reduce = np.ones(shape=(self.init_group_num,), dtype=np.int32)
-        reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group,
-                                                     record=True, record_name="model_parallel_graph.pbtxt",
-                                                     record_best=False, from_strategy_pool=True)
-        if not out_of_memory:
-            self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
+            #    self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
 
-        group = np.array(self.init_group)
-        device_choice = np.array([np.arange(len(devices))%1 for i in range(self.init_group_num)])
-        for i,item in enumerate(device_choice):
-            item[i//math.ceil(len(device_choice)/len(devices))]=1
+            group = np.array(self.init_group)
+            device_choice = np.array([np.arange(len(devices))%1 for i in range(self.init_group_num)])
 
-        device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
-        ps_or_reduce = np.ones(shape=(self.init_group_num,), dtype=np.int32)
-        reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group,
-                                                     record=True, record_name="model_parallel2_graph.pbtxt",
-                                                     record_best=False, from_strategy_pool=True)
-        if not out_of_memory:
-            self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
+            device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
+            ps_or_reduce = np.ones(shape=(self.init_group_num,), dtype=np.int32)
+            reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group,
+                                                         record=True, record_name="single_graph.pbtxt",
+                                                         record_best=False, from_strategy_pool=True)
+            if not out_of_memory:
+                self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
+
+            group = np.array(self.init_group)
+            device_choice = np.array([np.arange(len(devices))%1 for i in range(self.init_group_num)])
+            for i,item in enumerate(device_choice):
+                item[i%len(devices)]=1
+
+            device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
+            ps_or_reduce = np.ones(shape=(self.init_group_num,), dtype=np.int32)
+            reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group,
+                                                         record=True, record_name="model_parallel_graph.pbtxt",
+                                                         record_best=False, from_strategy_pool=True)
+            if not out_of_memory:
+                self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
+
+
+            group = np.array(self.init_group)
+            device_choice = np.array([np.arange(len(devices))%1 for i in range(self.init_group_num)])
+            for i,item in enumerate(device_choice):
+                item[i//math.ceil(len(device_choice)/len(devices))]=1
+
+            device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
+            ps_or_reduce = np.ones(shape=(self.init_group_num,), dtype=np.int32)
+            reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group,
+                                                         record=True, record_name="model_parallel2_graph.pbtxt",
+                                                         record_best=False, from_strategy_pool=True)
+            if not out_of_memory:
+                self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
 
 
     def get_length(self):
@@ -532,13 +532,14 @@ class Graph_item():
             with open(folder_path+"/init_group.json","r") as f:
                 self.init_group =json.load(f)
         else:
-            self.init_group = tge.TGE(copy.deepcopy(self.gdef ), devices, sink).get_groups()
+           # self.init_group = tge.TGE(copy.deepcopy(self.gdef ), devices, sink).get_groups()
+            self.init_group = self.get_colocation_group()
             with open(folder_path+"/new_cost.pkl", "rb") as f:
                 name_cost_dict = pkl.load(f)
             self.init_group = group_around_topk_costs(self.gdef,self.init_group,name_cost_dict,group_num)
             with open(folder_path+"/init_group.json","w") as f:
                 json.dump(self.init_group,f)
-        print(self.init_group)
+        #print(self.init_group)
 
         ########################create simulator###########################################
         self.env = Environment(folder_path+"/null_graph.pbtxt",devices,folder_path,self.batch_size,self.init_group,sink)
@@ -555,13 +556,35 @@ class Graph_item():
         self.oom = []
         self.train_place = False
         self.counter=0
-        self.small_co = 0.001*5
+        self.small_co = 0.001*5*50
         self.large_co =self.small_co*50
         self.co_entropy = self.small_co
         self.place_lr = lr
         self.record_time =[]
 
-
+    def get_colocation_group(self):
+        leaders = []
+        group = []
+        for i, nodedef in enumerate(self.gdef.node):
+            try:
+                colocation_list = nodedef.attr["_class"].list.s
+                if len(colocation_list)==0:
+                    colocation_name = nodedef.name
+                else:
+                    colocation  = colocation_list[0]
+                    colocation_name = colocation.decode().split("@")[-1]
+                if colocation_name  not in leaders:
+                    leaders.append(colocation_name)
+                    group.append(len(leaders))
+                else:
+                    group.append(leaders.index(colocation_name))
+            except Exception as e:
+                traceback.print_exc()
+                time.sleep(1)
+        print(leaders)
+        print(len(leaders))
+        print(len(group))
+        return group
     def set_session_and_network(self,sess,place_gnn):
         self.sess =sess
         self.place_gnn = place_gnn
@@ -681,7 +704,7 @@ class Graph_item():
             #logger.debug("sample_ps:{}".format(self.ps_or_reduces[index]))
             #logger.debug("sample_device_choices:{}".format(self.device_choices[index]))
 
-            place_loss,l2_loss,new_loss,new_global_mems,entropy,place_kl=self.place_gnn.learn_place(ftr_in=self.features,
+            place_loss,l2_loss,new_loss,new_global_mems,entropy=self.place_gnn.learn_place(ftr_in=self.features,
                             bias_in=self.biases,
                             nb_nodes=self.nb_nodes,
                             sample_ps_or_reduce = np.array(self.ps_or_reduces[index]),
@@ -694,7 +717,6 @@ class Graph_item():
             global_mems = new_global_mems
             self.cal_entropy = entropy
             print("place entropy:", self.cal_entropy)
-            print("place kl:", place_kl)
             print("coefficient:",self.co_entropy)
             print("l2_loss:",l2_loss)
             print("entropy loss:",-self.cal_entropy*self.co_entropy)
@@ -728,7 +750,7 @@ class Graph_item():
             if pool_strategy==None:
                 return
 
-            place_loss, l2_loss,new_loss,new_global_mems,entropy,place_kl=self.place_gnn.learn_place(ftr_in=self.features,
+            place_loss, l2_loss,new_loss,new_global_mems,entropy=self.place_gnn.learn_place(ftr_in=self.features,
                             bias_in=self.biases,
                             nb_nodes=self.nb_nodes,
                             sample_ps_or_reduce = np.array(pool_strategy["ps_or_reduce"]),
@@ -743,7 +765,6 @@ class Graph_item():
             self.cal_entropy = entropy
             print("place entropy:", self.cal_entropy)
             print("coefficient:",self.co_entropy)
-            print("place kl:", place_kl)
             print("l2_loss:",l2_loss)
             print("entropy loss:",-self.cal_entropy*self.co_entropy)
             print("place loss:",place_loss)
@@ -817,14 +838,14 @@ class new_place_GNN():
             for i in range(0,len(devices)):
                 oi = tf.nn.softmax(output[:,i*(max_replica_num+1):(i+1)*(max_replica_num+1)])
                 self.device_choices.append(oi)
-                log_oi = tf.nn.log_softmax(output[:,i*(max_replica_num+1):(i+1)*(max_replica_num+1)])
-                #log_oi = tf.log(oi+10e-8)
+                #log_oi = tf.nn.log_softmax(output[:,i*(max_replica_num+1):(i+1)*(max_replica_num+1)])
+                log_oi = tf.log(oi+10e-8)
                 self.log_device_choices.append(log_oi)
                 sum = sum + tf.reduce_sum((log_oi* oi))
             ps_or_reduce_prob = tf.nn.softmax(output[:,-2:])
             self.ps_or_reduce = ps_or_reduce_prob
-            self.log_ps_reduce = tf.nn.log_softmax(output[:,-2:])
-            #self.log_ps_reduce = tf.log( self.ps_or_reduce+10e-8)
+            #self.log_ps_reduce = tf.nn.log_softmax(output[:,-2:])
+            self.log_ps_reduce = tf.log( self.ps_or_reduce+10e-8)
             self.entropy = tf.reduce_sum((self.log_ps_reduce * ps_or_reduce_prob), 1)
             self.entropy = -(tf.reduce_sum(self.entropy) + sum )
 
@@ -884,16 +905,16 @@ class new_place_GNN():
 
 
         fetch_list =[item for item in self.device_choices]
-        fetch_list.extend([self.place_reward,self.loss_l2,self.before_log_prob,self.place_kl,self.entropy,self.unique_group,self.log_device_choices[0],self.log_prob,self.indices,self.place_loss,self.new_mems,self.train_place_op])
+        fetch_list.extend([self.place_reward,self.loss_l2,self.before_log_prob,self.entropy,self.unique_group,self.log_device_choices[0],self.log_prob,self.indices,self.place_loss,self.new_mems,self.train_place_op])
 
         outputs= self.sess.run(fetch_list,
                      feed_dict=feed_dict)
         self.previous_outputs = outputs
 
-        place_reward,l2_loss,before_log_prob, place_kl, entropy, unique, log_device_choices, log_prob, indices, loss, mems, _ = outputs[len(devices):]
+        place_reward,l2_loss,before_log_prob, entropy, unique, log_device_choices, log_prob, indices, loss, mems, _ = outputs[len(devices):]
         #logger.debug("previous_outputs:{}".format(self.previous_outputs[:len(devices)]))
 
-        return -place_reward,l2_loss,loss,mems,entropy,place_kl
+        return -place_reward,l2_loss,loss,mems,entropy
 
 
     def get_replica_num_prob(self,ftr_in,bias_in,nb_nodes,mems,init_group):
