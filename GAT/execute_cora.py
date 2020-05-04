@@ -88,7 +88,7 @@ d_inner=2048
 group_num = 2000
 bsz =1
 
-global_mems = [np.zeros([128, bsz, d_model], dtype=np.float32) for layer in range(n_layer)]
+
 
 
 nonlinearity = tf.nn.elu
@@ -561,7 +561,7 @@ class Graph_item():
         self.co_entropy = self.small_co
         self.place_lr = lr
         self.record_time =[]
-
+        self.mems = [np.zeros([128, bsz, d_model], dtype=np.float32) for layer in range(n_layer)]
     def get_colocation_group(self):
         leaders = []
         group = []
@@ -590,11 +590,17 @@ class Graph_item():
         self.place_gnn = place_gnn
 
 
-    def sync_sample_and_parallel_process(self):
-        self.sample()
-        self.parallel_process_output()
 
-    def sample(self):
+
+
+
+    def sample(self,epoch):
+
+        global sample_prob
+        if self.master:
+            sample_prob = min(0.1+0.1*(epoch//60),0.7)
+
+        print("[{}] sample_prob = {}".format(self.folder_path, sample_prob))
 
         self.replica_masks = mp.Manager().list(range(sample_times+1))
         self.device_choices = mp.Manager().list(range(sample_times+1))
@@ -608,7 +614,7 @@ class Graph_item():
             ftr_in=self.features,
             bias_in=self.biases,
             nb_nodes=self.nb_nodes,
-            mems=global_mems,
+            mems=self.mems,
             init_group = self.init_group)
 
     def parallel_process_output_unit(self,i):
@@ -691,11 +697,8 @@ class Graph_item():
                 self.strategy_pool.insert(self.rewards[i], self.device_choices[i], self.replica_masks[i], self.ps_or_reduces[i],self.group[i])
 
     def train(self,epoch):
-        global global_mems,sample_prob
+
         self.avg = np.mean(self.rewards) if self.avg==None else (self.avg+np.mean(self.rewards))/2
-        if self.master:
-            sample_prob = min(0.1+0.1*(epoch//60),0.7)
-        print("[{}] sample_prob = {}".format(self.folder_path, sample_prob))
         print("[{}] train_place = {}".format(self.folder_path, self.train_place))
         print("[{}] Rewards = {}".format(self.folder_path, self.rewards))
         print("[{}] epoch = {}".format(self.folder_path, epoch))
@@ -711,10 +714,10 @@ class Graph_item():
                             sample_device_choice = np.array(self.device_choices[index]),
                             time_ratio = 0.01*self.avg/self.rewards[index],
                             coef_entropy=self.co_entropy,
-                            mems = global_mems,
+                            mems = self.mems,
                             init_group=self.init_group,
                             place_lr = self.place_lr)
-            global_mems = new_global_mems
+            self.mems = new_global_mems
             self.cal_entropy = entropy
             print("place entropy:", self.cal_entropy)
             print("coefficient:",self.co_entropy)
@@ -757,11 +760,11 @@ class Graph_item():
                             sample_device_choice = np.array(pool_strategy["device_choice"]),
                             time_ratio = 0.01*self.avg/pool_strategy["reward"],
                             coef_entropy=self.co_entropy,
-                            mems = global_mems,
+                            mems = self.mems,
                             init_group=self.init_group,
                             place_lr = self.place_lr
                             )
-            global_mems = new_global_mems
+            self.mems = new_global_mems
             self.cal_entropy = entropy
             print("place entropy:", self.cal_entropy)
             print("coefficient:",self.co_entropy)
@@ -796,6 +799,8 @@ class new_place_GNN():
             self.train_place = tf.placeholder(dtype=tf.bool, shape=(),name="train_place")
             self.mems = [tf.placeholder(tf.float32,[128, bsz, d_model]) for _ in range(n_layer)]
             self.place_lr = tf.placeholder(dtype=tf.float32, shape=(),name="place_lr")
+
+            self.network_params = tf.get_collection(key=tf.GraphKeys.TRAINABLE_VARIABLES)
 
         with tf.variable_scope("group_nn"):
             group = self.init_group
@@ -878,7 +883,54 @@ class new_place_GNN():
         #self.loss = -reward
         self.place_loss = -place_reward
 
+        #lossL2 = tf.add_n([tf.nn.l2_loss(v) for v in self.network_params if v.name not
+        #                   in ['bias', 'gamma', 'b', 'g', 'beta']]) * l2_coef
+
+        #self.net_gradients = tf.compat.v1.gradients(self.place_loss+lossL2, self.network_params,colocate_gradients_with_ops=True)
+        #self.apply_gradients = tf.train.AdamOptimizer(learning_rate=self.place_lr).apply_gradients(zip(self.net_gradients,self.network_params))
+
         self.train_place_op,self.loss_l2 = model.training(self.place_loss,self.place_lr , l2_coef,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='place_nn'))
+
+
+    def get_gradients(self,ftr_in,bias_in,nb_nodes,sample_ps_or_reduce,sample_device_choice,time_ratio,coef_entropy,mems,init_group,place_lr):
+        feed_dict = {}
+        feed_dict[self.ftr_in]=ftr_in
+        feed_dict[self.bias_in]=bias_in
+        feed_dict[self.nb_node]=nb_nodes
+        feed_dict[self.is_train]=True
+        feed_dict[self.attn_drop]=0.1
+        feed_dict[self.ffd_drop]=0.1
+        feed_dict[self.sample_ps_or_reduce]=sample_ps_or_reduce
+        feed_dict[self.sample_device_choice]=sample_device_choice
+        feed_dict[self.time_ratio]=time_ratio
+        feed_dict[self.coef_entropy]=coef_entropy
+        feed_dict[self.previous_device_choices]=self.previous_outputs[:len(devices)]
+        feed_dict[self.train_place] = True
+
+
+        feed_dict[self.place_lr]=place_lr
+
+        feed_dict[self.init_group]=init_group
+
+        for item1,item2 in zip(self.mems,mems):
+            feed_dict[item1]=item2
+
+        fetch_list =[item for item in self.device_choices]
+        fetch_list.extend([self.place_reward,self.loss_l2,self.before_log_prob,self.entropy,self.place_loss,self.new_mems,self.net_gradients])
+
+        outputs= self.sess.run(fetch_list,
+                     feed_dict=feed_dict)
+
+        place_reward,l2_loss,before_log_prob, entropy, loss, mems, gradients = outputs[len(devices):]
+        #logger.debug("previous_outputs:{}".format(self.previous_outputs[:len(devices)]))
+
+        return -place_reward,l2_loss,loss,mems,entropy,gradients
+
+    def apply_gradients(self,gradients):
+        feed_dict = {}
+        feed_dict[self.net_gradients] = gradients
+        _= self.sess.run(self.apply_gradients,
+                     feed_dict=feed_dict)
 
     def learn_place(self,ftr_in,bias_in,nb_nodes,sample_ps_or_reduce,sample_device_choice,time_ratio,coef_entropy,mems,init_group,place_lr):
         feed_dict = {}
@@ -970,8 +1022,8 @@ def main_entry():
 
         for epoch in range(nb_epochs):
             for model in models:
-
-                model.sync_sample_and_parallel_process()
+                model.sample(epoch)
+                model.parallel_process_output()
                 model.post_parallel_process()
                 model.train(epoch)
             if epoch % (show_interval*30 )== 0:
