@@ -11,31 +11,35 @@ def sample(logp):
             result[i, j] = s
     return mask, result
 
-def evaluate(computation_graph, topo, decisions):
-    gdef = computation_graph["gdef"]
-    strategy = { gdef.node[i].name: [0, *decisions[i]] for i in range(decisions.shape[0]) }
+def evaluate(record, decisions):
+    gdef = record["gdef"]
+    strategy = { gdef.node[i].name: [2, *decisions[i]] for i in range(decisions.shape[0]) }
     penalty = 1
     for k, v in strategy.items():
         if np.sum(v[1:]) == 0:
             penalty += 1
             v[1] = 1
-    tge = TGE(gdef, [dev for dev, _ in topo["devices"]])
+    tge = TGE(gdef, [dev for dev, _ in record["devices"]])
     tge.set_strategy(strategy)
     tge.fill_batchsize(48)
     tge.use_collective()
-    tge.set_bandwidth(intra=topo["intra"], inter=topo["inter"])
-    time, mem = tge.evaluate(computation_graph["prof_data"])
+    tge.set_bandwidth(intra=record["intra"], inter=record["inter"])
+    time, mem = tge.evaluate(record["prof_data"])
 
-    # add penalty when mem exceeds
+    # TODO: add penalty when mem exceeds
 
-    return time * penalty ** .5
+    return (time / 1000) * penalty ** .5
 
-def sample_and_evaluate(computation_graph, topo, logp):
+def sample_and_evaluate(record, logp):
     mask, decisions = sample(logp)
-    time = evaluate(computation_graph, topo, decisions)
-    return mask, time
+    loss = evaluate(record, decisions)
+    return mask, loss
 
-def evaluate_logp(computation_graph, topo, logp, nsample=8, nprocess=8):
-    # from multiprocessing import Pool
-    # return Pool(nprocess).starmap(sample_and_evaluate, [(computation_graph, topo, logp)] * nsample)
-    return [sample_and_evaluate(computation_graph, topo, logp) for _ in range(nsample)]
+def evaluate_logp(record, logp, nsample=8, nprocess=8):
+    results = [sample_and_evaluate(record, logp) for _ in range(nsample)]
+    for mask, loss in results:
+        if "best" not in record or loss < record["best"][1]:
+            record["best"] = mask, loss
+    best_loss = record["best"][1]
+
+    return [(mask, loss - best_loss) for mask, loss in results]
