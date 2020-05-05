@@ -608,7 +608,7 @@ class Graph_item():
         self.ps_or_reduces = mp.Manager().list(range(sample_times+1))
         self.group =mp.Manager().list(range(sample_times+1))
         self.oom = mp.Manager().list(range(sample_times+1))
-        self.thres = []
+
 
         self.outputs = self.place_gnn.get_replica_num_prob(
             ftr_in=self.features,
@@ -677,6 +677,7 @@ class Graph_item():
         self.replica_masks[i]=(replica_mask)
 
     def parallel_process_output(self):
+        self.thres = []
         for i in range(sample_times+1):
             p=mp.Process(target=self.parallel_process_output_unit, args=(i,))
             self.thres.append(p)
@@ -1023,7 +1024,20 @@ def main_entry():
         for epoch in range(nb_epochs):
             for model in models:
                 model.sample(epoch)
-                model.parallel_process_output()
+
+
+            processes=[]
+            for model in models:
+                processes.append(mp.Process(target=model.parallel_process_output))
+                #model.parallel_process_output()
+            for pro in processes:
+                pro.start()
+            for pro in processes:
+                pro.join()
+
+
+
+            for model in models:
                 model.post_parallel_process()
                 model.train(epoch)
             if epoch % (show_interval*30 )== 0:
