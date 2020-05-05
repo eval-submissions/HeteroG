@@ -556,7 +556,7 @@ class Graph_item():
         self.oom = []
         self.train_place = False
         self.counter=0
-        self.small_co = 0.001*5*50
+        self.small_co = 0.001*5*5
         self.large_co =self.small_co*50
         self.co_entropy = self.small_co
         self.place_lr = lr
@@ -597,8 +597,7 @@ class Graph_item():
     def sample(self,epoch):
 
         global sample_prob
-        if self.master:
-            sample_prob = min(0.1+0.1*(epoch//60),0.7)
+        sample_prob = min(0.1+0.1*(epoch//60),0.7)
 
         print("[{}] sample_prob = {}".format(self.folder_path, sample_prob))
 
@@ -685,7 +684,7 @@ class Graph_item():
         for p in self.thres:
             p.join()
 
-        print("Group:",self.group[0])
+        #print("Group:",self.group[0])
     def post_parallel_process(self):
         for i in range(sample_times+1):
             if self.rewards[i] > self.best_reward:
@@ -697,6 +696,96 @@ class Graph_item():
             if not self.oom[i]:
                 self.strategy_pool.insert(self.rewards[i], self.device_choices[i], self.replica_masks[i], self.ps_or_reduces[i],self.group[i])
 
+    def compute_gradients(self,epoch):
+        self.avg = np.mean(self.rewards) if self.avg==None else (self.avg+np.mean(self.rewards))/2
+        print("[{}] train_place = {}".format(self.folder_path, self.train_place))
+        print("[{}] Rewards = {}".format(self.folder_path, self.rewards))
+        print("[{}] epoch = {}".format(self.folder_path, epoch))
+        tmp_gradients = []
+        for index in range(sample_times):
+            #logger.debug("sample_ps:{}".format(self.ps_or_reduces[index]))
+            #logger.debug("sample_device_choices:{}".format(self.device_choices[index]))
+
+            place_loss,l2_loss,new_loss,new_global_mems,entropy,gradients=self.place_gnn.get_gradients(ftr_in=self.features,
+                            bias_in=self.biases,
+                            nb_nodes=self.nb_nodes,
+                            sample_ps_or_reduce = np.array(self.ps_or_reduces[index]),
+                            sample_device_choice = np.array(self.device_choices[index]),
+                            time_ratio = 0.1*self.avg/self.rewards[index],
+                            coef_entropy=self.co_entropy,
+                            mems = self.mems,
+                            init_group=self.init_group,
+                            place_lr = self.place_lr)
+            self.mems = new_global_mems
+            self.cal_entropy = entropy
+            print("place entropy:", self.cal_entropy)
+            print("coefficient:",self.co_entropy)
+            print("l2_loss:",l2_loss)
+            print("entropy loss:",-self.cal_entropy*self.co_entropy)
+            print("place loss:",place_loss)
+            print("place+entropy loss:",new_loss)
+            print("time ratio:",0.1*self.avg/self.rewards[index])
+            tmp_gradients.append(gradients)
+
+        times = max(self.rewards)*max(self.rewards)
+        self.record_time.append(str(times))
+        if len(self.record_time)>20:
+            self.record_time = self.record_time[-20:]
+        if len(self.record_time)==20 and len(set(self.record_time))<5:
+            self.co_entropy = self.large_co
+        else:
+            self.co_entropy = self.small_co
+        if epoch % show_interval == 0:
+            print("[{}] step = {}".format(self.folder_path,epoch))
+            print("[{}] time = {}".format(self.folder_path,times))
+            print("[{}] average reward = {}".format(self.folder_path,self.avg))
+            print("[{}] overall entropy:{}".format(self.folder_path,self.cal_entropy))
+            with open(self.folder_path+"/time.log", "a+") as f:
+                f.write(str(times) + ",")
+            with open(self.folder_path+"/entropy.log", "a+") as f:
+                f.write(str(self.cal_entropy) + ",")
+            with open(self.folder_path+"/loss.log", "a+") as f:
+                f.write("place loss:{},entropy loss:{},place+entropy loss:{},l2_loss:{}\n".format(place_loss,-self.cal_entropy*self.co_entropy,new_loss,l2_loss))
+
+        if epoch % show_interval == 0:
+            pool_strategy = self.strategy_pool.choose_strategy()
+            if pool_strategy==None:
+                return self.compute_average_gradients(tmp_gradients)
+
+            place_loss, l2_loss,new_loss,new_global_mems,entropy,gradients=self.place_gnn.get_gradients(ftr_in=self.features,
+                            bias_in=self.biases,
+                            nb_nodes=self.nb_nodes,
+                            sample_ps_or_reduce = np.array(pool_strategy["ps_or_reduce"]),
+                            sample_device_choice = np.array(pool_strategy["device_choice"]),
+                            time_ratio = 0.1*self.avg/pool_strategy["reward"],
+                            coef_entropy=self.co_entropy,
+                            mems = self.mems,
+                            init_group=self.init_group,
+                            place_lr = self.place_lr
+                            )
+            self.mems = new_global_mems
+            self.cal_entropy = entropy
+            print("place entropy:", self.cal_entropy)
+            print("coefficient:",self.co_entropy)
+            print("l2_loss:",l2_loss)
+            print("entropy loss:",-self.cal_entropy*self.co_entropy)
+            print("place loss:",place_loss)
+            print("place+entropy loss:",new_loss)
+            print("time ratio:",0.1*self.avg/pool_strategy["reward"])
+            tmp_gradients.append(gradients)
+
+        return self.compute_average_gradients(tmp_gradients)
+    def compute_average_gradients(self,tmp_gradients):
+        for i,gradient in enumerate(tmp_gradients):
+            if i == 0:
+                # print type(actor_gradient), len(actor_gradient), type(actor_gradient[0]), len(actor_gradient[0])
+                average_gradient = gradient
+            else:
+                for j in range(0, len(gradient)):
+                    average_gradient[j] += gradient[j]
+        for j in range(0, len(average_gradient)):
+            average_gradient[j] = average_gradient[j] / len(tmp_gradients)
+        return average_gradient
     def train(self,epoch):
 
         self.avg = np.mean(self.rewards) if self.avg==None else (self.avg+np.mean(self.rewards))/2
@@ -801,7 +890,6 @@ class new_place_GNN():
             self.mems = [tf.placeholder(tf.float32,[128, bsz, d_model]) for _ in range(n_layer)]
             self.place_lr = tf.placeholder(dtype=tf.float32, shape=(),name="place_lr")
 
-            self.network_params = tf.get_collection(key=tf.GraphKeys.TRAINABLE_VARIABLES)
 
         with tf.variable_scope("group_nn"):
             group = self.init_group
@@ -883,14 +971,14 @@ class new_place_GNN():
         place_reward =  self.place_reward+self.coef_entropy * self.entropy
         #self.loss = -reward
         self.place_loss = -place_reward
+        self.network_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='place_nn')
 
-        #lossL2 = tf.add_n([tf.nn.l2_loss(v) for v in self.network_params if v.name not
-        #                   in ['bias', 'gamma', 'b', 'g', 'beta']]) * l2_coef
+        self.loss_l2 = tf.add_n([tf.nn.l2_loss(v) for v in self.network_params if v.name not in ['bias', 'gamma', 'b', 'g', 'beta']]) * l2_coef
 
-        #self.net_gradients = tf.compat.v1.gradients(self.place_loss+lossL2, self.network_params,colocate_gradients_with_ops=True)
-        #self.apply_gradients = tf.train.AdamOptimizer(learning_rate=self.place_lr).apply_gradients(zip(self.net_gradients,self.network_params))
+        self.net_gradients = tf.compat.v1.gradients(self.place_loss+self.loss_l2, self.network_params,colocate_gradients_with_ops=True)
+        self.apply_grad = tf.train.AdamOptimizer(learning_rate=self.place_lr).apply_gradients(zip(self.net_gradients,self.network_params))
 
-        self.train_place_op,self.loss_l2 = model.training(self.place_loss,self.place_lr , l2_coef,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='place_nn'))
+        #self.train_place_op,self.loss_l2 = model.training(self.place_loss,self.place_lr , l2_coef,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='place_nn'))
 
 
     def get_gradients(self,ftr_in,bias_in,nb_nodes,sample_ps_or_reduce,sample_device_choice,time_ratio,coef_entropy,mems,init_group,place_lr):
@@ -927,10 +1015,10 @@ class new_place_GNN():
 
         return -place_reward,l2_loss,loss,mems,entropy,gradients
 
-    def apply_gradients(self,gradients):
-        feed_dict = {}
-        feed_dict[self.net_gradients] = gradients
-        _= self.sess.run(self.apply_gradients,
+    def apply_gradients(self,gradients,place_lr):
+        feed_dict = {i:d for i,d in zip(self.net_gradients,gradients)}
+        feed_dict[self.place_lr] = place_lr
+        _= self.sess.run(self.apply_grad,
                      feed_dict=feed_dict)
 
     def learn_place(self,ftr_in,bias_in,nb_nodes,sample_ps_or_reduce,sample_device_choice,time_ratio,coef_entropy,mems,init_group,place_lr):
@@ -1035,11 +1123,26 @@ def main_entry():
             for pro in processes:
                 pro.join()
 
-
-
+            gradients = []
             for model in models:
                 model.post_parallel_process()
-                model.train(epoch)
+                #model.train(epoch)
+                gradients.append(model.compute_gradients(epoch))
+
+            for i, gradient in enumerate(gradients):
+                print(type(gradient), len(gradient))
+                print(type(gradient[0]), len(gradient[0]))
+
+                if i == 0:
+                    average_gradient = gradient
+                else:
+                    for j in range(0, len(gradient)):
+                        average_gradient[j] += gradient[j]
+            for j in range(0, len(average_gradient)):
+                average_gradient[j] = average_gradient[j] / len(gradients)
+            #print("Gradients:",average_gradient)
+            place_gnn.apply_gradients(average_gradient,lr)
+
             if epoch % (show_interval*30 )== 0:
                 saver.save(sess, checkpt_file)
 

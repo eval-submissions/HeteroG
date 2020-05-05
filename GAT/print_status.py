@@ -13,21 +13,21 @@ else:
 
 def print_status():
     with open("time.log", "w") as f:
-        for i in range(1, graph_num + 1):
-            if os.path.exists("data/graph" + str(i) + "/time.log"):
-                with open("data/graph" + str(i) + "/time.log", "r") as g:
+        for path in inputs:
+            if os.path.exists(path + "/time.log"):
+                with open(path + "/time.log", "r") as g:
                     txt = g.read()
                     txt = txt.strip()
                     txt = txt.split(",")
                     txt = txt[-min(10, len(txt)):]
-                    f.write("learning rate:{} graph:{}, time:{}\n".format(config_dict["learning_rate"], i, str(txt)))
+                    f.write("learning rate:{} graph:{}, time:{}\n".format(config_dict["learning_rate"], path, str(txt)))
     with open("best_time.log", "w") as f:
-        for i in range(1, graph_num + 1):
-            if os.path.exists( "data/graph" + str(i) + "/best_time.log"):
-                with open("data/graph" + str(i) + "/best_time.log", "r") as g:
+        for path in inputs:
+            if os.path.exists( path + "/best_time.log"):
+                with open(path+ "/best_time.log", "r") as g:
                     txt = json.load(g)
                     time = txt["time"]
-                    f.write("learning rate:{} graph:{}, best_time:{}\n".format(config_dict["learning_rate"], i, time))
+                    f.write("learning rate:{} graph:{}, best_time:{}\n".format(config_dict["learning_rate"], path, time))
 
 
 print_status()
