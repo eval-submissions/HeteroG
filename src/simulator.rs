@@ -177,6 +177,7 @@ impl Simulator for SimpleSimulator {
         let mut link_available_time = vec![0; target.links.len()];
         let mut current_memory = max_memory.to_vec();
         let mut collective_state: BTreeMap<usize, Vec<usize>> = BTreeMap::new(); // instance_key => [ready task_id]
+        let mut collective_available_time = 0;
 
         loop {
             // schedule ready tasks. Note the scheduled task may or may not start immediately depending on the GPU/link queue. There may be other tasks become ready before some tasks schedualed earlier actually start.
@@ -195,11 +196,13 @@ impl Simulator for SimpleSimulator {
                         ready_list.push(task_id);
                         if ready_list.len() == group.devices.len() { // all ready
                             debug!("all ready {}", instance_key);
-                            let barrier = group.devices.iter().map(|gpu| gpu_available_time[*gpu]).max().expect("bug");
-                            let eft = barrier + nccl_time(size, &collective_groups[&group_key].model);
-                            for gpu in group.devices.iter() {
-                                gpu_available_time[*gpu] = eft;
-                            }
+                            // let barrier = group.devices.iter().map(|gpu| gpu_available_time[*gpu]).max().expect("bug");
+                            // let eft = barrier + nccl_time(size, &collective_groups[&group_key].model);
+                            // for gpu in group.devices.iter() {
+                            //     gpu_available_time[*gpu] = eft;
+                            // }
+                            let eft = cmp::max(time, collective_available_time) + nccl_time(size, &collective_groups[&group_key].model);
+                            collective_available_time = eft;
                             for task_id in ready_list {
                                 ongoing_tasks.push(OngoingTask { id: *task_id, eft })
                             }

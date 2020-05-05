@@ -5,7 +5,7 @@ import pickle
 
 from data import *
 from model import GAT
-from environment import sample, evaluate
+from environment import *
 
 import sys
 def info(*args):
@@ -32,18 +32,18 @@ data2 = get_data(gdef, prof_dict, topo2)
 with tf.device("/gpu:0"):
     model = GAT(4, 1)
 
-    try:
-        model.load_weights('model.checkpoint')
-        info("load saved weight")
-    except:
-        info("no saved weight")
-        pass
+    # try:
+    #     model.load_weights('model.checkpoint')
+    #     info("load saved weight")
+    # except:
+    #     info("no saved weight")
+    #     pass
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.002, epsilon=1e-8)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001, epsilon=1e-8)
 
     # initialize graph
     dur = []
-    for epoch in range(100):
+    for epoch in range(1000):
         if epoch % 2 == 0:
             topo, data = topo1, data1
         else:
@@ -58,15 +58,15 @@ with tf.device("/gpu:0"):
         with tf.GradientTape() as tape:
             tape.watch(model.trainable_weights)
             logp = model([computation_features, device_features], training=True)
-            mask, decisions = sample(logp.numpy()) # numpy to turn off gradient tracking
-            loss_env = evaluate(data, topo, decisions)
-            loss = loss_env * tf.reduce_sum(tf.boolean_mask(logp, mask))
+            results = evaluate_logp(data, topo, logp.numpy()) # numpy to turn off gradient tracking
+            loss = tf.add_n([loss_env * tf.reduce_sum(tf.boolean_mask(logp, mask)) for mask, loss_env in results])
             grads = tape.gradient(loss, model.trainable_weights)
+            grads = [tf.clip_by_value(grad, -1., 1.) for grad in grads]
             optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
         if epoch >= 3:
             dur.append(time.time() - t0)
-            info(np.mean(dur))
+            info("time: ", np.mean(dur))
 
         if epoch % 10 == 0:
             model.save_weights('model.checkpoint')
@@ -78,4 +78,4 @@ with tf.device("/gpu:0"):
             count[d] = count.get(d, 0) + 1
         info(count)
 
-        info(loss.numpy(), loss_env)
+        info("loss: ", loss.numpy())

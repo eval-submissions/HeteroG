@@ -14,8 +14,10 @@ def sample(logp):
 def evaluate(computation_graph, topo, decisions):
     gdef = computation_graph["gdef"]
     strategy = { gdef.node[i].name: [0, *decisions[i]] for i in range(decisions.shape[0]) }
+    penalty = 1
     for k, v in strategy.items():
         if np.sum(v[1:]) == 0:
+            penalty += 1
             v[1] = 1
     tge = TGE(gdef, [dev for dev, _ in topo["devices"]])
     tge.set_strategy(strategy)
@@ -24,4 +26,16 @@ def evaluate(computation_graph, topo, decisions):
     tge.set_bandwidth(intra=topo["intra"], inter=topo["inter"])
     time, mem = tge.evaluate(computation_graph["prof_data"])
 
-    return time
+    # add penalty when mem exceeds
+
+    return time * penalty ** .5
+
+def sample_and_evaluate(computation_graph, topo, logp):
+    mask, decisions = sample(logp)
+    time = evaluate(computation_graph, topo, decisions)
+    return mask, time
+
+def evaluate_logp(computation_graph, topo, logp, nsample=8, nprocess=8):
+    # from multiprocessing import Pool
+    # return Pool(nprocess).starmap(sample_and_evaluate, [(computation_graph, topo, logp)] * nsample)
+    return [sample_and_evaluate(computation_graph, topo, logp) for _ in range(nsample)]

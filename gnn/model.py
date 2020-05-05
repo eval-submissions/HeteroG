@@ -5,23 +5,23 @@ class GAT(tf.keras.Model):
     def __init__(self, computation_feature_length, device_feature_length):
         super(GAT, self).__init__()
 
-        num_hidden = 16
+        num_hidden = 256
         num_heads = 8
         GAT_options = (0.5, 0.5, 0.2) # feat_drop_rate, attn_drop_rate, negative_slope
-        num_rnn_hidden = 16
+        num_rnn_hidden = 256
 
         self.computation_gat_layers = [
             GATConv(computation_feature_length, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
-            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
-            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
-            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
+            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
+            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
+            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
             GATConv(num_hidden * num_heads, num_hidden, 1, *GAT_options, False, None)
         ]
 
         self.device_gat_layers = [
             GATConv(device_feature_length, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
-            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
-            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
+            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
+            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
             GATConv(num_hidden * num_heads, num_hidden, 1, *GAT_options, False, None)
         ]
 
