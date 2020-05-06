@@ -20,11 +20,9 @@ with tf.device("/gpu:0"):
         info("load saved weight")
     except:
         info("no saved weight")
-        pass
 
     optimizer = tf.keras.optimizers.Adam(learning_rate=0.001, epsilon=1e-8)
 
-    # initialize graph
     for epoch in range(1000):
         record = records[np.random.randint(len(records))]
 

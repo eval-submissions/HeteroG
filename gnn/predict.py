@@ -34,7 +34,7 @@ with tf.device("/gpu:1"):
             count[d] = count.get(d, 0) + 1
         avg_num_device = 0
         for k, v in count.items():
-            avg_num_device += v * sum((1 for x in k if x > 0))
+            avg_num_device += v * max(1, sum((1 for x in k if x > 0)))
         avg_num_device /= sum(count.values())
         print("\n=== bandwidth={} ===".format(bandwidth))
         print("avg_num_device:", avg_num_device)

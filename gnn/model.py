@@ -15,6 +15,7 @@ class GAT(tf.keras.Model):
             GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
             GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
             GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
+            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
             GATConv(num_hidden * num_heads, num_hidden, 1, *GAT_options, False, None)
         ]
 
@@ -22,10 +23,12 @@ class GAT(tf.keras.Model):
             GATConv(device_feature_length, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
             GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
             GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
+            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
             GATConv(num_hidden * num_heads, num_hidden, 1, *GAT_options, False, None)
         ]
 
         self.rnn_layers = [
+            tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True)),
             tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True)),
             tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True))
         ]
@@ -59,6 +62,6 @@ class GAT(tf.keras.Model):
         x = tf.concat(batches, 0) # [batchsize, seq_len, num_feature]
         for layer in self.rnn_layers:
             x = layer(x)
-        x = self.final(x) # contrary to what has been stated in documentation, the Dense layer is applied on the last axis of input tensor (https://github.com/tensorflow/tensorflow/issues/30882)
+        x = self.final(x) # the Dense layer is applied on the last axis of input tensor (https://github.com/tensorflow/tensorflow/issues/30882)
 
         return x
