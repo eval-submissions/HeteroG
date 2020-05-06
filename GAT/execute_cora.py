@@ -487,11 +487,11 @@ class Graph_item():
         feature_matrix, feature_masks = self.dataset.feature_matrix(bag_of_words=False, sparse=False)
 
         if "data/graph7" in folder_path:
-            self.batch_size = 288*6
+            self.batch_size = 288*3
         elif "data/graph8" in folder_path:
-            self.batch_size = 12 * 6
+            self.batch_size = 12 * 3
         else:
-            self.batch_size = 48*6
+            self.batch_size = 36*3
 
         self.sink = sink
         if "graph1" in folder_path:
