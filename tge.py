@@ -195,7 +195,9 @@ class TGE:
     @chain
     def set_bandwidth(self, intra, inter):
         """convenient method for setting a topology that devices on the same task are independently connected, while devices on different tasks shares a unique link"""
-        task_map = { device: re.findall(r"task:(\d+)/", device) for device in self.devices }
+        task_map = { device: int(re.findall(r"task:(\d+)/", device)[0]) for device in self.devices }
+        if type(intra) is not dict: # for backward compatibility
+            intra = { task: intra for task in task_map.values() }
         links, paths = [inter], [] # the 0-th link is the shared inter link, others are intra links
         for i in range(len(self.devices)):
             for j in range(len(self.devices)):
@@ -203,7 +205,7 @@ class TGE:
                     paths.append([])
                 elif task_map[self.devices[i]] == task_map[self.devices[j]]: # intra link
                     paths.append([len(links)])
-                    links.append(intra)
+                    links.append(intra[task_map[self.devices[i]]])
                 else: # inter link
                     paths.append([0])
         self.set_topology(links, paths)
