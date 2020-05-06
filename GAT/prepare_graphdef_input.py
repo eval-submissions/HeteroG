@@ -232,21 +232,27 @@ def generate_feature_file(folder,index):
             #opt = model_fn(models[index],batch_size/replica_num[replica_times])
             #init = tf.global_variables_initializer()
             #gdef = tf.get_default_graph().as_graph_def(add_shapes=True)
-        profiler = Profiler(null_gdef,int(batch_size/replica_num[replica_times]),server.target)
+        profilers = []
+        for i in range(5):
+            profiler = Profiler(null_gdef,int(batch_size/replica_num[replica_times]),server.target)
+            profilers.append(profiler)
         for i,nodedef in enumerate(null_gdef.node):
             times = times_dict.get(nodedef.name,'')
             if op_type_dict.get(nodedef.op,-1)==-1:
                 op_type_dict[nodedef.op] = len(op_type_dict.keys())
 
-            for i in range(len(devices)):
-                try:
-                    time = profiler.profile(nodedef.name,devices[i],run_metadata)
-                except Exception as ex:
-                    print(sys.stderr, 'profile error: ', ex)
-                    print(nodedef)
-                    traceback.print_exc()
-                    time = 0
-                new_time = time
+            for j in range(len(devices)):
+                time_list = []
+                for k in range(5):
+                    try:
+                        time = profilers[k].profile(nodedef.name,devices[j],run_metadata)
+                    except Exception as ex:
+                        print(sys.stderr, 'profile error: ', ex)
+                        print(nodedef)
+                        traceback.print_exc()
+                        time = 0
+                    time_list.append(time)
+                new_time = min(time_list)
                 item=final_dict.get((nodedef.name,replica_num[replica_times]),None)
                 if item==None:
                     final_dict[(nodedef.name,replica_num[replica_times])]=list()
