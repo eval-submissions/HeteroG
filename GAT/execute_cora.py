@@ -140,14 +140,14 @@ def post_process_device_choice(device_choice,batch_size):
             index = item1.index(max(item1))
             item1[index] -= 1
         return np.array(item1)
-
-    def post_func2(item1):
-        replica_mask = np.array([1 for item in item1], dtype=np.int32)
-        return replica_mask
     #post process and align to batch size
     new_batch_size=np.ones(shape=(device_choice.shape[0],1)) * batch_size
     device_choice=np.array(list(map(post_func1,np.concatenate((device_choice,new_batch_size),axis=1))),dtype=np.int32)
-    replica_mask = np.array(list(map(post_func2,device_choice)),dtype=np.int32)
+
+    replica_mask = np.zeros(shape=(device_choice.shape[0],device_choice.shape[1]*(max_replica_num+1)),dtype=np.int32)
+    for i,item in enumerate(device_choice):
+        for j,num in enumerate(item):
+            replica_mask[i][j*(max_replica_num+1)+num]=1
     return device_choice,replica_mask
 
 
@@ -286,12 +286,6 @@ class strategy_pool(object):
                 f.write("\nstrategy"+str(i)+":\n")
                 f.write(str(self.strategies[np.random.randint(len(self.strategies))]["strategy_list"]))
 
-    def get_replica_masks(self,device_choice):
-        masks = np.zeros(shape=device_choice.shape,dtype=np.int32)
-        for i in range(masks.shape[0]):
-            for j in range(masks.shape[1]):
-                masks[i,j] = 0 if device_choice[i,j]==-1 else 1
-        return masks
 
     def insert(self,reward,device_choice,replica_mask,ps_or_reduce,group,force_insert=False):
         def comp_fc(item):
@@ -882,7 +876,6 @@ class new_place_GNN():
             self.sample_ps_or_reduce = tf.placeholder(dtype=tf.int32, shape=(None,),name="sample_ps_or_reduce")
             self.sample_device_choice = tf.placeholder(dtype=tf.int32, shape=(None,len(devices),),name="sample_device_choice")
             self.previous_device_choices = tf.placeholder(dtype=tf.float32, shape=(len(devices),None,max_replica_num+1),name="previous_device_choices")
-            self.replica_num_array = tf.placeholder(dtype=tf.float32, shape=(None,len(devices)),name="replica_num_array")
             self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
 
