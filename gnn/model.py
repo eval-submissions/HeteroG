@@ -1,30 +1,95 @@
 import tensorflow as tf
-from dgl.nn.tensorflow import edge_softmax, GATConv
+import dgl.function as fn
+import numpy as np
 
-class GAT(tf.keras.Model):
+class GConv(tf.keras.layers.Layer):
+    '''Graph Conv layer that concats the edge features before sending message'''
+    def __init__(self,
+                 in_feats,
+                 out_feats,
+                 activation=None):
+        super(GConv, self).__init__()
+        self._in_feats = in_feats
+        self._out_feats = out_feats
+
+        xinit = tf.keras.initializers.glorot_uniform()
+        self.weight = tf.Variable(initial_value=xinit(
+            shape=(in_feats, out_feats), dtype='float32'), trainable=True)
+
+        zeroinit = tf.keras.initializers.zeros()
+        self.bias = tf.Variable(initial_value=zeroinit(
+            shape=(out_feats), dtype='float32'), trainable=True)
+
+        self._activation = activation
+
+    def call(self, graph, feat, weight=None):
+        graph = graph.local_var()
+
+        degs = tf.clip_by_value(tf.cast(graph.out_degrees(), tf.float32),
+                                clip_value_min=1,
+                                clip_value_max=np.inf)
+        norm = tf.pow(degs, -0.5)
+        shp = norm.shape + (1,) * (feat.ndim - 1)
+        norm = tf.reshape(norm, shp)
+        feat = feat * norm
+
+        if weight is not None:
+            raise DGLError('External weight is provided while at the same time the'
+                            ' module has defined its own weight parameter. Please'
+                            ' create the module with flag weight=False.')
+        else:
+            weight = self.weight
+
+        graph.srcdata['h'] = feat
+        graph.update_all(lambda edge: {'m': edge.src['h']}, fn.sum(msg='m', out='h'))
+        rst = graph.dstdata['h']
+        rst = tf.matmul(rst, weight)
+
+        degs = tf.clip_by_value(tf.cast(graph.in_degrees(), tf.float32),
+                                clip_value_min=1,
+                                clip_value_max=np.inf)
+        norm = tf.pow(degs, -0.5)
+        shp = norm.shape + (1,) * (feat.ndim - 1)
+        norm = tf.reshape(norm, shp)
+        rst = rst * norm + self.bias
+
+        if self._activation is not None:
+            rst = self._activation(rst)
+
+        return rst
+
+    def extra_repr(self):
+        """Set the extra representation of the module,
+        which will come into effect when printing the model.
+        """
+        summary = 'in={_in_feats}, out={_out_feats}'
+        summary += ', normalization={_norm}'
+        if '_activation' in self.__dict__:
+            summary += ', activation={_activation}'
+        return summary.format(**self.__dict__)
+
+class Model(tf.keras.Model):
     def __init__(self, computation_feature_length, device_feature_length):
-        super(GAT, self).__init__()
+        super(Model, self).__init__()
 
         num_hidden = 256
-        num_heads = 8
-        GAT_options = (0.5, 0.5, 0.2) # feat_drop_rate, attn_drop_rate, negative_slope
         num_rnn_hidden = 256
 
         self.computation_gat_layers = [
-            GATConv(computation_feature_length, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
-            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
-            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
-            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
-            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
-            GATConv(num_hidden * num_heads, num_hidden, 1, *GAT_options, False, None)
+            GConv(computation_feature_length, num_hidden, tf.nn.elu),
+            GConv(num_hidden, num_hidden, tf.nn.elu),
+            GConv(num_hidden, num_hidden, tf.nn.elu),
+            GConv(num_hidden, num_hidden, tf.nn.elu),
+            GConv(num_hidden, num_hidden, tf.nn.elu),
+            GConv(num_hidden, num_hidden, None)
         ]
 
         self.device_gat_layers = [
-            GATConv(device_feature_length, num_hidden, num_heads, *GAT_options, False, tf.nn.elu),
-            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
-            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
-            GATConv(num_hidden * num_heads, num_hidden, num_heads, *GAT_options, True, tf.nn.elu),
-            GATConv(num_hidden * num_heads, num_hidden, 1, *GAT_options, False, None)
+            GConv(device_feature_length, num_hidden, tf.nn.elu),
+            GConv(num_hidden, num_hidden, tf.nn.elu),
+            GConv(num_hidden, num_hidden, tf.nn.elu),
+            GConv(num_hidden, num_hidden, tf.nn.elu),
+            GConv(num_hidden, num_hidden, None)
         ]
 
         self.rnn_layers = [

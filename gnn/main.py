@@ -3,7 +3,7 @@ import time
 import tensorflow as tf
 
 from data import get_all_data
-from model import GAT
+from model import Model
 from environment import evaluate_logp
 
 import sys
@@ -13,7 +13,7 @@ def info(*args):
 records = get_all_data()
 
 with tf.device("/gpu:0"):
-    model = GAT(4, 2)
+    model = Model(4, 2)
 
     try:
         model.load_weights('weights')
