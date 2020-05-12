@@ -3,23 +3,23 @@ import time
 import tensorflow as tf
 import pickle
 
-from model import GAT
+from model import Model
 from data import gen_topo, gen_data
 
 with tf.device("/gpu:1"):
-    model = GAT(4, 2)
+    model = Model(4, 3)
     model.load_weights('weights')
 
     gdef, prof_data = pickle.load(open("vgg.pickle", "rb"))
 
-    for bandwidth in (2 ** n for n in range(4, 12)):
+    for bandwidth in (2 ** n for n in range(4, 15)):
         topo = gen_topo([
-            ("/job:worker/replica:0/task:0/device:GPU:0", 1),
-            ("/job:worker/replica:0/task:0/device:GPU:1", 1),
-            ("/job:worker/replica:0/task:0/device:GPU:0", 1.2),
-            ("/job:worker/replica:0/task:0/device:GPU:1", 1.2),
-            ("/job:worker/replica:0/task:0/device:GPU:0", 1.5),
-            ("/job:worker/replica:0/task:0/device:GPU:1", 1.5),
+            ("/job:worker/replica:0/task:0/device:GPU:0", 1, 6<<30),
+            ("/job:worker/replica:0/task:0/device:GPU:1", 1, 6<<30),
+            ("/job:worker/replica:0/task:0/device:GPU:0", 1.2, 6<<30),
+            ("/job:worker/replica:0/task:0/device:GPU:1", 1.2, 6<<30),
+            ("/job:worker/replica:0/task:0/device:GPU:0", 1.5, 6<<30),
+            ("/job:worker/replica:0/task:0/device:GPU:1", 1.5, 6<<30),
         ], intra=bandwidth)
         record = gen_data(gdef, prof_data, topo)
 

@@ -21,7 +21,7 @@ with tf.device("/gpu:0"):
     except:
         info("no saved weight")
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001, epsilon=1e-8)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001, epsilon=1e-8)
 
     for epoch in range(1000):
         record = records[np.random.randint(len(records))]

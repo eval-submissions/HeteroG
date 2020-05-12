@@ -241,16 +241,16 @@ impl Simulator for SimpleSimulator {
                             let duration = nccl_time(*size, &collective_groups[group_key].model);
                             let gpu = tasks[id].in_tensors[0].2; // hack
                             if duration != 0 {
-                                writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"collective\", \"ph\": \"B\", \"ts\": {}, \"pid\": 0, \"tid\": {} }},", instance_key, eft - duration, gpu).expect("fail to write log");
-                                writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"collective\", \"ph\": \"E\", \"ts\": {}, \"pid\": 0, \"tid\": {} }},", instance_key, eft, gpu).expect("fail to write log");
+                                writeln!(tracer, "{{ \"name\": \"collective_{}\", \"cat\": \"collective\", \"ph\": \"B\", \"ts\": {}, \"pid\": 0, \"tid\": {} }},", instance_key, eft - duration, gpu).expect("fail to write log");
+                                writeln!(tracer, "{{ \"name\": \"collective_{}\", \"cat\": \"collective\", \"ph\": \"E\", \"ts\": {}, \"pid\": 0, \"tid\": {} }},", instance_key, eft, gpu).expect("fail to write log");
                             }
                         }
                         TaskType::Transfer { size, path } => if !path.is_empty() {
                             let bandwidth = path.iter().fold(std::u64::MAX, |min, link| cmp::min(min, target.links[*link]));
                             let duration = size / bandwidth + GRPC_LATENCY;
                             for link in *path {
-                                writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"transfer\", \"ph\": \"B\", \"ts\": {}, \"pid\": 1, \"tid\": {} }},", id, eft - duration, link).expect("fail to write log");
-                                writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"transfer\", \"ph\": \"E\", \"ts\": {}, \"pid\": 1, \"tid\": {} }},", id, eft, link).expect("fail to write log");
+                                writeln!(tracer, "{{ \"name\": \"transfer{}\", \"cat\": \"transfer\", \"ph\": \"B\", \"ts\": {}, \"pid\": 1, \"tid\": {} }},", id, eft - duration, link).expect("fail to write log");
+                                writeln!(tracer, "{{ \"name\": \"transfer{}\", \"cat\": \"transfer\", \"ph\": \"E\", \"ts\": {}, \"pid\": 1, \"tid\": {} }},", id, eft, link).expect("fail to write log");
                             }
                         }
                     }

@@ -17,7 +17,7 @@ def gen_topo(devices, inter=2810, intra=2810):
         else:
             tasks[task] = [i]
     g.add_edges(g.nodes(), g.nodes()) # self-loops are required for GAT
-    features = [[time_ratio, memory, intra] for _, time_ratio, memory in devices]
+    features = [[time_ratio, memory/10000000000, intra/10000] for _, time_ratio, memory in devices]
     return { "devices": devices, "graph": g, "features": features, "inter": inter, "intra": intra }
 
 def gen_data(gdef, prof_data, topo):
@@ -34,7 +34,7 @@ def gen_data(gdef, prof_data, topo):
             g.add_edge(i, reverse_dict[x])
             g.add_edge(reverse_dict[x], i)
     g.add_edges(g.nodes(), g.nodes()) # self-loops are required for GAT
-    prof_data = { key: [int(np.mean(times) * time_ratio) for _, time_ratio, _ in topo["devices"]] for key, times in prof_data.items() }
+    prof_data = { key: [int(np.mean(times) * time_ratio / 1000) for _, time_ratio, _ in topo["devices"]] for key, times in prof_data.items() }
     return {
         "gdef": gdef,
         "prof_data": prof_data,

@@ -72,29 +72,29 @@ class Model(tf.keras.Model):
     def __init__(self, computation_feature_length, device_feature_length):
         super(Model, self).__init__()
 
-        num_hidden = 256
+        num_hidden = 1024
         num_rnn_hidden = 256
 
-        self.computation_gat_layers = [
+        self.computation_gconv_layers = [
             GConv(computation_feature_length, num_hidden, tf.nn.elu),
-            GConv(num_hidden, num_hidden, tf.nn.elu),
-            GConv(num_hidden, num_hidden, tf.nn.elu),
-            GConv(num_hidden, num_hidden, tf.nn.elu),
-            GConv(num_hidden, num_hidden, tf.nn.elu),
+            # GConv(num_hidden, num_hidden, tf.nn.elu),
+            # GConv(num_hidden, num_hidden, tf.nn.elu),
+            # GConv(num_hidden, num_hidden, tf.nn.elu),
+            # GConv(num_hidden, num_hidden, tf.nn.elu),
             GConv(num_hidden, num_hidden, None)
         ]
 
-        self.device_gat_layers = [
+        self.device_gconv_layers = [
             GConv(device_feature_length, num_hidden, tf.nn.elu),
-            GConv(num_hidden, num_hidden, tf.nn.elu),
-            GConv(num_hidden, num_hidden, tf.nn.elu),
-            GConv(num_hidden, num_hidden, tf.nn.elu),
+            # GConv(num_hidden, num_hidden, tf.nn.elu),
+            # GConv(num_hidden, num_hidden, tf.nn.elu),
+            # GConv(num_hidden, num_hidden, tf.nn.elu),
             GConv(num_hidden, num_hidden, None)
         ]
 
         self.rnn_layers = [
-            tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True)),
-            tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True)),
+            # tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True)),
+            # tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True)),
             tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True))
         ]
 
@@ -108,13 +108,13 @@ class Model(tf.keras.Model):
         [computation_features, device_features] = inputs
 
         x = computation_features
-        for layer in self.computation_gat_layers:
+        for layer in self.computation_gconv_layers:
             x = layer(self.computation_graph, x)
             x = tf.reshape(x, (x.shape[0], -1))
         computation_embedding = x
 
         x = device_features
-        for layer in self.device_gat_layers:
+        for layer in self.device_gconv_layers:
             x = layer(self.device_graph, x)
             x = tf.reshape(x, (x.shape[0], -1))
         device_embedding = x

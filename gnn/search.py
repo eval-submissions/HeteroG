@@ -13,18 +13,16 @@ from tge import TGE
 def derive_new_strategy(old, diff):
     result = []
     for o, d in zip(old, diff):
+        n = [x for x in o]
         for i in range(len(d)):
             if d[i] == 1:
-                if o[i] < 2:
-                    o[i] += 1
+                if n[i] < 2:
+                    n[i] += 1
             elif d[i] == -1:
-                if o[i] > 0:
-                    o[i] -= 1
-        result.append(o)
+                if n[i] > 0:
+                    n[i] -= 1
+        result.append(n)
     return result
-
-def random_strategy(model):
-    return [[1, 1, 1] for i in range(max(TGE(model, DEVICES).get_groups()) + 1)]
 
 def loss_fn(strategy):
     decisions = np.array([strategy[groups[i]] for i in range(len(record['gdef'].node))])
@@ -46,7 +44,7 @@ for s in (
 for epoch in range(100):
     s, loss = pool[np.random.choice(len(pool))]
     for trial in range(100):
-        random_diff = [[np.random.randint(-1, 2) for i in range(len(g))] for g in s]
+        random_diff = [[np.random.randint(-1, 2) * (np.random.rand() < .1) for i in range(len(g))] for g in s]
         new_strategy = derive_new_strategy(s, random_diff)
         new_loss = loss_fn(new_strategy)
         if new_loss < loss:
@@ -55,4 +53,5 @@ for epoch in range(100):
                 pool = [(s, l) for s, l in pool if l < loss]
     if epoch % 10 == 0:
         record["pool"] = pool
-        pickle.dump(record, open("search{}.pickle".format(sys.argv[1]), 'wb'))
+        with open("search{}.pickle".format(sys.argv[1]), 'wb') as x:
+            pickle.dump(record, x)

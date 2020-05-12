@@ -17,7 +17,7 @@ def evaluate(record, decisions):
     penalty = 1
     for k, v in strategy.items():
         if np.sum(v[1:]) == 0:
-            penalty += 1
+            # penalty += 1
             v[1] = 1
     tge = TGE(gdef, [dev for dev, _, _ in record["devices"]])
     tge.set_strategy(strategy)
@@ -39,9 +39,9 @@ def sample_and_evaluate(record, logp):
 
 def evaluate_logp(record, logp, nsample=8, nprocess=8):
     results = [sample_and_evaluate(record, logp) for _ in range(nsample)]
-    for mask, loss in results:
-        if "best" not in record or loss < record["best"][1]:
-            record["best"] = mask, loss
-    best_loss = record["best"][1]
+    # for mask, loss in results:
+    #     if "best" not in record or loss < record["best"][1]:
+    #         record["best"] = mask, loss
+    # best_loss = record["best"][1]
 
-    return [(mask, loss - best_loss) for mask, loss in results]
+    return [(mask, loss) for mask, loss in results]
