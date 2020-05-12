@@ -19,16 +19,18 @@ def evaluate(record, decisions):
         if np.sum(v[1:]) == 0:
             penalty += 1
             v[1] = 1
-    tge = TGE(gdef, [dev for dev, _ in record["devices"]])
+    tge = TGE(gdef, [dev for dev, _, _ in record["devices"]])
     tge.set_strategy(strategy)
     tge.fill_batchsize(48)
     tge.use_collective()
     tge.set_bandwidth(intra=record["intra"], inter=record["inter"])
     time, mem = tge.evaluate(record["prof_data"])
 
-    # TODO: add penalty when mem exceeds
+    for m, (_, limit, _) in zip(mem, record["devices"]):
+        if m > limit:
+            penalty += 1
 
-    return (time / 1000) * penalty ** .5
+    return (time / 1000000) * penalty ** .5
 
 def sample_and_evaluate(record, logp):
     mask, decisions = sample(logp)
