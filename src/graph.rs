@@ -12,13 +12,17 @@ use std::hash::Hash;
 
 #[derive(Default)]
 pub struct CollectiveState {
-    pub instance_count: u64,
     pub groups: BTreeMap<Vec<usize>, u64>, // devices => group_key
-    pub last: Vec<String>
+    pub instances: Vec<Vec<usize>> // each instance is a list of index of Collective nodes in the target
 }
 
 impl CollectiveState {
-    pub fn new_instance(&mut self) -> u64 { self.instance_count += 1 ; self.instance_count - 1 }
+    pub fn new_instance(&mut self) -> (&mut Vec<usize>, usize) {
+        let key = self.instances.len();
+        self.instances.push(vec![]);
+        (self.instances.last_mut().unwrap(), key)
+    }
+
     pub fn get_group(&mut self, devices: &[usize]) -> u64 {
         if let Some(key) = self.groups.get(devices) {
             *key
@@ -45,16 +49,8 @@ impl Graph {
 
         let mut g = Box::new(Graph { nodes: Vec::with_capacity(nodes.len()), ..Default::default() });
 
-        let mut queue: std::collections::VecDeque::<_> = nodes.iter().collect();
-
-        // additional step to shuffle apply gradient nodes to improve control dependency for collective nodes
-        let indexes: Vec<usize> = nodes.iter().enumerate().filter(|(_, x)| x.op == "ApplyGradientDescent").map(|(i, _)| i).collect();
-        for i in (1..indexes.len()).rev() {
-            let j: usize = rand::random();
-            queue.swap(indexes[i], indexes[j % i]);
-        }
-
         // not always optimal, but good enough since the input is actually mostly ordered
+        let mut queue: std::collections::VecDeque::<_> = nodes.iter().collect();
         'outer: while let Some(node_def) = queue.pop_front() {
             for input in node_def.input.iter() {
                 let input = if input.starts_with('^') {
@@ -85,6 +81,8 @@ impl Graph {
         for node in self.nodes.iter_mut() {
             node.compile(target)
         }
+
+        self.add_control_dependencies_for_collective_nodes(target)
     }
 
     /// set flags and assign groups for nodes
@@ -180,6 +178,18 @@ impl Graph {
         self.nodes.iter().map(|node| {
             (&node.raw_node.name[..], node.group.as_ref().map(|x| x.as_ptr()))
         }).collect()
+    }
+
+    fn add_control_dependencies_for_collective_nodes(&mut self, target: &mut Target) {
+        // TODO: findout existing dependencies (added by fusing iterations) and avoid dead lock
+        for pair in self.collective_state.instances.windows(2) {
+            for &i in &pair[0] {
+                for &j in &pair[1] {
+                    let input = format!("^{}", target.pb.node.get(j).unwrap().name);
+                    target.pb.node.get_mut(i).unwrap().input.push(input)
+                }
+            }
+        }
     }
 }
 
@@ -751,9 +761,8 @@ impl Tensor {
         })).collect();
 
         let state = &mut self.node().graph().collective_state;
-        let instance_key = state.new_instance();
         let group_key = state.get_group(&local_summed.keys().copied().collect::<Vec<_>>()); // it is sorted by BTreeMap
-        let last = &mut state.last;
+        let (instance, instance_key) = state.new_instance();
 
         let local_reduced: BTreeMap<_, _> = local_summed.iter().map(|(device_id, local_name)| {
             let mut node = self.node().make_node("CollectiveReduce".to_string());
@@ -769,16 +778,11 @@ impl Tensor {
             node.input.push(local_name.clone());
             set_input_size(&mut node, 0, part_size);
 
-            for dep in last.iter() {
-                node.input.push(format!("^{}", dep))
-            }
-
+            instance.push(target.pb.node.len());
             let name = node.name.clone();
             target.pb.node.push(node);
             (device_id, name)
         }).collect();
-
-        *last = local_reduced.values().cloned().collect();
 
         from.devices.iter().map(|device_id| local_reduced[device_id].clone()).collect()
     }
