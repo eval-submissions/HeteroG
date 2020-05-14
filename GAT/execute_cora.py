@@ -426,7 +426,7 @@ class Environment(object):
         new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
         name_list = [nodedef.name for nodedef in self.null_gdef.node]
         print(new_device_array)
-        strategy = {index_id_dict[index]:new_device_array[group[self.init_group[index]]].tolist() for index in range(len(index_id_dict))}
+        strategy = {index_id_dict[index]:new_device_array[self.init_group[index]].tolist() for index in range(len(index_id_dict))}
         strategy = {name: strategy.get(name, list(strategy.values())[0]) for name in name_list}
 
 
