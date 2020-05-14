@@ -203,7 +203,7 @@ def generate_feature_file(folder,index):
     if "data/graph7" in folder:
         batch_size = 288
     elif "data/graph8" in folder:
-        batch_size = 12
+        batch_size = 6
     else:
         batch_size=48
     final_dict=dict()
@@ -221,7 +221,7 @@ def generate_feature_file(folder,index):
     else:
         op_type_dict = dict()
     if "data/graph8" in folder:
-        replica_num = [1, 2, 3, 6, 12, 12, 12]
+        replica_num = [1, 2, 3, 6]
     else:
         replica_num = [1, 2, 3, 4, 6, 8, 12]
     item_list=[]

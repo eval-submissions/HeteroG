@@ -117,6 +117,7 @@ devices = config_dict.get("devices", [
     "/job:worker/replica:0/task:2/device:GPU:1"
 
 ])
+batch_sizes = config_dict.get("batch_sizes", [48 * 2, 288 * 2, 6 * 2])
 
 max_replica_num = config_dict.get("max_replica_num", len(devices))
 show_interval = 3
@@ -481,11 +482,11 @@ class Graph_item():
         feature_matrix, feature_masks = self.dataset.feature_matrix(bag_of_words=False, sparse=False)
 
         if "data/graph7" in folder_path:
-            self.batch_size = 288*3
+            self.batch_size = batch_sizes[1]
         elif "data/graph8" in folder_path:
-            self.batch_size = 12 * 3
+            self.batch_size = batch_sizes[2]
         else:
-            self.batch_size = 36*3
+            self.batch_size = batch_sizes[0]
 
         self.sink = sink
         if "graph1" in folder_path:

@@ -30,6 +30,7 @@ devices=config_dict.get("devices", [
     "/job:tge/replica:0/task:1/device:GPU:1"
 ])
 
+batch_sizes = config_dict.get("batch_sizes",[48*2,288*2,6*2])
 
 
 device_mems=config_dict.get("device_mems", [16*10e9,16*10e9,16*10e9,16*10e9])
@@ -54,11 +55,11 @@ class Environment(object):
         self.devices =devices
         self._tge = tge.TGE(self.gdef, devices)
         if "graph7" in null_gdef_path:
-            self.global_batch_size = 288*6
+            self.global_batch_size = batch_sizes[1]
         elif "graph8" in null_gdef_path:
-            self.global_batch_size = 12 * 6
+            self.global_batch_size = batch_sizes[2]
         else:
-            self.global_batch_size =  48*6
+            self.global_batch_size =  batch_sizes[0]
         with open("nccl_model.pkl","rb") as f:
             self.nccl_model=pkl.load(f)
 
