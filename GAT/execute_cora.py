@@ -669,6 +669,8 @@ class Graph_item():
         self.group[i]=(group)
         self.replica_masks[i]=(replica_mask)
 
+        print("graph {} finish!".format(i))
+
     def parallel_process_output(self):
         self.thres = []
         for i in range(sample_times+1):
