@@ -425,7 +425,6 @@ class Environment(object):
         ps_or_reduce = np.reshape(ps_or_reduce, (ps_or_reduce.shape[0], 1))
         new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
         name_list = [nodedef.name for nodedef in self.null_gdef.node]
-        print(new_device_array)
         strategy = {index_id_dict[index]:new_device_array[self.init_group[index]].tolist() for index in range(len(index_id_dict))}
         strategy = {name: strategy.get(name, list(strategy.values())[0]) for name in name_list}
 
@@ -693,9 +692,9 @@ class Graph_item():
 
     def compute_gradients(self,epoch):
         self.avg = np.mean(self.rewards) if self.avg==None else (self.avg+np.mean(self.rewards))/2
-        print("[{}] train_place = {}".format(self.folder_path, self.train_place))
-        print("[{}] Rewards = {}".format(self.folder_path, self.rewards))
-        print("[{}] epoch = {}".format(self.folder_path, epoch))
+        #print("[{}] train_place = {}".format(self.folder_path, self.train_place))
+        #print("[{}] Rewards = {}".format(self.folder_path, self.rewards))
+        #print("[{}] epoch = {}".format(self.folder_path, epoch))
         tmp_gradients = []
         for index in range(sample_times):
             #logger.debug("sample_ps:{}".format(self.ps_or_reduces[index]))
@@ -713,13 +712,13 @@ class Graph_item():
                             place_lr = self.place_lr)
             self.mems = new_global_mems
             self.cal_entropy = entropy
-            print("place entropy:", self.cal_entropy)
-            print("coefficient:",self.co_entropy)
-            print("l2_loss:",l2_loss)
-            print("entropy loss:",-self.cal_entropy*self.co_entropy)
-            print("place loss:",place_loss)
-            print("place+entropy loss:",new_loss)
-            print("time ratio:",0.1*self.avg/self.rewards[index])
+            #print("place entropy:", self.cal_entropy)
+            #print("coefficient:",self.co_entropy)
+            #print("l2_loss:",l2_loss)
+            #print("entropy loss:",-self.cal_entropy*self.co_entropy)
+            #print("place loss:",place_loss)
+            #print("place+entropy loss:",new_loss)
+            #print("time ratio:",0.1*self.avg/self.rewards[index])
             tmp_gradients.append(gradients)
 
         times = max(self.rewards)*max(self.rewards)
@@ -731,10 +730,10 @@ class Graph_item():
         else:
             self.co_entropy = self.small_co
         if epoch % show_interval == 0:
-            print("[{}] step = {}".format(self.folder_path,epoch))
-            print("[{}] time = {}".format(self.folder_path,times))
-            print("[{}] average reward = {}".format(self.folder_path,self.avg))
-            print("[{}] overall entropy:{}".format(self.folder_path,self.cal_entropy))
+            #print("[{}] step = {}".format(self.folder_path,epoch))
+            #print("[{}] time = {}".format(self.folder_path,times))
+            #print("[{}] average reward = {}".format(self.folder_path,self.avg))
+            #print("[{}] overall entropy:{}".format(self.folder_path,self.cal_entropy))
             with open(self.folder_path+"/time.log", "a+") as f:
                 f.write(str(times) + ",")
             with open(self.folder_path+"/entropy.log", "a+") as f:
@@ -760,13 +759,13 @@ class Graph_item():
                             )
             self.mems = new_global_mems
             self.cal_entropy = entropy
-            print("place entropy:", self.cal_entropy)
-            print("coefficient:",self.co_entropy)
-            print("l2_loss:",l2_loss)
-            print("entropy loss:",-self.cal_entropy*self.co_entropy)
-            print("place loss:",place_loss)
-            print("place+entropy loss:",new_loss)
-            print("time ratio:",0.1*self.avg/pool_strategy["reward"])
+            #print("place entropy:", self.cal_entropy)
+            #print("coefficient:",self.co_entropy)
+            #print("l2_loss:",l2_loss)
+            #print("entropy loss:",-self.cal_entropy*self.co_entropy)
+            #print("place loss:",place_loss)
+            #print("place+entropy loss:",new_loss)
+            #print("time ratio:",0.1*self.avg/pool_strategy["reward"])
             tmp_gradients.append(gradients)
 
         return self.compute_average_gradients(tmp_gradients)
@@ -1073,7 +1072,7 @@ class new_place_GNN():
             feed_dict[item1]=item2
 
         outputs = self.sess.run(fetch_list, feed_dict=feed_dict)
-        print("device choice prob:", outputs[0])
+        #print("device choice prob:", outputs[0])
         #print("Logits after:",outputs[-4])
         #print("Group:",outputs[-3])
         if self.first_time:
@@ -1124,8 +1123,8 @@ def main_entry():
                 gradients.append(model.compute_gradients(epoch))
 
             for i, gradient in enumerate(gradients):
-                print(type(gradient), len(gradient))
-                print(type(gradient[0]), len(gradient[0]))
+                #print(type(gradient), len(gradient))
+                #print(type(gradient[0]), len(gradient[0]))
 
                 if i == 0:
                     average_gradient = gradient
