@@ -642,10 +642,12 @@ class Graph_item():
                 device_choice = np.array(list(map(sample_func1, self.outputs[0:len(devices)])))
             else:
                 device_choice = np.array(list(map(random_func1, self.outputs[0:len(devices)])))
-
+        print("time0:",time.time()-ti)
+        ti = time.time()
         device_choice = np.transpose(device_choice)  # from shape[device_num , group_num] to [group_num, device_num]
         device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
-
+        print("time1:",time.time()-ti)
+        ti = time.time()
         if i == sample_times:
             ps_or_reduce = np.array(list(map(argmax_choice, self.outputs[len(devices)])))
         else:
@@ -656,10 +658,10 @@ class Graph_item():
         # ps_or_reduce = self.outputs[max_replica_num]
         # group =  np.array(list(map(random_func1,self.outputs[-1])))
         group = None
-        print("time1:",time.time()-ti)
+        print("time2:",time.time()-ti)
         ti = time.time()
         _reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group)
-        print("time2:", time.time() - ti)
+        print("time3:", time.time() - ti)
         if not out_of_memory:
             self.oom[i]=(False)
         else:
