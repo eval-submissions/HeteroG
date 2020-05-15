@@ -634,14 +634,13 @@ class Graph_item():
             return choice1
         ti = time.time()
         output = self.outputs[0:len(devices)]
-        print(self.folder_path,"time-1:",time.time()-ti)
-        ti = time.time()
         device_choice = np.zeros(shape=(len(output),output[0].shape[0]))
         if i == sample_times:
             #device_choice = np.array(list(map(argmax_func1, output)))
             for j in range(device_choice.shape[0]):
                 for k in range(device_choice.shape[1]):
                     device_choice[j][k] = argmax_choice(output[j][k])
+            print(self.folder_path, "argmax_choice0:", time.time() - ti)
         else:
             np.random.seed()
             sample_or_not = True if np.random.choice(2, p=[sample_prob,1-sample_prob])==0 else False
@@ -650,13 +649,17 @@ class Graph_item():
                 for j in range(device_choice.shape[0]):
                     for k in range(device_choice.shape[1]):
                         device_choice[j][k] = sample_choice(output[j][k])
+                print(self.folder_path, "sample_choice0:", time.time() - ti)
+
             else:
                 #device_choice = np.array(list(map(random_func1, output)))
                 for j in range(device_choice.shape[0]):
                     for k in range(device_choice.shape[1]):
                         device_choice[j][k] = random_choice(output[j][k])
+                print(self.folder_path, "random_choice0:", time.time() - ti)
+
         print(self.folder_path,device_choice.shape)
-        print(self.folder_path,"time0:",time.time()-ti)
+
         ti = time.time()
         device_choice = np.transpose(device_choice)  # from shape[device_num , group_num] to [group_num, device_num]
         device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
@@ -671,7 +674,7 @@ class Graph_item():
                 ps_or_reduce = np.array(list(map(random_choice, self.outputs[len(devices)])))
         # ps_or_reduce = self.outputs[max_replica_num]
         # group =  np.array(list(map(random_func1,self.outputs[-1])))
-        group = None
+        group = np.array(self.init_group)
         print(self.folder_path,"time2:",time.time()-ti)
         ti = time.time()
         _reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group)
