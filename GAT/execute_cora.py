@@ -636,7 +636,7 @@ class Graph_item():
         output = self.outputs[0:len(devices)]
         print("time-1:",time.time()-ti)
         ti = time.time()
-        device_choice = np.zeros(shape=(output.shape[0],output.shape[1]))
+        device_choice = np.zeros(shape=(len(output),output[0].shape[0]))
         if i == sample_times:
             #device_choice = np.array(list(map(argmax_func1, output)))
             for j in range(device_choice.shape[0]):
