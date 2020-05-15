@@ -420,7 +420,6 @@ class Environment(object):
         no_sort_group = [group[index] for index in sorted(indexes)]
         group = [no_sort_group.index(item) for item in group]
         '''
-        group = group.tolist()
         new_device_array = device_choice
         ps_or_reduce = np.reshape(ps_or_reduce, (ps_or_reduce.shape[0], 1))
         new_device_array = np.concatenate((ps_or_reduce,new_device_array),axis=1)
@@ -444,7 +443,7 @@ class Environment(object):
         if time<self.best_strategy["time"] and out_of_memory==False and record_best:
             self.best_strategy["time"] = time
             self.best_strategy["strategy"] = strategy
-            self.best_strategy["group"] = group
+            self.best_strategy["group"] = self.init_group
             with open(self.folder_path+"/best_time.log", "w") as f:
 
                 cost_dict=dict()
@@ -656,7 +655,7 @@ class Graph_item():
                 ps_or_reduce = np.array(list(map(random_choice, self.outputs[len(devices)])))
         # ps_or_reduce = self.outputs[max_replica_num]
         # group =  np.array(list(map(random_func1,self.outputs[-1])))
-        group = self.outputs[-1]
+        group = None
         _reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group)
         if not out_of_memory:
             self.oom[i]=(False)
@@ -672,12 +671,13 @@ class Graph_item():
 
 
     def parallel_process_output(self):
-        self.thres = []
+        thres = []
         for i in range(sample_times+1):
             p=mp.Process(target=self.parallel_process_output_unit, args=(i,))
-            self.thres.append(p)
+            thres.append(p)
+        for p in thres:
             p.start()
-        for p in self.thres:
+        for p in thres:
             p.join()
         print("{} finish!".format(self.folder_path))
 
