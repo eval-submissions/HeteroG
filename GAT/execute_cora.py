@@ -642,6 +642,7 @@ class Graph_item():
                 device_choice = np.array(list(map(sample_func1, self.outputs[0:len(devices)])))
             else:
                 device_choice = np.array(list(map(random_func1, self.outputs[0:len(devices)])))
+        print(device_choice.shape)
         print("time0:",time.time()-ti)
         ti = time.time()
         device_choice = np.transpose(device_choice)  # from shape[device_num , group_num] to [group_num, device_num]
