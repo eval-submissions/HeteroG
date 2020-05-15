@@ -669,7 +669,7 @@ class Graph_item():
         self.group[i]=(group)
         self.replica_masks[i]=(replica_mask)
 
-        print("graph {} finish!".format(i))
+
 
     def parallel_process_output(self):
         self.thres = []
@@ -679,6 +679,7 @@ class Graph_item():
             p.start()
         for p in self.thres:
             p.join()
+        print("{} finish!".format(self.folder_path))
 
         #print("Group:",self.group[0])
     def post_parallel_process(self):
