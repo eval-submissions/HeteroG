@@ -636,15 +636,25 @@ class Graph_item():
         output = self.outputs[0:len(devices)]
         print("time-1:",time.time()-ti)
         ti = time.time()
+        device_choice = np.zeros(shape=(output.shape[0],output.shape[1]))
         if i == sample_times:
-            device_choice = np.array(list(map(argmax_func1, output)))
+            #device_choice = np.array(list(map(argmax_func1, output)))
+            for j in range(device_choice.shape[0]):
+                for k in range(device_choice.shape[1]):
+                    device_choice[j][k] = argmax_choice(output[j][k])
         else:
             np.random.seed()
             sample_or_not = True if np.random.choice(2, p=[sample_prob,1-sample_prob])==0 else False
             if sample_or_not:
-                device_choice = np.array(list(map(sample_func1, output)))
+                #device_choice = np.array(list(map(sample_func1, output)))
+                for j in range(device_choice.shape[0]):
+                    for k in range(device_choice.shape[1]):
+                        device_choice[j][k] = sample_choice(output[j][k])
             else:
-                device_choice = np.array(list(map(random_func1, output)))
+                #device_choice = np.array(list(map(random_func1, output)))
+                for j in range(device_choice.shape[0]):
+                    for k in range(device_choice.shape[1]):
+                        device_choice[j][k] = random_choice(output[j][k])
         print(device_choice.shape)
         print("time0:",time.time()-ti)
         ti = time.time()
