@@ -632,7 +632,7 @@ class Graph_item():
         def argmax_choice(item):
             choice1 = np.argmax(item)
             return choice1
-
+        ti = time.time()
         if i == sample_times:
             device_choice = np.array(list(map(argmax_func1, self.outputs[0:len(devices)])))
         else:
@@ -656,7 +656,10 @@ class Graph_item():
         # ps_or_reduce = self.outputs[max_replica_num]
         # group =  np.array(list(map(random_func1,self.outputs[-1])))
         group = None
+        print("time1:",time.time()-ti)
+        ti = time.time()
         _reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group)
+        print("time2:", time.time() - ti)
         if not out_of_memory:
             self.oom[i]=(False)
         else:
