@@ -23,8 +23,6 @@ import tge
 import json
 import pickle as pkl
 import multiprocessing as mp
-from multiprocessing import Pool
-from utils import adapt_batchsize
 from utils import group_around_topk_costs
 import logging
 import math
@@ -121,7 +119,6 @@ batch_sizes = config_dict.get("batch_sizes", [48 * 2, 288 * 2, 6 * 2])
 
 max_replica_num = config_dict.get("max_replica_num", len(devices))
 show_interval = 3
-num_cores = mp.cpu_count()
 device_mems = config_dict.get("device_mems", [16 * 10e9, 16 * 10e9, 16 * 10e9, 16 * 10e9])
 
 sample_prob = 0.1
@@ -653,9 +650,10 @@ class Graph_item():
 
             else:
                 #device_choice = np.array(list(map(random_func1, output)))
-                for j in range(device_choice.shape[0]):
-                    for k in range(device_choice.shape[1]):
-                        device_choice[j][k] = random_choice(output[j][k])
+                #for j in range(device_choice.shape[0]):
+                #    for k in range(device_choice.shape[1]):
+                #        device_choice[j][k] = random_choice(output[j][k])
+                device_choice = np.random.randint(0, output[0].shape[1], size=device_choice.shape)
                 print(self.folder_path, "random_choice0:", time.time() - ti)
 
         print(self.folder_path,device_choice.shape)
