@@ -669,7 +669,8 @@ class Graph_item():
             if sample_or_not:
                 ps_or_reduce = np.array(list(map(sample_choice, self.outputs[len(devices)])))
             else:
-                ps_or_reduce = np.array(list(map(random_choice, self.outputs[len(devices)])))
+                #ps_or_reduce = np.array(list(map(random_choice, self.outputs[len(devices)])))
+                ps_or_reduce = np.random.randint(0, 2, size=(self.outputs[len(devices)].shape[0],))
         # ps_or_reduce = self.outputs[max_replica_num]
         # group =  np.array(list(map(random_func1,self.outputs[-1])))
         group = np.array(self.init_group)
