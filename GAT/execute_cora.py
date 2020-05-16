@@ -993,7 +993,7 @@ class new_place_GNN():
         self.loss_l2 = tf.add_n([tf.nn.l2_loss(v) for v in self.network_params if v.name not in ['bias', 'gamma', 'b', 'g', 'beta']]) * l2_coef
 
         self.net_gradients = tf.compat.v1.gradients(self.place_loss+self.loss_l2, self.network_params,colocate_gradients_with_ops=True)
-        self.apply_grad = tf.train.AdamOptimizer(learning_rate=self.place_lr).apply_gradients(zip(self.net_gradients,self.network_params))
+        self.apply_grad = tf.train.AdamOptimizer(learning_rate=self.place_lr,beta_1=0.9,beta_2=0.98, epsilon=1e-9).apply_gradients(zip(self.net_gradients,self.network_params))
 
         #self.train_place_op,self.loss_l2 = model.training(self.place_loss,self.place_lr , l2_coef,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='place_nn'))
 
