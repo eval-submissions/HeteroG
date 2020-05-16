@@ -174,7 +174,7 @@ class strategy_pool(object):
 
         # even data parallel 1
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
-        if False:
+        if True:
             group = np.array(self.init_group)
             device_choice = np.ones(shape=(self.init_group_num, len(devices)), dtype=np.int32)*2
 
