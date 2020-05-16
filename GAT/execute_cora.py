@@ -754,10 +754,10 @@ class Graph_item():
         else:
             self.co_entropy = self.small_co
         if epoch % show_interval == 0:
-            #print("[{}] step = {}".format(self.folder_path,epoch))
-            #print("[{}] time = {}".format(self.folder_path,times))
-            #print("[{}] average reward = {}".format(self.folder_path,self.avg))
-            #print("[{}] overall entropy:{}".format(self.folder_path,self.cal_entropy))
+            print("[{}] step = {}".format(self.folder_path,epoch))
+            print("[{}] time = {}".format(self.folder_path,times))
+            print("[{}] average reward = {}".format(self.folder_path,self.avg))
+            print("[{}] overall entropy:{}".format(self.folder_path,self.cal_entropy))
             with open(self.folder_path+"/time.log", "a+") as f:
                 f.write(str(times) + ",")
             with open(self.folder_path+"/entropy.log", "a+") as f:
@@ -1096,7 +1096,7 @@ class new_place_GNN():
             feed_dict[item1]=item2
 
         outputs = self.sess.run(fetch_list, feed_dict=feed_dict)
-        #print("device choice prob:", outputs[0])
+        print("device choice prob:", outputs[0])
         #print("Logits after:",outputs[-4])
         #print("Group:",outputs[-3])
         if self.first_time:
