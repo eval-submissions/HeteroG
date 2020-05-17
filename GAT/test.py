@@ -117,38 +117,57 @@ class Environment(object):
 
         return name_cost_dict
 
-env = Environment(prefix+"/graph.pbtxt",prefix+"/null_graph.pbtxt",devices,prefix)
-dataset = load_cora(prefix,NewWhiteSpaceTokenizer())
-index_id_dict = dataset.network.get_indexer(N_TYPE_NODE).index_id_dict
-feature_matrix, feature_masks = dataset.feature_matrix(bag_of_words=False, sparse=False)
-nb_nodes = feature_matrix.shape[0]
 
-with open("test_config.json","r") as f:
-    tmp = json.load(f)
-    strategies = tmp["strategies"]
-for _strategy in strategies:
-    strategy = list()
-    for i in range(nb_nodes):
-        strategy.append(_strategy)
-    arr_strategy = np.array(strategy)
-    print("strategy:",_strategy)
-    #print(env.get_reward(arr_strategy,index_id_dict,prefix+"/"+str(_strategy)+".json"))
-    print(env.get_null_reward(arr_strategy,index_id_dict,prefix+"/"+str(_strategy)+"_null.json",str(_strategy)+".pbtxt"))
-
-with open(prefix+"/best_time.log","r") as f:
-    tmp = json.load(f)
-    strategy = tmp["strategy"]
-    print("best strategy:")
-    print(env.get_null_reward(strategy,index_id_dict,prefix+"/"+"best_strategy_null.json","best_strategy_null.pbtxt",direct=True))
+if "all"==prefix:
+    prefixs =["data/graph1","data/graph2","data/graph3","data/graph4","data/graph5","data/graph6","data/graph7","data/graph8"]
+else:
+    prefixs = [prefix]
 
 
-'''
-name_cost_dict = env.get_name_cost_dict()
-cost = list(name_cost_dict.values())
-cost.sort()
-for name in name_cost_dict.keys():
-    if "Back" in name:
-        print(name,name_cost_dict[name])
-    if name_cost_dict[name]>cost[-100]:
-        print(name,name_cost_dict[name])
-'''     
+
+test_results = []
+title = ["graph"]
+for index,prefix in enumerate(prefixs):
+
+    env = Environment(prefix+"/graph.pbtxt",prefix+"/null_graph.pbtxt",devices,prefix)
+    dataset = load_cora(prefix,NewWhiteSpaceTokenizer())
+    index_id_dict = dataset.network.get_indexer(N_TYPE_NODE).index_id_dict
+    feature_matrix, feature_masks = dataset.feature_matrix(bag_of_words=False, sparse=False)
+    nb_nodes = feature_matrix.shape[0]
+    result = []
+    result.append(prefix)
+    with open("test_config.json","r") as f:
+        tmp = json.load(f)
+        strategies = tmp["strategies"]
+    for _strategy in strategies:
+        strategy = list()
+        for i in range(nb_nodes):
+            strategy.append(_strategy)
+        arr_strategy = np.array(strategy)
+        print("strategy:",_strategy)
+        if index==0:
+            title.append(_strategy)
+        #print(env.get_reward(arr_strategy,index_id_dict,prefix+"/"+str(_strategy)+".json"))
+        process_time = env.get_null_reward(arr_strategy,index_id_dict,prefix+"/"+str(_strategy)+"_null.json",str(_strategy)+".pbtxt")
+        print(process_time)
+        result.append(process_time)
+    with open(prefix+"/best_time.log","r") as f:
+        tmp = json.load(f)
+        strategy = tmp["strategy"]
+        print("best strategy:")
+        title.append("best strategy")
+        process_time =env.get_null_reward(strategy,index_id_dict,prefix+"/"+"best_strategy_null.json","best_strategy_null.pbtxt",direct=True)
+        result.append(process_time)
+        print(process_time)
+    test_results.append(result)
+
+
+import csv
+with open("test_result.csv", 'w', newline='') as csvfile:
+    spamwriter = csv.writer(csvfile, delimiter=',',
+                            quotechar='|', quoting=csv.QUOTE_MINIMAL)
+    spamwriter.writerow(batch_sizes)
+    spamwriter.writerow(title)
+    for item in test_results:
+        spamwriter.writerow(item)
+
