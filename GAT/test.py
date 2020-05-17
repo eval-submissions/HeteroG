@@ -128,7 +128,8 @@ else:
 test_results = []
 title = ["graph"]
 for index,prefix in enumerate(prefixs):
-
+    if not os.path.exists(prefix+"/best_time.log"):
+        continue
     env = Environment(prefix+"/graph.pbtxt",prefix+"/null_graph.pbtxt",devices,prefix)
     dataset = load_cora(prefix,NewWhiteSpaceTokenizer())
     index_id_dict = dataset.network.get_indexer(N_TYPE_NODE).index_id_dict
@@ -159,7 +160,9 @@ for index,prefix in enumerate(prefixs):
         process_time =env.get_null_reward(strategy,index_id_dict,prefix+"/"+"best_strategy_null.json","best_strategy_null.pbtxt",direct=True)
         result.append(process_time)
         print(process_time)
+    result.append((min(result[1:-1])-result[-1])/result[-1])
     test_results.append(result)
+title.append("speedup")
 
 
 import csv
