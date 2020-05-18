@@ -81,7 +81,6 @@ global_batch_size=288
 n_layer=12
 n_head=8
 d_head=64
-d_model=512
 d_inner=2048
 group_num = 2000
 bsz =1
@@ -123,6 +122,7 @@ device_mems = config_dict.get("device_mems", [16 * 10e9, 16 * 10e9, 16 * 10e9, 1
 
 sample_prob = 0.1
 
+d_model=(max_replica_num+1)*(len(devices))+2
 
 def post_process_device_choice(device_choice,batch_size):
     def post_func1(item):
