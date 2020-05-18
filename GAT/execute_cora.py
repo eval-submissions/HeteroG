@@ -989,7 +989,7 @@ class new_place_GNN():
 
         place_reward =  self.place_reward+self.coef_entropy * self.entropy
         #self.loss = -reward
-        self.place_loss = -place_reward
+        self.place_loss = -place_reward*10
         self.network_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='place_nn')
 
         self.loss_l2 = tf.add_n([tf.nn.l2_loss(v) for v in self.network_params if v.name not in ['bias', 'gamma', 'b', 'g', 'beta']]) * l2_coef
