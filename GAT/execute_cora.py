@@ -122,7 +122,7 @@ device_mems = config_dict.get("device_mems", [16 * 10e9, 16 * 10e9, 16 * 10e9, 1
 
 sample_prob = 0.1
 
-d_model=(max_replica_num+1)*(len(devices))+2
+d_model= 512
 
 def post_process_device_choice(device_choice,batch_size):
     def post_func1(item):
@@ -941,8 +941,10 @@ class new_place_GNN():
             initializer = tf.initializers.random_normal(
                 stddev=0.02,
                 seed=None)
-            output,self.new_mems = transformer(log_resh,self.mems,n_layer,(max_replica_num+1)*(len(devices))+2,n_head,d_head,d_inner,0.1,0.1,initializer,True,mem_len=128)
-            output = tf.reshape(output, [-1,(max_replica_num+1)*(len(devices))+2])
+            output,self.new_mems = transformer(log_resh,self.mems,n_layer,d_model,n_head,d_head,d_inner,0.1,0.1,initializer,True,mem_len=128)
+            output = tf.reshape(output, [-1,d_model])
+            output = output[:,:(max_replica_num+1)*(len(devices))+2]
+
             #output = tf.layers.dense(output,(max_replica_num+1)*(len(devices))+2)
 
             sum = 0
