@@ -120,7 +120,7 @@ max_replica_num = config_dict.get("max_replica_num", len(devices))
 show_interval = 3
 device_mems = config_dict.get("device_mems", [16 * 10e9, 16 * 10e9, 16 * 10e9, 16 * 10e9])
 
-sample_prob = 0.1
+sample_prob = 0.7
 
 d_model= 512
 
@@ -587,7 +587,7 @@ class Graph_item():
     def sample(self,epoch):
 
         global sample_prob
-        sample_prob = min(0.1+0.1*(epoch//60),0.9)
+        sample_prob = min(0.1+0.1*(epoch//60),0.8)
 
         print("[{}] sample_prob = {}".format(self.folder_path, sample_prob))
 
