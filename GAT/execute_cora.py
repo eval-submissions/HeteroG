@@ -745,7 +745,7 @@ class Graph_item():
             #print("time ratio:",0.1*self.avg/self.rewards[index])
             tmp_gradients.append(gradients)
 
-        times = max(self.rewards)*max(self.rewards)
+        times = max(self.rewards[:-1])*max(self.rewards[:-1])
         self.record_time.append(str(times))
         if len(self.record_time)>20:
             self.record_time = self.record_time[-20:]
