@@ -147,7 +147,7 @@ for index,prefix in enumerate(prefixs):
         arr_strategy = np.array(strategy)
         print("strategy:",_strategy)
         if index==0:
-            title.append(_strategy.replace(",","_"))
+            title.append(list(map(lambda x:x.replace(",","_"),_strategy)))
         #print(env.get_reward(arr_strategy,index_id_dict,prefix+"/"+str(_strategy)+".json"))
         process_time = env.get_null_reward(arr_strategy,index_id_dict,prefix+"/"+str(_strategy)+"_null.json",str(_strategy)+".pbtxt")
         print(process_time)
