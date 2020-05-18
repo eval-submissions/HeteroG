@@ -156,7 +156,8 @@ for index,prefix in enumerate(prefixs):
         tmp = json.load(f)
         strategy = tmp["strategy"]
         print("best strategy:")
-        title.append("best strategy")
+        if index == 0:
+            title.append("best strategy")
         process_time =env.get_null_reward(strategy,index_id_dict,prefix+"/"+"best_strategy_null.json","best_strategy_null.pbtxt",direct=True)
         result.append(process_time)
         print(process_time)
