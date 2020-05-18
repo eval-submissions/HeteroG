@@ -551,7 +551,7 @@ class Graph_item():
         self.co_entropy = self.small_co
         self.place_lr = lr
         self.record_time =[]
-        self.mems = [np.zeros([128, bsz, (max_replica_num+1)*(len(devices))+2], dtype=np.float32) for layer in range(n_layer)]
+        self.mems = [np.zeros([128, bsz, d_model], dtype=np.float32) for layer in range(n_layer)]
     def get_colocation_group(self):
         leaders = []
         group = []
@@ -904,7 +904,7 @@ class new_place_GNN():
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
 
             self.train_place = tf.placeholder(dtype=tf.bool, shape=(),name="train_place")
-            self.mems = [tf.placeholder(tf.float32,[128, bsz, (max_replica_num+1)*(len(devices))+2]) for _ in range(n_layer)]
+            self.mems = [tf.placeholder(tf.float32,[128, bsz, d_model]) for _ in range(n_layer)]
             self.place_lr = tf.placeholder(dtype=tf.float32, shape=(),name="place_lr")
 
 
