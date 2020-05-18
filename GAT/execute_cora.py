@@ -943,9 +943,9 @@ class new_place_GNN():
                 seed=None)
             output,self.new_mems = transformer(log_resh,self.mems,n_layer,d_model,n_head,d_head,d_inner,0.1,0.1,initializer,True,mem_len=128)
             output = tf.reshape(output, [-1,d_model])
-            output = output[:,:(max_replica_num+1)*(len(devices))+2]
+            #output = output[:,:(max_replica_num+1)*(len(devices))+2]
 
-            #output = tf.layers.dense(output,(max_replica_num+1)*(len(devices))+2)
+            output = tf.layers.dense(output,(max_replica_num+1)*(len(devices))+2)
 
             sum = 0
             for i in range(0,len(devices)):
