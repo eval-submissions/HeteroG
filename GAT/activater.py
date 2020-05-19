@@ -37,7 +37,8 @@ class Activater():
         self.path = activate_path
         for path in activate_path:
             if not os.path.exists(path):
-                continue
+                self.path.remove(path)
+        for path in self.path:
             gdef = graph_pb2.GraphDef()
             with open(path,"r")as f:
                 txt = f.read()
