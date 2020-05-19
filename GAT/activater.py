@@ -35,7 +35,7 @@ class Activater():
     def __init__(self, activate_path, sinks=["GradientDescent"]):
         self.graph_defs = []
         self.path = activate_path
-        for path in activate_path:
+        for path in  self.path:
             if not os.path.exists(path):
                 self.path.remove(path)
         for path in self.path:
