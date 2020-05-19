@@ -34,10 +34,10 @@ sinks = config_dict.get("activate_sink", ["GradientDescent"])
 class Activater():
     def __init__(self, activate_path, sinks=["GradientDescent"]):
         self.graph_defs = []
-        self.path = activate_path
-        for path in  self.path:
-            if not os.path.exists(path):
-                self.path.remove(path)
+        self.path = []
+        for path in  activate_path:
+            if os.path.exists(path):
+                self.path.append(path)
         for path in self.path:
             gdef = graph_pb2.GraphDef()
             with open(path,"r")as f:
