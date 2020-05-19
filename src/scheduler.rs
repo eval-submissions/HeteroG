@@ -64,8 +64,7 @@ pub fn heft(target: &mut Target, profiler: &impl Profiler) {
         for window in list.windows(2) {
             let dep = format!("^{}", target.pb.node[window[0]].name);
             target.pb.node[window[1]].input.push(dep)
-            // TODO: don't add unnecessary dependencies by depth-first search
-            // TODO: take care of ties?
+            // TODO: skip unnecessary dependencies by depth-first search?
         }
     }
 }

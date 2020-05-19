@@ -22,7 +22,7 @@ class GConv(tf.keras.layers.Layer):
 
         self._activation = activation
 
-    def call(self, graph, feat, weight=None):
+    def call(self, graph, feat, edge_feat, weight=None):
         graph = graph.local_var()
 
         degs = tf.clip_by_value(tf.cast(graph.out_degrees(), tf.float32),
@@ -41,7 +41,8 @@ class GConv(tf.keras.layers.Layer):
             weight = self.weight
 
         graph.srcdata['h'] = feat
-        graph.update_all(lambda edge: {'m': edge.src['h']}, fn.sum(msg='m', out='h'))
+        graph.edata['e'] = edge_feat
+        graph.update_all(lambda edge: {'m': tf.concat([edge.src['h'], edge.data['e']], axis=1)}, fn.sum(msg='m', out='h'))
         rst = graph.dstdata['h']
         rst = tf.matmul(rst, weight)
 
@@ -81,7 +82,7 @@ class Model(tf.keras.Model):
             # GConv(num_hidden, num_hidden, tf.nn.elu),
             # GConv(num_hidden, num_hidden, tf.nn.elu),
             # GConv(num_hidden, num_hidden, tf.nn.elu),
-            GConv(num_hidden, num_hidden, None)
+            GConv(num_hidden+1, num_hidden, None)
         ]
 
         self.device_gconv_layers = [
@@ -89,7 +90,7 @@ class Model(tf.keras.Model):
             # GConv(num_hidden, num_hidden, tf.nn.elu),
             # GConv(num_hidden, num_hidden, tf.nn.elu),
             # GConv(num_hidden, num_hidden, tf.nn.elu),
-            GConv(num_hidden, num_hidden, None)
+            GConv(num_hidden+1, num_hidden, None)
         ]
 
         self.rnn_layers = [
@@ -109,13 +110,13 @@ class Model(tf.keras.Model):
 
         x = computation_features
         for layer in self.computation_gconv_layers:
-            x = layer(self.computation_graph, x)
+            x = layer(self.computation_graph, x, np.array([[1]] * self.computation_graph.number_of_edges(), dtype='float32'))
             x = tf.reshape(x, (x.shape[0], -1))
         computation_embedding = x
 
         x = device_features
         for layer in self.device_gconv_layers:
-            x = layer(self.device_graph, x)
+            x = layer(self.device_graph, x, np.array([[1]] * self.device_graph.number_of_edges(), dtype='float32'))
             x = tf.reshape(x, (x.shape[0], -1))
         device_embedding = x
 

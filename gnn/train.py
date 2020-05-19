@@ -13,7 +13,7 @@ def info(*args):
 records = get_all_data()
 
 with tf.device("/gpu:0"):
-    model = Model(4, 3)
+    model = Model(5, 4)
 
     try:
         model.load_weights('weights')
