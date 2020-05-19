@@ -103,6 +103,16 @@ class Activater():
                          )
                 tf.contrib.tfprof.model_analyzer.print_model_analysis(tf.get_default_graph(),run_meta=run_meta,tfprof_options =tf.contrib.tfprof.model_analyzer.PRINT_ALL_TIMING_MEMORY)
             tl = timeline.Timeline(run_meta.step_stats)
+        else:
+            for i in range(1):
+                run_meta = tf.RunMetadata()
+                run_opt = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE, output_partition_graphs=True)
+                sess.run(opt, feed_dict=input_dict,
+                         options=run_opt,
+                         run_metadata=run_meta
+                         )
+                tf.contrib.tfprof.model_analyzer.print_model_analysis(tf.get_default_graph(),run_meta=run_meta,tfprof_options =tf.contrib.tfprof.model_analyzer.PRINT_ALL_TIMING_MEMORY)
+            tl = timeline.Timeline(run_meta.step_stats)
 
         with open(path.split(".")[0] + "_timeline.json", "w") as fo:
             fo.write(tl.generate_chrome_trace_format())
