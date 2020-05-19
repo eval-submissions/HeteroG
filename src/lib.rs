@@ -8,13 +8,16 @@ use oh_my_rust::*;
 use protobuf::{Message, parse_from_bytes};
 use simulator::Simulator;
 use std::collections::BTreeMap;
-use graph::{Graph, Target};
+use graph::Graph;
+use misc::{Target, DataProfiler};
 
+pub mod misc;
 pub mod proto;
 pub mod graph;
 pub mod editor;
 pub mod polishing;
 pub mod simulator;
+pub mod scheduler;
 
 #[no_mangle]
 unsafe extern fn create_graph(pb: *const u8, pb_len: u32) -> *mut Graph {
@@ -102,7 +105,7 @@ unsafe extern fn create_target(
         (line[0].to_string(), m)
     }).collect();
 
-    let target = graph::Target::new(proto::graph::GraphDef::new(), devices, links, paths, sinks, nccls);
+    let target = Target::new(proto::graph::GraphDef::new(), devices, links, paths, sinks, nccls);
     leak(target)
 }
 
@@ -128,7 +131,7 @@ unsafe extern fn compile(graph: *mut Graph, target: *mut Target) {
 }
 
 #[no_mangle]
-unsafe extern fn evaluate(target: *mut Target, profile_data: *const u8, profile_len: u32, trace_path: *const u8, trace_len: u32, memory: *mut u64) -> u64 {
+unsafe extern fn create_profiler(profile_data: *const u8, profile_len: u32) -> *mut DataProfiler {
     let profile_str = std::str::from_utf8(std::slice::from_raw_parts(profile_data, profile_len as usize)).unwrap();
     let mut profile_dict: BTreeMap<String, Vec<(usize, Vec<u64>)>> = BTreeMap::new();
     for line in profile_str.lines() {
@@ -140,14 +143,29 @@ unsafe extern fn evaluate(target: *mut Target, profile_data: *const u8, profile_
         let pos = v.binary_search_by_key(&nrep, |x| x.0).unwrap_or_else(|e| e);
         v.insert(pos, (nrep, times))
     };
-    let scheduler = simulator::SimpleSimulator::new(profile_dict);
+    leak(DataProfiler { data: profile_dict })
+}
+
+#[no_mangle]
+unsafe extern fn destroy_profiler(profiler: *mut DataProfiler) {
+    free(profiler)
+}
+
+#[no_mangle]
+unsafe extern fn heft(target: *mut Target, profiler: *const DataProfiler) {
+    scheduler::heft(&mut *target, &*profiler)
+}
+
+#[no_mangle]
+unsafe extern fn evaluate(target: *mut Target, profiler: *const DataProfiler, trace_path: *const u8, trace_len: u32, memory: *mut u64) -> u64 {
+    let simulator = simulator::SimpleSimulator;
     let tracer = if trace_len == 0 {
         None
     } else {
         Some(std::str::from_utf8(std::slice::from_raw_parts(trace_path, trace_len as usize)).unwrap())
     };
 
-    scheduler.evaluate(*reclaim(target), tracer.map(|x| std::fs::File::create(x).unwrap()).as_mut(), std::slice::from_raw_parts_mut(memory, (*target).devices.len()))
+    simulator.evaluate(&*profiler, *reclaim(target), tracer.map(|x| std::fs::File::create(x).unwrap()).as_mut(), std::slice::from_raw_parts_mut(memory, (*target).devices.len()))
 }
 
 #[no_mangle]

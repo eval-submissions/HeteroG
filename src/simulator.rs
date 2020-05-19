@@ -1,25 +1,23 @@
-// evaluate a given graph by simulating a scheduler with profile data
-
 use oh_my_rust::*;
 use std::convert::TryInto;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, VecDeque, HashMap};
 use std::sync::{Arc, Mutex};
 use std::cmp;
-use crate::graph::{Target, Form};
+use crate::misc::{Target, Profiler};
+use crate::graph::Form;
 use crate::proto::types::DataType;
 use crate::proto::attr_value::{AttrValue, AttrValue_oneof_value};
 use crate::proto::node_def::NodeDef;
 use crate::proto::tensor::TensorProto;
 
-const GRPC_LATENCY: u64 = 12;
+pub const GRPC_LATENCY: u64 = 12;
 
 #[allow(clippy::unreadable_literal)]
-const FALLBACK_NCCL_MODEL: [f64; 4] = [0.043420241077615454, 368.2013618677043, 0.27766802543921265, 211.91926070037152];
+pub const FALLBACK_NCCL_MODEL: [f64; 4] = [0.043420241077615454, 368.2013618677043, 0.27766802543921265, 211.91926070037152];
 
-// todo: split scheduling and simulating. logging and memory calculation are simulation
 pub trait Simulator {
     /// `memory` should be already zero-initialized and be at least as long as target.device
-    fn evaluate<W: std::io::Write>(&self, target: Target, trace: Option<&mut W>, memory: &mut [u64]) -> u64;
+    fn evaluate<W: std::io::Write>(&self, profiler: &impl Profiler, target: Target, trace: Option<&mut W>, memory: &mut [u64]) -> u64;
 }
 
 #[derive(Debug, Default)]
@@ -79,42 +77,10 @@ type TensorBuf = (usize, usize, usize); // id, index, gpu
 // consume memory when the activate op is finished, and deactivate when all deactivate ops are done
 // TODO: ensure every tensor being transferred, even if the path is empty
 
-pub struct SimpleSimulator {
-    /// the value is a binary sorted array contains replica_number and the time required on each device given replicated by that number
-    profile_dict: BTreeMap<String, Vec<(usize, Vec<u64>)>>
-}
-
-impl SimpleSimulator {
-    pub fn new(profile_dict: BTreeMap<String, Vec<(usize, Vec<u64>)>>) -> Self {
-        Self { profile_dict }
-    }
-
-    fn profile(&self, node: &NodeDef, device_id: usize) -> Option<u64> {
-        let origin_name = node.attr.get("_tge_origin")?.get_s();
-        // technically we do not need to extract the form if we use a profiler since it will be reflected by the input size.
-        let form = Form::from_code(std::str::from_utf8(node.attr.get("_tge_form")?.get_s()).ok()?);
-        let nrep = if form.is_part() {
-            form.ndev()
-        } else {
-            1
-        };
-
-        let prof = self.profile_dict.get(&String::from_utf8(origin_name.to_vec()).unwrap())?;
-        let time = match prof.binary_search_by_key(&nrep, |x| x.0) {
-            Ok(i) => prof[i].1[device_id],
-            Err(i) => if i >= prof.len() {
-                prof[i - 1].1[device_id]
-            } else {
-                prof[i].1[device_id]
-            }
-        };
-
-        Some(time)
-    }
-}
+pub struct SimpleSimulator;
 
 impl Simulator for SimpleSimulator {
-    fn evaluate<W: std::io::Write>(&self, mut target: Target, mut tracer: Option<&mut W>, max_memory: &mut [u64]) -> u64 {
+    fn evaluate<W: std::io::Write>(&self, profiler: &impl Profiler, mut target: Target, mut tracer: Option<&mut W>, max_memory: &mut [u64]) -> u64 {
         task!("evaluating graph of {} nodes...", target.pb.node.len());
 
         if let Some(tracer) = &mut tracer { // initialize tracing
@@ -184,8 +150,8 @@ impl Simulator for SimpleSimulator {
                 let task = &tasks[task_id];
                 match task.content {
                     TaskType::Computation { id: node_id, gpu } => {
-                        debug!("{:?} {:?} {:?} {:?} {:?}", gpu, gpu_available_time[gpu], time, nodes[node_id].name, self.profile(&nodes[node_id], gpu).unwrap_or(0));
-                        let eft = cmp::max(gpu_available_time[gpu], time) + self.profile(&nodes[node_id], gpu).unwrap_or(0);
+                        debug!("{:?} {:?} {:?} {:?} {:?}", gpu, gpu_available_time[gpu], time, nodes[node_id].name, profiler.profile(&nodes[node_id], gpu).unwrap_or(0));
+                        let eft = cmp::max(gpu_available_time[gpu], time) + profiler.profile(&nodes[node_id], gpu).unwrap_or(0);
                         gpu_available_time[gpu] = eft;
                         ongoing_tasks.push(OngoingTask { id: task_id, eft });
                     }
@@ -230,7 +196,7 @@ impl Simulator for SimpleSimulator {
                 if let Some(tracer) = &mut tracer {
                     match &tasks[id].content {
                         TaskType::Computation { id: node_id, gpu } => {
-                            let duration = self.profile(&nodes[*node_id], *gpu).unwrap_or(0);
+                            let duration = profiler.profile(&nodes[*node_id], *gpu).unwrap_or(0);
                             if duration != 0 {
                                 writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"computation\", \"ph\": \"B\", \"ts\": {}, \"pid\": 0, \"tid\": {} }},", nodes[*node_id].name, eft - duration, gpu).expect("fail to write log");
                                 writeln!(tracer, "{{ \"name\": \"{}\", \"cat\": \"computation\", \"ph\": \"E\", \"ts\": {}, \"pid\": 0, \"tid\": {} }},", nodes[*node_id].name, eft, gpu).expect("fail to write log");

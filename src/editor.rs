@@ -2,6 +2,7 @@ use oh_my_rust::*;
 use std::convert::TryInto;
 use crate::graph::*;
 use std::collections::{BTreeSet, BTreeMap};
+use crate::misc::Target;
 
 pub fn edit(graph: &mut Graph, target: &mut Target, strategy: &BTreeMap<&str, (Vec<usize>, u8)>) { // devices (the same definition of form), aggregation_method
     let allow_split_input = graph.options.contains_key("replace_placeholder");

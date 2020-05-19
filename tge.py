@@ -38,7 +38,16 @@ libtge.read_protobuf.restype = None
 libtge.compile.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 libtge.compile.restype = None
 
-libtge.evaluate.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint64)]
+libtge.create_profiler.argtypes = [ctypes.POINTER(ctypes.c_char), ctypes.c_uint32]
+libtge.create_profiler.restype = ctypes.c_void_p
+
+libtge.destroy_profiler.argtypes = [ctypes.c_void_p]
+libtge.destroy_profiler.restype = None
+
+libtge.heft.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+libtge.heft.restype = None
+
+libtge.evaluate.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint64)]
 libtge.evaluate.restype = ctypes.c_uint64
 
 libtge.remove_collocation_hint.argtypes = [ctypes.c_void_p]
@@ -75,6 +84,7 @@ class TGE:
 
         self.strategy = None
         self.target = None
+        self.profiler = None
         self.compiled = False # if the target is compiled. Being True also implies that self.target is not None.
         self.edited = False # if the graph is edited. It must be reset before another editing.
 
@@ -83,6 +93,9 @@ class TGE:
 
         if self.target is not None:
             libtge.destroy_target(self.target)
+
+        if self.profiler is not None:
+            libtge.destroy_profiler(self.profiler)
 
     def get_result(self):
         assert self.target is not None
@@ -111,19 +124,24 @@ class TGE:
         self.remove_collocation_hint()
         self.remove_shape_hint()
 
+    @chain
+    def heft(self, profile_dict):
+        if not self.compiled:
+            self.compile()
+        self.remove_dangling_nodes()
+
+        self._create_profiler(profile_dict)
+        libtge.evaluate(self.target, self.profiler)
+
     def evaluate(self, profile_dict, trace_path=""):
         if not self.compiled: # for backward compatibility
             self.compile()
         self.remove_dangling_nodes()
 
-        profile_raw = ''
-        for (name, nreplica), times in profile_dict.items():
-            profile_raw += ' '.join([name, str(nreplica), *map(str, times)]) + '\n'
-        profile_raw = profile_raw.encode('ascii')
         trace_path = trace_path.encode('ascii')
         memory = (ctypes.c_uint64 * len(self.devices))(*(0 for x in self.devices))
-
-        result = libtge.evaluate(self.target, profile_raw, len(profile_raw), trace_path, len(trace_path), memory)
+        self._create_profiler(profile_dict)
+        result = libtge.evaluate(self.target, self.profiler, trace_path, len(trace_path), memory)
         self.target = None # evaluator now takes the ownership of target
 
         return result, list(memory)
@@ -162,6 +180,15 @@ class TGE:
             libtge.reset_graph(self.graph)
         libtge.edit_graph(self.graph, self.target, strategy_raw, len(strategy_raw))
         self.edited = True
+
+    def _create_profiler(self, profile_dict):
+        profile_raw = ''
+        for (name, nreplica), times in profile_dict.items():
+            profile_raw += ' '.join([name, str(nreplica), *map(str, times)]) + '\n'
+        profile_raw = profile_raw.encode('ascii')
+        if self.profiler is not None:
+            libtge.destroy_profiler(self.profiler)
+        self.profiler = libtge.create_profiler(profile_raw, len(profile_raw))
 
     @chain
     def remove_collocation_hint(self):

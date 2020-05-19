@@ -9,6 +9,7 @@ use std::hint::unreachable_unchecked;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::hash::Hash;
+use crate::misc::Target;
 
 #[derive(Default)]
 pub struct CollectiveState {
@@ -945,25 +946,6 @@ impl Tensor {
             target.pb.node.push(reshape);
             ret
         }).collect()
-    }
-}
-
-pub struct Target {
-    pub pb: GraphDef,
-    pub devices: Box<[String]>,
-    pub links: Box<[u64]>, // the bandwidth of each link
-    pub paths: Box<[Box<[usize]>]>, // the i*n+j element is the links that i->j uses (currently only one path between each pair)
-    pub sinks: Box<[String]>, // sink nodes
-    pub nccls: BTreeMap<String, [f64; 4]> // the key is a comma separated sorted list of device names, the values are [coef1, interc1, coef2, interc2]. The model is time = max( coef1 * size + interc1, coef2 * size + interc2 ). The size unit is KB.
-}
-
-impl Target {
-    pub fn new(pb: GraphDef, devices: Box<[String]>, links: Box<[u64]>, paths: Box<[Box<[usize]>]>, sinks: Box<[String]>, nccls: BTreeMap<String, [f64; 4]>) -> Self {
-        Target { pb, devices, links, paths, sinks, nccls }
-    }
-
-    pub fn ndev(&self) -> usize {
-        self.devices.len()
     }
 }
 

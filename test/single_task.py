@@ -143,8 +143,8 @@ for nrep in (1, 2, 3, 4,):# 6, 8, 12):
     for node in gdef.node:
         prof_dict[(node.name, nrep)] = [ p.profile(node.name, device) for device in devices ]
 
-from profiler import NcclProfiler
-nccl_model = NcclProfiler(devices, server.target).profile()
+# from profiler import NcclProfiler
+# nccl_model = NcclProfiler(devices, server.target).profile()
 
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
@@ -153,7 +153,7 @@ g = (tge.TGE(gdef, devices)
     .use_collective()
     # .verbose()
     .set_bandwidth(intra=2810, inter=2810)
-    .set_nccl_model(nccl_model)
+    # .set_nccl_model(nccl_model)
     .evaluate(prof_dict, "simulated.json")
 )
 
