@@ -43,15 +43,31 @@ pub fn heft(target: &mut Target, profiler: &impl Profiler) {
 
         let device_id = device_dict[&target.pb.node[i].device];
         let time = succs[i].iter().map(|&j| ranks[j].unwrap()).max().unwrap_or(0) +
-                   profiler.profile(&target.pb.node[i], device_id).unwrap_or(0);
+                   profiler.profile(&target.pb.node[i], device_id).unwrap_or(0) +
+                   1; // additional rank to prevent ties on zero-time op which may cause dead locks
         ranks[i] = Some(time)
     }
 
-    for (node, rank) in target.pb.node.iter().zip(ranks) {
-        info!("{}: {}", node.name, rank.unwrap())
+    // for (node, rank) in target.pb.node.iter().zip(ranks.iter()) {
+    //     info!("{}: {}", node.name, rank.unwrap())
+    // }
+
+    let non_dangling_nodes = mark_non_dangling_nodes(target);
+
+    for dev in target.devices.iter() {
+        let mut list: Vec<_> = (0..name_dict.len()).filter(|&i| {
+            let node = &target.pb.node[i];
+            non_dangling_nodes.contains(&node.name) && *dev == node.device
+        }).collect();
+
+        list.sort_unstable_by_key(|&x| ranks[x].unwrap());
+        for window in list.windows(2) {
+            let dep = format!("^{}", target.pb.node[window[0]].name);
+            target.pb.node[window[1]].input.push(dep)
+            // TODO: don't add unnecessary dependencies by depth-first search
+            // TODO: take care of ties?
+        }
     }
-
-
 }
 
 fn parse_input(x: &str) -> (&str, usize) {
@@ -61,7 +77,7 @@ fn parse_input(x: &str) -> (&str, usize) {
     }
 }
 
-pub fn mark_non_dangling_nodes(target: &Target) -> Box<[String]> {
+pub fn mark_non_dangling_nodes(target: &Target) -> std::collections::HashSet<String> {
     let sinks: Vec<_> = target.sinks.iter().map(|x| format!("{}/replica_0", x)).collect();
 
     // note: don't forget control dependency
@@ -85,5 +101,5 @@ pub fn mark_non_dangling_nodes(target: &Target) -> Box<[String]> {
         }
     }
 
-    keep.into_iter().collect()
+    keep
 }

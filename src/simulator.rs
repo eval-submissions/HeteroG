@@ -223,7 +223,12 @@ impl Simulator for SimpleSimulator {
 
                 // remove used tensorbufs
                 for in_tensor in &tasks[id].in_tensors {
-                    let (size, ref_count, _) = tensorbufs.get_mut(in_tensor).expect("bug in memory tracking: use freed tensor");
+                    let tensor_buf = tensorbufs.get_mut(in_tensor);
+                    if tensor_buf.is_none() {
+                        warn!("bug in memory tracking: use freed tensor {:?}", in_tensor);
+                        continue
+                    }
+                    let (size, ref_count, _) = tensor_buf.unwrap();
                     if *ref_count == 1 { // free
                         current_memory[in_tensor.2] -= *size;
                         debug!("memory of {}:{} {} {} -{} {}", nodes[in_tensor.0].name, in_tensor.1, in_tensor.2, time, *size, current_memory[in_tensor.2]);
@@ -235,6 +240,11 @@ impl Simulator for SimpleSimulator {
 
                 // activate generated tensorbufs
                 for out_tensor in &tasks[id].out_tensors {
+                    let tensor_buf = tensorbufs.get_mut(out_tensor);
+                    if tensor_buf.is_none() {
+                        warn!("bug in memory tracking: use freed tensor {:?}", out_tensor);
+                        continue
+                    }
                     let (size, _, activated) = tensorbufs.get_mut(out_tensor).expect("bug in memory tracking: use freed tensor");
                     if !*activated { // it might already be activated since we allow transfer to the same device
                         *activated = true;
