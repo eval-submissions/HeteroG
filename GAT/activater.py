@@ -12,6 +12,7 @@ from tensorflow.python.client import timeline
 from tensorflow.distribute.cluster_resolver import TFConfigClusterResolver
 sys.path.append('../')
 import multiprocessing as mp
+arg_prefix=sys.argv[1]
 
 config_dict =dict()
 if os.path.exists("activate_config.txt"):
@@ -92,16 +93,16 @@ class Activater():
         avg_time = sum(times)/len(times)
         print(path,times,"average time:", avg_time)
         print(" ")
-
-        for i in range(10):
-            run_meta = tf.RunMetadata()
-            run_opt = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE, output_partition_graphs=True)
-            sess.run(opt, feed_dict=input_dict,
-                     options=run_opt,
-                     run_metadata=run_meta
-                     )
-            tf.contrib.tfprof.model_analyzer.print_model_analysis(tf.get_default_graph(),run_meta=run_meta,tfprof_options =tf.contrib.tfprof.model_analyzer.PRINT_ALL_TIMING_MEMORY)
-        tl = timeline.Timeline(run_meta.step_stats)
+        if arg_prefix=="profile":
+            for i in range(10):
+                run_meta = tf.RunMetadata()
+                run_opt = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE, output_partition_graphs=True)
+                sess.run(opt, feed_dict=input_dict,
+                         options=run_opt,
+                         run_metadata=run_meta
+                         )
+                tf.contrib.tfprof.model_analyzer.print_model_analysis(tf.get_default_graph(),run_meta=run_meta,tfprof_options =tf.contrib.tfprof.model_analyzer.PRINT_ALL_TIMING_MEMORY)
+            tl = timeline.Timeline(run_meta.step_stats)
 
         with open(path.split(".")[0] + "_timeline.json", "w") as fo:
             fo.write(tl.generate_chrome_trace_format())
