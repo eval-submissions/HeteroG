@@ -88,12 +88,16 @@ import tge
 
 strategy = { node.name: [1, 2, 1] for node in gdef.node }
 
+import pickle
+prof_dict = pickle.load(open("dump", 'rb'))
+
 g = (tge.TGE(gdef, devices)
     .custom(strategy)
     .replace_placeholder(BATCHSIZE)
     .use_collective()
     # .verbose()
     .compile()
+    .heft(prof_dict)
     .get_result()
 )
 
@@ -143,6 +147,9 @@ for nrep in (1, 2, 3, 4,):# 6, 8, 12):
     for node in gdef.node:
         prof_dict[(node.name, nrep)] = [ p.profile(node.name, device) for device in devices ]
 
+# import pickle
+# pickle.dump(prof_dict, open("dump", 'wb'))
+
 # from profiler import NcclProfiler
 # nccl_model = NcclProfiler(devices, server.target).profile()
 
@@ -153,6 +160,7 @@ g = (tge.TGE(gdef, devices)
     .use_collective()
     # .verbose()
     .set_bandwidth(intra=2810, inter=2810)
+    .heft(prof_dict)
     # .set_nccl_model(nccl_model)
     .evaluate(prof_dict, "simulated.json")
 )

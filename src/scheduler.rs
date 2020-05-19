@@ -12,5 +12,78 @@ use crate::proto::tensor::TensorProto;
 use crate::simulator::{GRPC_LATENCY, FALLBACK_NCCL_MODEL};
 
 pub fn heft(target: &mut Target, profiler: &impl Profiler) {
+    let name_dict: BTreeMap<String, usize> = target.pb.node.iter().enumerate().map(|(i, x)| (x.name.clone(), i)).collect();
+    let device_dict: BTreeMap<&String, usize> = target.devices.iter().enumerate().map(|(i, x)| (x, i)).collect();
+    let mut ranks = vec![Option::<u64>::None; name_dict.len()];
+    let mut succs = vec![BTreeSet::<usize>::new(); name_dict.len()];
 
+    for (node, succ) in target.pb.node.iter().zip(succs.iter_mut()) {
+        for input in node.input.iter() {
+            let input = if input.starts_with('^') {
+                &input[1..]
+            } else {
+                parse_input(input).0
+            };
+
+            succ.insert(name_dict[input]);
+        }
+    }
+
+    let mut stack: Vec<_> = (0..name_dict.len()).collect();
+    while let Some(i) = stack.pop() {
+        if ranks[i].is_some() {
+            continue
+        }
+
+        if succs[i].iter().any(|&j| ranks[j].is_none()) {
+            stack.push(i);
+            stack.extend(succs[i].iter());
+            continue
+        }
+
+        let device_id = device_dict[&target.pb.node[i].device];
+        let time = succs[i].iter().map(|&j| ranks[j].unwrap()).max().unwrap_or(0) +
+                   profiler.profile(&target.pb.node[i], device_id).unwrap_or(0);
+        ranks[i] = Some(time)
+    }
+
+    for (node, rank) in target.pb.node.iter().zip(ranks) {
+        info!("{}: {}", node.name, rank.unwrap())
+    }
+
+
+}
+
+fn parse_input(x: &str) -> (&str, usize) {
+    match x.find(':') {
+        Some(i) => (&x[..i], x[i+1..].parse().unwrap()),
+        None => (x, 0)
+    }
+}
+
+pub fn mark_non_dangling_nodes(target: &Target) -> Box<[String]> {
+    let sinks: Vec<_> = target.sinks.iter().map(|x| format!("{}/replica_0", x)).collect();
+
+    // note: don't forget control dependency
+    let dict: std::collections::HashMap<_, Vec<_>> = target.pb.node.iter().map(|node| {
+        (&node.name[..], node.input.iter().map(|x| {
+            if x.starts_with('^') {
+                return &x[1..]
+            }
+            match x.find(':') {
+                Some(i) => &x[..i],
+                None => x
+            }
+        }).collect())
+    }).collect();
+    let mut keep = std::collections::HashSet::new();
+    let mut queue: std::collections::VecDeque<_> = sinks.iter().map(|x| &x[..]).collect();
+
+    while let Some(x) = queue.pop_front() {
+        if keep.insert(x.to_string()) {
+            queue.extend(&dict[x]);
+        }
+    }
+
+    keep.into_iter().collect()
 }

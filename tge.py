@@ -128,10 +128,9 @@ class TGE:
     def heft(self, profile_dict):
         if not self.compiled:
             self.compile()
-        self.remove_dangling_nodes()
 
         self._create_profiler(profile_dict)
-        libtge.evaluate(self.target, self.profiler)
+        libtge.heft(self.target, self.profiler)
 
     def evaluate(self, profile_dict, trace_path=""):
         if not self.compiled: # for backward compatibility
