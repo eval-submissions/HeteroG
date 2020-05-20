@@ -125,28 +125,35 @@ sample_prob = 0.7
 d_model= 512
 
 def post_process_device_choice(device_choice,batch_size):
-    def post_func1(item):
-        item1 = list(item[:len(item) - 1])
-        batch_size = item[-1]
-        if sum(item1) == 0:
-            item1[0] = 1
-            return item1
-        while sum(item1) > batch_size:
-            index = item1.index(max(item1))
-            item1[index] -= 1
-        while batch_size % sum(item1):
-            index = item1.index(max(item1))
-            item1[index] -= 1
-        return np.array(item1)
-    #post process and align to batch size
-    new_batch_size=np.ones(shape=(device_choice.shape[0],1)) * batch_size
-    device_choice=np.array(list(map(post_func1,np.concatenate((device_choice,new_batch_size),axis=1))),dtype=np.int32)
+    print("before process")
+    print(device_choice)
+    new_device_choice = np.zeros(shape=(device_choice.shape[0],len(devices),),dtype=np.int32)
+    mask = np.zeros(shape=(device_choice.shape[0],),dtype=np.int32)
+    for i in range(device_choice.shape[0]):
+        index = device_choice[i]
+        if index<len(devices):
+            new_device_choice[i][index]=1
+        elif index==len(devices):
+            new_device_choice[i][0:] = 1
+            mask[i] =1
+        else:
+            new_device_choice[i][0:] = 1
+            new_device_choice[i][0] =2
+            new_device_choice[i][1] =2
+            mask[i] = 1
 
-    replica_mask = np.zeros(shape=(device_choice.shape[0],device_choice.shape[1]*(max_replica_num+1)),dtype=np.int32)
-    for i,item in enumerate(device_choice):
-        for j,num in enumerate(item):
-            replica_mask[i][j*(max_replica_num+1)+num]=1
-    return device_choice,replica_mask
+    print("after process")
+    print(new_device_choice)
+    return new_device_choice,mask
+
+def generate_mask(device_choice):
+    mask = np.zeros(shape=(device_choice.shape[0],),dtype=np.int32)
+    for i in range(device_choice.shape[0]):
+        if sum(device_choice[i])!=1:
+            mask[i] = 1
+    return mask
+
+
 
 
 class strategy_pool(object):
@@ -175,93 +182,84 @@ class strategy_pool(object):
         # even data parallel 1
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
         if True:
-            group = np.array(self.init_group)
-            device_choice = np.ones(shape=(self.init_group_num, len(devices)), dtype=np.int32)*2
-
-            device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
-            ps_or_reduce = np.ones(shape=(self.init_group_num, ), dtype=np.int32)
-            reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="full_nccl_dp_graph.pbtxt",record_best=False,from_strategy_pool=True)
-            if not out_of_memory:
-                self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
-
-
-            group = np.array(self.init_group)
-            device_choice = np.ones(shape=(self.init_group_num, len(devices)), dtype=np.int32)
-            for item in device_choice:
-                item[0]=2
-                item[1]=2
-            device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
-            ps_or_reduce = np.ones(shape=(self.init_group_num, ), dtype=np.int32)
-            reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="partial_nccl_dp_graph.pbtxt",record_best=False,from_strategy_pool=True)
-            if not out_of_memory:
-                self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
-
-
             # even data parallel 2
             #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
 
             group = np.array(self.init_group)
             device_choice = np.ones(shape=(self.init_group_num, len(devices)), dtype=np.int32)
-
-            device_choice,replica_mask = post_process_device_choice(device_choice,self.batch_size)
+            mask = generate_mask(device_choice)
             ps_or_reduce = np.ones(shape=(self.init_group_num, ), dtype=np.int32)
             reward,out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict,self.sink,group,record=True,record_name="nccl_dp_graph.pbtxt",record_best=False,from_strategy_pool=True)
             if not out_of_memory:
-                self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
+                self.insert(reward, device_choice, mask,ps_or_reduce,group,force_insert=True)
+
+            group = np.array(self.init_group)
+            device_choice = np.ones(shape=(self.init_group_num, len(devices)), dtype=np.int32)
+            for i,item in enumerate(device_choice):
+                item[0] = 2
+                item[1] = 2
+            mask = generate_mask(device_choice)
+            ps_or_reduce = np.ones(shape=(self.init_group_num,), dtype=np.int32)
+            reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink,
+                                                         group, record=True, record_name="partial_nccl_dp_graph.pbtxt",
+                                                         record_best=False, from_strategy_pool=True)
+            if not out_of_memory:
+                self.insert(reward, device_choice, mask, ps_or_reduce, group, force_insert=True)
 
         #    self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
             group = np.array(self.init_group)
             device_choice = np.ones(shape=(self.init_group_num, len(devices)), dtype=np.int32)
-
-            device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
+            mask = generate_mask(device_choice)
             ps_or_reduce = np.zeros(shape=(self.init_group_num,), dtype=np.int32)
             reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group,
                                                          record=True, record_name="grpc_dp_graph.pbtxt", record_best=False,
                                                          from_strategy_pool=True)
             if not out_of_memory:
-                self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
+                self.insert(reward, device_choice, mask,ps_or_reduce,group,force_insert=True)
 
             #    self.insert(reward, device_choice, replica_mask,ps_or_reduce,group)
 
 
             group = np.array(self.init_group)
             device_choice = np.array([np.arange(len(devices))%1 for i in range(self.init_group_num)])
+            for i,item in enumerate(device_choice):
+                item[0]=1
+            mask = generate_mask(device_choice)
 
-            device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
             ps_or_reduce = np.ones(shape=(self.init_group_num,), dtype=np.int32)
             reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group,
                                                          record=True, record_name="single_graph.pbtxt",
                                                          record_best=False, from_strategy_pool=True)
             if not out_of_memory:
-                self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
+                self.insert(reward, device_choice, mask,ps_or_reduce,group,force_insert=True)
 
             group = np.array(self.init_group)
             device_choice = np.array([np.arange(len(devices))%1 for i in range(self.init_group_num)])
             for i,item in enumerate(device_choice):
                 item[i%len(devices)]=1
+            mask = generate_mask(device_choice)
 
-            device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
             ps_or_reduce = np.ones(shape=(self.init_group_num,), dtype=np.int32)
             reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group,
                                                          record=True, record_name="model_parallel_graph.pbtxt",
                                                          record_best=False, from_strategy_pool=True)
             if not out_of_memory:
-                self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
+                self.insert(reward, device_choice, mask,ps_or_reduce,group,force_insert=True)
 
 
             group = np.array(self.init_group)
             device_choice = np.array([np.arange(len(devices))%1 for i in range(self.init_group_num)])
             for i,item in enumerate(device_choice):
                 item[i//math.ceil(len(device_choice)/len(devices))]=1
+            mask = generate_mask(device_choice)
 
-            device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
             ps_or_reduce = np.ones(shape=(self.init_group_num,), dtype=np.int32)
             reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink, group,
                                                          record=True, record_name="model_parallel2_graph.pbtxt",
                                                          record_best=False, from_strategy_pool=True)
             if not out_of_memory:
-                self.insert(reward, device_choice, replica_mask,ps_or_reduce,group,force_insert=True)
+                self.insert(reward, device_choice, mask,ps_or_reduce,group,force_insert=True)
 
 
     def get_length(self):
@@ -433,7 +431,7 @@ class Environment(object):
         time = float(time)/(10**3)
 
         if any(np.array(mem_list) > np.array(device_mems)):
-            time = time*10
+            time = time*100
             out_of_memory=True
         #reward = np.sum(strategy*strategy)
 
@@ -587,7 +585,7 @@ class Graph_item():
     def sample(self,epoch):
 
         global sample_prob
-        sample_prob = min(1+0.1*(epoch//60),1)
+        sample_prob = min(0.8+0.1*(epoch//60),0.8)
 
         print("[{}] sample_prob = {}".format(self.folder_path, sample_prob))
 
@@ -630,47 +628,36 @@ class Graph_item():
             choice1 = np.argmax(item)
             return choice1
         ti = time.time()
-        output = self.outputs[0:len(devices)]
-        device_choice = np.zeros(shape=(len(output),output[0].shape[0]))
+        output = self.outputs[0]
+        device_choice = np.zeros(shape=(output.shape[0]),dtype=np.int32)
         if i == sample_times:
             #device_choice = np.array(list(map(argmax_func1, output)))
             for j in range(device_choice.shape[0]):
-                for k in range(device_choice.shape[1]):
-                    device_choice[j][k] = argmax_choice(output[j][k])
+                    device_choice[j] = argmax_choice(output[j])
             print(self.folder_path, "argmax_choice0:", time.time() - ti)
         else:
             np.random.seed()
             sample_or_not = True if np.random.choice(2, p=[sample_prob,1-sample_prob])==0 else False
-            if sample_or_not:
-                #device_choice = np.array(list(map(sample_func1, output)))
-                for j in range(device_choice.shape[0]):
-                    for k in range(device_choice.shape[1]):
-                        device_choice[j][k] = sample_choice(output[j][k])
-                print(self.folder_path, "sample_choice0:", time.time() - ti)
-
-            else:
-                #device_choice = np.array(list(map(random_func1, output)))
-                #for j in range(device_choice.shape[0]):
-                #    for k in range(device_choice.shape[1]):
-                #        device_choice[j][k] = random_choice(output[j][k])
-                device_choice = np.random.randint(0, output[0].shape[1], size=device_choice.shape)
+            for j in range(device_choice.shape[0]):
+                device_choice[j] = sample_choice(output[j])
+            if not sample_or_not:
+                device_choice[np.random.randint(0,device_choice.shape[0],size=(10,))] = np.random.randint(0, output.shape[1], size=(10,))
                 print(self.folder_path, "random_choice0:", time.time() - ti)
 
         print(self.folder_path,device_choice.shape)
 
         ti = time.time()
-        device_choice = np.transpose(device_choice)  # from shape[device_num , group_num] to [group_num, device_num]
         device_choice, replica_mask = post_process_device_choice(device_choice, self.batch_size)
         print(self.folder_path,"time1:",time.time()-ti)
         ti = time.time()
         if i == sample_times:
-            ps_or_reduce = np.array(list(map(argmax_choice, self.outputs[len(devices)])))
+            ps_or_reduce = np.array(list(map(argmax_choice, self.outputs[1])))
         else:
-            if sample_or_not:
-                ps_or_reduce = np.array(list(map(sample_choice, self.outputs[len(devices)])))
-            else:
+            ps_or_reduce = np.array(list(map(sample_choice, self.outputs[1])))
+
+            if not sample_or_not:
                 #ps_or_reduce = np.array(list(map(random_choice, self.outputs[len(devices)])))
-                ps_or_reduce = np.random.randint(0, 2, size=(self.outputs[len(devices)].shape[0],))
+                ps_or_reduce[np.random.randint(0,ps_or_reduce.shape[0],size=(10,))] = np.random.randint(0, 2,size=(10,))
         # ps_or_reduce = self.outputs[max_replica_num]
         # group =  np.array(list(map(random_func1,self.outputs[-1])))
         group = np.array(self.init_group)
@@ -728,6 +715,7 @@ class Graph_item():
                             bias_in=self.biases,
                             nb_nodes=self.nb_nodes,
                             sample_ps_or_reduce = np.array(self.ps_or_reduces[index]),
+                            ps_mask=np.array(self.replica_masks[index]),
                             sample_device_choice = np.array(self.device_choices[index]),
                             time_ratio = 0.1*self.avg/self.rewards[index],
                             coef_entropy=self.co_entropy,
@@ -774,6 +762,7 @@ class Graph_item():
                             bias_in=self.biases,
                             nb_nodes=self.nb_nodes,
                             sample_ps_or_reduce = np.array(pool_strategy["ps_or_reduce"]),
+                            ps_mask=np.array(pool_strategy["replica_mask"]),
                             sample_device_choice = np.array(pool_strategy["device_choice"]),
                             time_ratio = 0.1*self.avg/pool_strategy["reward"],
                             coef_entropy=self.co_entropy,
@@ -803,6 +792,8 @@ class Graph_item():
                     average_gradient[j] += gradient[j]
         for j in range(0, len(average_gradient)):
             average_gradient[j] = average_gradient[j] / len(tmp_gradients)
+        #print("average gradient")
+        #print(average_gradient)
         return average_gradient
     def train(self,epoch):
 
@@ -898,7 +889,9 @@ class new_place_GNN():
             self.is_train = tf.placeholder(dtype=tf.bool, shape=(),name="is_train")
             self.init_group = tf.placeholder(dtype=tf.int32, shape=(None,),name="init_group")
             self.sample_ps_or_reduce = tf.placeholder(dtype=tf.int32, shape=(None,),name="sample_ps_or_reduce")
-            self.sample_device_choice = tf.placeholder(dtype=tf.int32, shape=(None,len(devices),),name="sample_device_choice")
+            self.ps_mask = tf.placeholder(dtype=tf.int32, shape=(None,),name="ps_mask")
+
+            self.sample_device_choice = tf.placeholder(dtype=tf.int32, shape=(None,),name="sample_device_choice")
             self.previous_device_choices = tf.placeholder(dtype=tf.float32, shape=(len(devices),None,max_replica_num+1),name="previous_device_choices")
             self.time_ratio = tf.placeholder(dtype=tf.float32, shape=(),name="time_ratio")
             self.coef_entropy = tf.placeholder(dtype=tf.float32, shape=(),name="coef_entropy")
@@ -945,16 +938,16 @@ class new_place_GNN():
             output = tf.reshape(output, [-1,d_model])
             #output = output[:,:(max_replica_num+1)*(len(devices))+2]
 
-            output = tf.layers.dense(output,(max_replica_num+1)*(len(devices))+2)
+            output = tf.layers.dense(output,len(devices)+2+2)
 
             sum = 0
-            for i in range(0,len(devices)):
-                oi = tf.nn.softmax(output[:,i*(max_replica_num+1):(i+1)*(max_replica_num+1)])
-                self.device_choices.append(oi)
-                #log_oi = tf.nn.log_softmax(output[:,i*(max_replica_num+1):(i+1)*(max_replica_num+1)])
-                log_oi = tf.log(oi+10e-8)
-                self.log_device_choices.append(log_oi)
-                sum = sum + tf.reduce_sum((log_oi* oi))
+
+            oi = tf.nn.softmax(output[:,:len(devices)+2])
+            self.device_choices = oi
+            #log_oi = tf.nn.log_softmax(output[:,i*(max_replica_num+1):(i+1)*(max_replica_num+1)])
+            log_oi = tf.log(oi+10e-8)
+            self.log_device_choices =log_oi
+            sum = sum + tf.reduce_sum((log_oi* oi))
             ps_or_reduce_prob = tf.nn.softmax(output[:,-2:])
             self.ps_or_reduce = ps_or_reduce_prob
             #self.log_ps_reduce = tf.nn.log_softmax(output[:,-2:])
@@ -963,33 +956,26 @@ class new_place_GNN():
             self.entropy = -(tf.reduce_sum(self.entropy) + sum )
 
             _range = tf.range(tf.shape(self.sample_ps_or_reduce)[0])[:, tf.newaxis]
-            kl = 0
-            KLDivergence = tf.keras.losses.KLDivergence()
-            for k in range(0,len(devices)):
-                kl+=KLDivergence(self.device_choices[i],self.previous_device_choices[i])
-            self.place_kl = kl
+
 
             self.place_reward = []
 
             indices = tf.concat((_range, self.sample_ps_or_reduce[:, tf.newaxis]), axis=1)
             log_prob = tf.gather_nd(self.log_ps_reduce, indices)
             #log_prob = tf.gather(log_prob,unique_group)
+            log_prob = tf.boolean_mask(log_prob,self.ps_mask)
             self.place_reward.append(tf.reduce_sum(log_prob )* self.time_ratio)
 
+            indices = tf.concat((_range, self.sample_device_choice[:, tf.newaxis]), axis=1)
+            log_prob = tf.gather_nd(self.log_device_choices, indices)
+            #log_prob = tf.gather(log_prob,unique_group)
+            self.place_reward.append(tf.reduce_sum(log_prob )* self.time_ratio)
 
-            #rest device choice n*(m+1)
-            for j in range(0,len(devices)):
-                indices = tf.concat((_range, self.sample_device_choice[:, j][:, tf.newaxis]), axis=1)
-                log_prob = tf.gather_nd(self.log_device_choices[j], indices)
-                self.before_log_prob =self.log_device_choices[j]
-                self.indices = indices
-                self.log_prob = log_prob
-                self.place_reward.append(tf.reduce_sum(log_prob) * self.time_ratio)
             self.place_reward = tf.add_n(self.place_reward)
 
         place_reward =  self.place_reward+self.coef_entropy * self.entropy
         #self.loss = -reward
-        self.place_loss = -place_reward*10
+        self.place_loss = -place_reward
         self.network_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='place_nn')
 
         self.loss_l2 = tf.add_n([tf.nn.l2_loss(v) for v in self.network_params if v.name not in ['bias', 'gamma', 'b', 'g', 'beta']]) * l2_coef
@@ -1000,7 +986,20 @@ class new_place_GNN():
         #self.train_place_op,self.loss_l2 = model.training(self.place_loss,self.place_lr , l2_coef,vars=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='place_nn'))
 
 
-    def get_gradients(self,ftr_in,bias_in,nb_nodes,sample_ps_or_reduce,sample_device_choice,time_ratio,coef_entropy,mems,init_group,place_lr):
+    def get_gradients(self,ftr_in,bias_in,nb_nodes,sample_ps_or_reduce,ps_mask,sample_device_choice,time_ratio,coef_entropy,mems,init_group,place_lr):
+
+
+        device_choice = np.zeros(shape=(sample_device_choice.shape[0],),dtype=np.int32)
+        for i in range(sample_device_choice.shape[0]):
+            the_sum =sum(sample_device_choice[i])
+            if the_sum==1:
+                device_choice[i] = np.argmax(sample_device_choice[i])
+            elif the_sum==len(devices):
+                device_choice[i] = len(sample_device_choice[i])
+            else:
+                device_choice[i] = len(sample_device_choice[i])+1
+
+        print(device_choice)
         feed_dict = {}
         feed_dict[self.ftr_in]=ftr_in
         feed_dict[self.bias_in]=bias_in
@@ -1009,10 +1008,10 @@ class new_place_GNN():
         feed_dict[self.attn_drop]=0.1
         feed_dict[self.ffd_drop]=0.1
         feed_dict[self.sample_ps_or_reduce]=sample_ps_or_reduce
-        feed_dict[self.sample_device_choice]=sample_device_choice
+        feed_dict[self.ps_mask] = ps_mask
+        feed_dict[self.sample_device_choice]=device_choice
         feed_dict[self.time_ratio]=time_ratio
         feed_dict[self.coef_entropy]=coef_entropy
-        feed_dict[self.previous_device_choices]=self.previous_outputs[:len(devices)]
         feed_dict[self.train_place] = True
 
 
@@ -1023,15 +1022,21 @@ class new_place_GNN():
         for item1,item2 in zip(self.mems,mems):
             feed_dict[item1]=item2
 
-        fetch_list =[item for item in self.device_choices]
-        fetch_list.extend([self.place_reward,self.loss_l2,self.before_log_prob,self.entropy,self.place_loss,self.new_mems,self.net_gradients])
+        fetch_list =[self.device_choices]
+        fetch_list.extend([self.place_reward,self.loss_l2,self.entropy,self.place_loss,self.new_mems,self.net_gradients])
 
         outputs= self.sess.run(fetch_list,
                      feed_dict=feed_dict)
 
-        place_reward,l2_loss,before_log_prob, entropy, loss, mems, gradients = outputs[len(devices):]
+        device_choices,place_reward,l2_loss, entropy, loss, mems, gradients = outputs
         #logger.debug("previous_outputs:{}".format(self.previous_outputs[:len(devices)]))
-
+        for gradient in gradients:
+            if np.isnan(gradient).any():
+                print("gradient")
+                print(gradient)
+                print("place loss")
+                print(loss)
+                assert (1==2)
         return -place_reward,l2_loss,loss,mems,entropy,gradients
 
     def apply_gradients(self,gradients,place_lr):
@@ -1040,45 +1045,10 @@ class new_place_GNN():
         _= self.sess.run(self.apply_grad,
                      feed_dict=feed_dict)
 
-    def learn_place(self,ftr_in,bias_in,nb_nodes,sample_ps_or_reduce,sample_device_choice,time_ratio,coef_entropy,mems,init_group,place_lr):
-        feed_dict = {}
-        feed_dict[self.ftr_in]=ftr_in
-        feed_dict[self.bias_in]=bias_in
-        feed_dict[self.nb_node]=nb_nodes
-        feed_dict[self.is_train]=True
-        feed_dict[self.attn_drop]=0.1
-        feed_dict[self.ffd_drop]=0.1
-        feed_dict[self.sample_ps_or_reduce]=sample_ps_or_reduce
-        feed_dict[self.sample_device_choice]=sample_device_choice
-        feed_dict[self.time_ratio]=time_ratio
-        feed_dict[self.coef_entropy]=coef_entropy
-        feed_dict[self.previous_device_choices]=self.previous_outputs[:len(devices)]
-        feed_dict[self.train_place] = True
-
-
-        feed_dict[self.place_lr]=place_lr
-
-        feed_dict[self.init_group]=init_group
-
-        for item1,item2 in zip(self.mems,mems):
-            feed_dict[item1]=item2
-
-
-        fetch_list =[item for item in self.device_choices]
-        fetch_list.extend([self.place_reward,self.loss_l2,self.before_log_prob,self.entropy,self.unique_group,self.log_device_choices[0],self.log_prob,self.indices,self.place_loss,self.new_mems,self.train_place_op])
-
-        outputs= self.sess.run(fetch_list,
-                     feed_dict=feed_dict)
-        self.previous_outputs = outputs
-
-        place_reward,l2_loss,before_log_prob, entropy, unique, log_device_choices, log_prob, indices, loss, mems, _ = outputs[len(devices):]
-        #logger.debug("previous_outputs:{}".format(self.previous_outputs[:len(devices)]))
-
-        return -place_reward,l2_loss,loss,mems,entropy
 
 
     def get_replica_num_prob(self,ftr_in,bias_in,nb_nodes,mems,init_group):
-        fetch_list =[item for item in self.device_choices]
+        fetch_list =[self.device_choices]
         fetch_list.append(self.ps_or_reduce)
         fetch_list.append(self.logits_before)
         fetch_list.append(self.logits)

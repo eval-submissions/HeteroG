@@ -42,7 +42,7 @@ for strategy,counter in counter_dict.items():
 
 
 #top 100 operation details
-sorted_tuple = sorted_tuple[:100]
+#sorted_tuple = sorted_tuple[:100]
 for item in sorted_tuple:
     name = item[1]
     cost = name_cost_dict[name]
