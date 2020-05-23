@@ -246,6 +246,8 @@ class strategy_pool(object):
                                                          record_best=False, from_strategy_pool=True)
             if not out_of_memory:
                 self.insert(reward, device_choice, mask,ps_or_reduce,group,force_insert=True)
+            else:
+                print(self.folder_path,"model_parallel oom")
 
 
             group = np.array(self.init_group)
@@ -260,7 +262,8 @@ class strategy_pool(object):
                                                          record_best=False, from_strategy_pool=True)
             if not out_of_memory:
                 self.insert(reward, device_choice, mask,ps_or_reduce,group,force_insert=True)
-
+            else:
+                print(self.folder_path,"model_parallel2 oom")
 
     def get_length(self):
         return len(self.strategies)
@@ -431,7 +434,7 @@ class Environment(object):
         time = float(time)/(10**3)
 
         if any(np.array(mem_list) > np.array(device_mems)):
-            time = time*100
+            time = time*1000
             out_of_memory=True
         #reward = np.sum(strategy*strategy)
 
@@ -458,6 +461,8 @@ class Environment(object):
             record_graph_def = tge.TGE(copy.deepcopy(self.null_gdef), self.devices, self.sink).custom(strategy).replace_placeholder(self.batch_size).use_collective().compile().get_result()
             with open(self.folder_path+"/"+record_name, "w") as f:
                 f.write(pbtf.MessageToString(record_graph_def))
+            with open(self.folder_path+"/"+record_name+"_strategy.json","w") as f:
+                json.dump(strategy,f)
 
         return -np.float32(np.sqrt(time)),out_of_memory
 

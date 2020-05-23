@@ -128,8 +128,6 @@ else:
 test_results = []
 title = ["graph"]
 for index,prefix in enumerate(prefixs):
-    if not os.path.exists(prefix+"/best_time.log"):
-        continue
     env = Environment(prefix+"/graph.pbtxt",prefix+"/null_graph.pbtxt",devices,prefix)
     dataset = load_cora(prefix,NewWhiteSpaceTokenizer())
     index_id_dict = dataset.network.get_indexer(N_TYPE_NODE).index_id_dict
@@ -152,15 +150,28 @@ for index,prefix in enumerate(prefixs):
         process_time = env.get_null_reward(arr_strategy,index_id_dict,prefix+"/"+str(_strategy)+"_null.json",str(_strategy)+".pbtxt")
         print(process_time)
         result.append(process_time)
-    with open(prefix+"/best_time.log","r") as f:
-        tmp = json.load(f)
-        strategy = tmp["strategy"]
-        print("best strategy:")
+
+    with open(prefix + "/model_parallel2_graph.pbtxt_strategy.json", "r") as f:
+        strategy = json.load(f)
+        print("model parallel strategy:")
         if index == 0:
-            title.append("best strategy")
+            title.append("model parallel strategy")
         process_time =env.get_null_reward(strategy,index_id_dict,prefix+"/"+"best_strategy_null.json","best_strategy_null.pbtxt",direct=True)
         result.append(process_time)
         print(process_time)
+    if not os.path.exists(prefix+"/best_time.log"):
+        result.append(88888)
+        print(88888)
+    else:
+        with open(prefix+"/best_time.log","r") as f:
+            tmp = json.load(f)
+            strategy = tmp["strategy"]
+            print("best strategy:")
+            if index == 0:
+                title.append("best strategy")
+            process_time =env.get_null_reward(strategy,index_id_dict,prefix+"/"+"best_strategy_null.json","best_strategy_null.pbtxt",direct=True)
+            result.append(process_time)
+            print(process_time)
     result.append((min(result[1:-1])-result[-1])/result[-1])
     test_results.append(result)
 title.append("speedup")
