@@ -40,7 +40,7 @@ devices=config_dict.get("devices", [
 
 workers = config_dict.get("workers", ["10.28.1.26:3901","10.28.1.17:3901","10.28.1.16:3901"])
 
-def setup_workers(workers, protocol="grpc+verbs"):
+def setup_workers(workers, protocol="grpc"):
 
 
     param = '/'.join(server.replace(':', '%3A') for server in workers)
@@ -64,7 +64,7 @@ os.environ["TF_CONFIG"] = json.dumps(clus)
 
 sinks = ["GradientDescent"]
 
-setup_workers(workers, "grpc+verbs")
+setup_workers(workers, "grpc")
 
 resolver = TFConfigClusterResolver()
 cluster = resolver.cluster_spec()
@@ -74,7 +74,7 @@ config = dist.update_config_proto(tf.ConfigProto())
 config.ClearField("device_filters")
 config.allow_soft_placement = True  # log_device_placement=True)
 config.gpu_options.allow_growth = True
-server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc+verbs", config=config)
+server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc", config=config)
 
 
 def model_fn(model_name,batch_size):
