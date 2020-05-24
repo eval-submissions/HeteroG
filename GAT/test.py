@@ -155,7 +155,7 @@ for index,prefix in enumerate(prefixs):
         name_list = [nodedef.name for nodedef in env.null_gdef.node]
         strategy = dict()
         for name in name_list:
-            if "large_variable" in name:
+            if "large_variable" in name or "large_slice" in name:
                 strategy[name] = [1,1,0,0,0,0,0]
             else:
                 strategy[name] = [1,1,1,1,1,1,1]
