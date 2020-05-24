@@ -4,6 +4,7 @@ use crate::proto::{graph::GraphDef, node_def::NodeDef, attr_value::AttrValue, ty
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 use std::convert::TryInto;
+use std::iter::FromIterator;
 use crate::proto::attr_value::AttrValue_ListValue;
 use std::hint::unreachable_unchecked;
 use std::rc::Rc;
@@ -109,7 +110,7 @@ impl Graph {
                 "Placeholder" | "IteratorGetNext" | "Conv2D" | "MaxPool" | "MatMul" | "Conv2DBackpropInput" | "BiasAdd" => {
                     node.get_output(0).set_flag(Tensor::IS_BATCHED);
                 },
-                "Cast" | "ZerosLike" |"GreaterEqual" | "Neg" | "Log1p" | "Exp" |
+                "Cast" | "ZerosLike" |"GreaterEqual" | "Neg" | "Log1p" | "Exp" | "Slice" |
                 "Squeeze" | "Identity" | "Sigmoid" | "LeakyRelu" | "Relu" | "Tanh" => {
                     let (id, index, _) = &node.inputs[0];
                     if node.graph().nodes[*id].get_output(*index).has_flag(Tensor::IS_BATCHED) {
@@ -130,21 +131,34 @@ impl Graph {
             }
         }
 
-        // hack: ensure gradients don't have batch dimension
-        for node in self.nodes.iter_mut() {
-            if node.raw_node.op == "ApplyGradientDescent" {
-                let (id, index, _) = &node.inputs[2];
-                node.graph().nodes[*id].get_output(*index).unset_flag(Tensor::IS_BATCHED)
+        // hacks
+        for (node_id, node) in self.nodes.iter_mut().enumerate() {
+            match &node.raw_node.op[..] {
+                "ApplyGradientDescent" => { // ensure gradients don't have batch dimension so they will be summed
+                    let (id, index, _) = &node.inputs[2];
+                    node.graph().nodes[*id].get_output(*index).unset_flag(Tensor::IS_BATCHED);
+                    // assign it with the variable to the same group
+                    let (id, _, _) = &node.inputs[0];
+                    node.group = Some(Rc::new(RefCell::new(vec![node_id, *id])));
+                    node.graph().nodes[*id].group = node.group.clone()
+                },
+                "ScatterSub" => { // these tensors, however, should be concated
+                    let (indices_id, indices_index, _) = &node.inputs[1];
+                    let (updates_id, updates_index, _) = &node.inputs[2];
+                    node.graph().nodes[*indices_id].get_output(*indices_index).set_flag(Tensor::IS_BATCHED);
+                    node.graph().nodes[*updates_id].get_output(*updates_index).set_flag(Tensor::IS_BATCHED);
+                    // assign it with the variable to the same group
+                    let (id, _, _) = &node.inputs[0];
+                    node.group = Some(Rc::new(RefCell::new(vec![node_id, *id])));
+                    node.graph().nodes[*id].group = node.group.clone()
+                },
+                _ => {}
             }
         }
 
         // grouping
         for (node_id, node) in self.nodes.iter_mut().enumerate() {
             if !(node.is_input() || descendants_of_input.contains(&node_id)) { // if it is not a descendant of input, then it does not belong to any group
-                continue
-            }
-
-            if node.raw_node.op == "ApplyGradientDescent" { // never in a group
                 continue
             }
 
@@ -701,7 +715,7 @@ impl Tensor {
         }).collect()
     }
 
-    pub fn all_reduce_nccl(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
+    pub fn all_reduce_sum_nccl(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
         // to all_sum n tensors (can be on the same device), one should have n NcclAllReduce nodes with the same shared_name attr
         // each node have only *one* input, and should be on the same device of the input. The output of these nodes will be the same
 
@@ -727,7 +741,7 @@ impl Tensor {
         (0..from.ndev()).map(|i| format!("{}/{}_{}/aux_nccl_{}", self.node().raw_node.name, self.index, to.code(), i)).collect()
     }
 
-    pub fn all_reduce_collective(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
+    pub fn all_reduce_sum_collective(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
         // each node have only *one* input, and should be on the same device of the input. The output of these nodes will be the same
         // group_key: not sure, guess is nccl group, so operations on *the same set of devices* could share the same group_key
         // instance_key: each operation use a unique instance_key, pretty much like "shared_name" in NcclAllReduce
@@ -788,7 +802,37 @@ impl Tensor {
         from.devices.iter().map(|device_id| local_reduced[device_id].clone()).collect()
     }
 
-    pub fn all_reduce_ring(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
+    pub fn all_reduce_cat_collective(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
+        assert!(from.valid() && to.valid() && from.is_part() && to.is_full() && from.devices == to.devices && BTreeSet::from_iter(from.devices.iter()).len() == from.devices.len());
+
+        let part_size = self.get_size() / from.ndev() as u64;
+        let state = &mut self.node().graph().collective_state;
+        let group_key = state.get_group(&from.devices.clone().apply(|x| x.sort_unstable())); // sorted
+        let (instance, instance_key) = state.new_instance();
+
+        let list = self.as_form(from, target).to_vec();
+        let local_reduced: BTreeMap<_, _> = from.devices.iter().zip(list.iter()).map(|(device_id, local_name)| {
+            let mut node = self.node().make_node("CollectiveGather".to_string());
+            node.name += &format!("/{}_{}_{}/aux_collective", self.index, to.code(), device_id);
+            node.device = target.devices[*device_id].clone();
+            node.attr.insert("T".into(), get_dtype(&self.node().raw_node, self.index));
+            node.attr.insert("group_key".into(), AttrValue::new().apply(|x| x.set_i(group_key as _)));
+            node.attr.insert("group_size".into(), AttrValue::new().apply(|x| x.set_i(from.devices.len() as _)));
+            node.attr.insert("instance_key".into(), AttrValue::new().apply(|x| x.set_i(instance_key as _)));
+            node.attr.insert("shape".into(), AttrValue::new().apply(|x| x.mut_shape().ignore()));
+            node.input.push(local_name.clone());
+            set_input_size(&mut node, 0, part_size);
+
+            instance.push(target.pb.node.len());
+            let name = node.name.clone();
+            target.pb.node.push(node);
+            (device_id, name)
+        }).collect();
+
+        from.devices.iter().map(|device_id| local_reduced[device_id].clone()).collect()
+    }
+
+    pub fn all_reduce_sum_ring(&mut self, from: &Form, to: &Form, target: &mut Target) -> Box<[String]> {
         assert!(from.valid() && to.valid() && from.is_part() && to.is_full() && from.devices == to.devices);
 
         let devices: Vec<_> = from.devices.iter().map(|id| target.devices[*id].clone()).collect();

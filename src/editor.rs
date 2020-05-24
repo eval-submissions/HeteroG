@@ -15,7 +15,7 @@ pub fn edit(graph: &mut Graph, target: &mut Target, strategy: &BTreeMap<&str, (V
             // TODO: RandomUniform, NoOp
             "NoOp" => node.put_on_devices(&[0]), // ignore decision and put on device 0
             "Placeholder" | "IteratorGetNext" if !allow_split_input => node.put_on_devices(&[0]),
-            "ApplyGradientDescent" | "Assign" => { // ignore decision and put along with the variable
+            "Assign" => { // ignore decision and put along with the variable
                 let var = &node.graph().nodes[node.inputs[0].0];
                 node.put_on_devices(&var.form.devices);
             }
@@ -56,33 +56,80 @@ pub fn edit(graph: &mut Graph, target: &mut Target, strategy: &BTreeMap<&str, (V
     }
 
     for node in graph.nodes.iter_mut() {
-        if node.raw_node.op == "ApplyGradientDescent" {
-            let (id, index, _) = &node.inputs[2];
-            assert!(node.group.is_none() || node.group.as_ref().unwrap().borrow().len() == 1); // it either doesn't in a group, or it is its only member
-            if node.replicated().unwrap() {
-                let s = strategy.get(&node.raw_node.name[..]).cloned();
-                let grad = &mut node.graph().nodes[*id].get_output(*index);
-                if grad.node().form.is_part() { // is_part implies ndev > 1
-                    let full = match s {
-                        // alternatively, we can allow this and perform a post transfer?
-                        Some((_, m @ 1..=3)) if grad.node().form.devices == node.form.devices => match m {
-                            1 => grad.all_reduce_collective(&grad.node().form, &node.form.clone(), target),
-                            2 => grad.all_reduce_ring(&grad.node().form, &node.form.clone(), target),
-                            3 => grad.all_reduce_nccl(&grad.node().form, &node.form.clone(), target),
-                            _ => unreachable!()
-                        },
-                        _ => {
-                            let x = grad.aggregate_sum(&grad.node().form, &node.form.clone().apply(|x| x.devices.truncate(1)), target);
-                            if node.form.ndev() > 1 {
-                                (0..node.form.ndev()).map(|_| x[0].clone()).collect()
-                            } else {
-                                x
+        match &node.raw_node.op[..] {
+            "ApplyGradientDescent" => {
+                node.form.kind = FormKind::Full;
+                let (id, index, _) = &node.inputs[2];
+                if node.replicated().unwrap() {
+                    let s = strategy.get(&node.raw_node.name[..]).cloned();
+                    let grad = &mut node.graph().nodes[*id].get_output(*index);
+                    if grad.node().form.is_part() { // is_part implies ndev > 1
+                        let full = match s {
+                            // alternatively, we can allow this and perform a post transfer?
+                            Some((_, m @ 1..=3)) if grad.node().form.devices == node.form.devices => match m {
+                                1 => grad.all_reduce_sum_collective(&grad.node().form, &node.form, target),
+                                2 => grad.all_reduce_sum_ring(&grad.node().form, &node.form, target),
+                                3 => grad.all_reduce_sum_nccl(&grad.node().form, &node.form, target),
+                                _ => unreachable!()
+                            },
+                            _ => {
+                                let x = grad.aggregate_sum(&grad.node().form, &node.form.clone().apply(|x| x.devices.truncate(1)), target);
+                                if node.form.ndev() > 1 {
+                                    (0..node.form.ndev()).map(|_| x[0].clone()).collect()
+                                } else {
+                                    x
+                                }
                             }
-                        }
-                    };
-                    grad.forms.insert(node.form.clone(), full);
+                        };
+                        grad.forms.insert(node.form.clone(), full);
+                    }
+                }
+            },
+            "ScatterSub" => {
+                node.form.kind = FormKind::Full;
+                let (indices_id, indices_index, _) = &node.inputs[1];
+                let (updates_id, updates_index, _) = &node.inputs[2];
+                assert!(node.graph().nodes[*indices_id].form == node.graph().nodes[*updates_id].form);
+                if node.replicated().unwrap() {
+                    let s = strategy.get(&node.raw_node.name[..]).cloned();
+                    let indices = &mut node.graph().nodes[*indices_id].get_output(*indices_index);
+                    if indices.node().form.is_part() {
+                        let full = match s {
+                            Some((_, 1)) if indices.node().form.devices == node.form.devices => {
+                                indices.all_reduce_cat_collective(&indices.node().form, &node.form.clone(), target)
+                            },
+                            _ => {
+                                let x = indices.aggregate_cat(&indices.node().form, &node.form.clone().apply(|x| x.devices.truncate(1)), target);
+                                if node.form.ndev() > 1 {
+                                    (0..node.form.ndev()).map(|_| x[0].clone()).collect()
+                                } else {
+                                    x
+                                }
+                            }
+                        };
+                        indices.forms.insert(node.form.clone(), full);
+                    }
+
+                    let updates = &mut node.graph().nodes[*updates_id].get_output(*updates_index);
+                    if updates.node().form.is_part() {
+                        let full = match s {
+                            Some((_, 1)) if updates.node().form.devices == node.form.devices => {
+                                updates.all_reduce_cat_collective(&updates.node().form, &node.form.clone(), target)
+                            },
+                            _ => {
+                                let x = updates.aggregate_cat(&updates.node().form, &node.form.clone().apply(|x| x.devices.truncate(1)), target);
+                                if node.form.ndev() > 1 {
+                                    (0..node.form.ndev()).map(|_| x[0].clone()).collect()
+                                } else {
+                                    x
+                                }
+                            }
+                        };
+                        updates.forms.insert(node.form.clone(), full);
+                    }
                 }
             }
+            _ => {}
         }
     }
 }
