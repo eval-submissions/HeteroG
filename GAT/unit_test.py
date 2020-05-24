@@ -294,6 +294,6 @@ for i in range(len(models)):
     if i!=7:
         continue
     tf.reset_default_graph()
-    folder = "data/graph"+str(i+1)+"/"
+    folder = "data/small_graph/"
     generate_feature_file(folder,i)
 #generate_nccl_model()
