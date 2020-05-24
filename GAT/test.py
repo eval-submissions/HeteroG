@@ -138,6 +138,33 @@ for index,prefix in enumerate(prefixs):
     with open("test_config.json","r") as f:
         tmp = json.load(f)
         strategies = tmp["strategies"]
+    if "graph9" in prefix:
+        for _strategy in strategies:
+            strategy = list()
+            for i in range(nb_nodes):
+                strategy.append(_strategy)
+            arr_strategy = np.array(strategy)
+            print("strategy:", _strategy)
+            if index == 0:
+                title.append("_".join(list(map(lambda x: str(x), _strategy))))
+            # print(env.get_reward(arr_strategy,index_id_dict,prefix+"/"+str(_strategy)+".json"))
+            process_time = env.get_null_reward(arr_strategy, index_id_dict,
+                                               prefix + "/" + str(_strategy) + "_null.json", str(_strategy) + ".pbtxt")
+            print(process_time)
+            result.append(process_time)
+        name_list = [nodedef.name for nodedef in env.null_gdef.node]
+        strategy = dict()
+        for name in name_list:
+            if "large_variable" in name:
+                strategy[name] = [1,1,0,0,0,0,0]
+            else:
+                strategy[name] = [1,1,1,1,1,1,1]
+
+        print("strategy: model parallel")
+        process_time =env.get_null_reward(strategy,index_id_dict,prefix+"/"+"model_parallel_strategy_null.json","model_parallel_strategy_null.pbtxt",direct=True)
+        print(process_time)
+        result.append(process_time)
+        continue
     for _strategy in strategies:
         strategy = list()
         for i in range(nb_nodes):
@@ -156,7 +183,7 @@ for index,prefix in enumerate(prefixs):
         print("model parallel strategy:")
         if index == 0:
             title.append("model parallel strategy")
-        process_time =env.get_null_reward(strategy,index_id_dict,prefix+"/"+"best_strategy_null.json","best_strategy_null.pbtxt",direct=True)
+        process_time =env.get_null_reward(strategy,index_id_dict,prefix+"/"+"model_parallel_strategy_null.json","model_parallel_strategy_null.pbtxt",direct=True)
         result.append(process_time)
         print(process_time)
     if not os.path.exists(prefix+"/best_time.log"):
