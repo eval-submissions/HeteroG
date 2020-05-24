@@ -57,15 +57,14 @@ pub fn edit(graph: &mut Graph, target: &mut Target, strategy: &BTreeMap<&str, (V
 
     for node in graph.nodes.iter_mut() {
         match &node.raw_node.op[..] {
-            "ApplyGradientDescent" => {
+            n if apply_nodes_dict(n).is_some() => {
                 node.form.kind = FormKind::Full;
-                let (id, index, _) = &node.inputs[2];
+                let (id, index, _) = &node.inputs[apply_nodes_dict(n).unwrap()];
                 if node.replicated().unwrap() {
                     let s = strategy.get(&node.raw_node.name[..]).cloned();
                     let grad = &mut node.graph().nodes[*id].get_output(*index);
                     if grad.node().form.is_part() { // is_part implies ndev > 1
                         let full = match s {
-                            // alternatively, we can allow this and perform a post transfer?
                             Some((_, m @ 1..=3)) if grad.node().form.devices == node.form.devices => match m {
                                 1 => grad.all_reduce_sum_collective(&grad.node().form, &node.form, target),
                                 2 => grad.all_reduce_sum_ring(&grad.node().form, &node.form, target),
@@ -140,5 +139,13 @@ pub fn reset(graph: &mut Graph) {
         for (_, _, form) in node.inputs.iter_mut() {
             *form = FormKind::Full
         }
+    }
+}
+
+fn apply_nodes_dict(x: &str) -> Option<usize> { // get gradient input index if it is an "apply*" operation
+    match x {
+        "ApplyGradientDescent" => Some(2),
+        "ApplyAdam" => Some(9),
+        _ => None
     }
 }

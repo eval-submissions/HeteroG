@@ -142,6 +142,18 @@ impl Graph {
                     node.group = Some(Rc::new(RefCell::new(vec![node_id, *id])));
                     node.graph().nodes[*id].group = node.group.clone()
                 },
+                "ApplyAdam" => {
+                    let (id, index, _) = &node.inputs[9];
+                    node.graph().nodes[*id].get_output(*index).unset_flag(Tensor::IS_BATCHED);
+                    // assign it with the variable and optimizer states to the same group
+                    let (var_id, _, _) = &node.inputs[0];
+                    let (m_id, _, _) = &node.inputs[1];
+                    let (v_id, _, _) = &node.inputs[2];
+                    node.group = Some(Rc::new(RefCell::new(vec![node_id, *var_id, *m_id, *v_id])));
+                    node.graph().nodes[*var_id].group = node.group.clone();
+                    node.graph().nodes[*m_id].group = node.group.clone();
+                    node.graph().nodes[*v_id].group = node.group.clone()
+                },
                 "ScatterSub" => { // these tensors, however, should be concated
                     let (indices_id, indices_index, _) = &node.inputs[1];
                     let (updates_id, updates_index, _) = &node.inputs[2];
