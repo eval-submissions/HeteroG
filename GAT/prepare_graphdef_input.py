@@ -168,6 +168,9 @@ def model_fn(model_name,batch_size):
         net = slim.fully_connected(net, 1024, activation_fn=tf.nn.sigmoid)
         net = slim.fully_connected(net, 1000, activation_fn=None)
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=net)
+        optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(
+            tf.reduce_sum(loss))
+        return optimizer
     optimizer = tf.train.AdamOptimizer(learning_rate=0.2,beta1=0.9,beta2=0.98, epsilon=1e-9).minimize(tf.reduce_sum(loss))
     return optimizer
 
