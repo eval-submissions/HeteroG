@@ -49,7 +49,7 @@ class Activater():
         self.server=None
 
     def activate_unit(self,path,graph_def):
-        setup_workers(workers, "grpc")
+        setup_workers(workers, "grpc+verbs")
         tf.reset_default_graph()
         resolver = TFConfigClusterResolver()
         cluster = resolver.cluster_spec()
@@ -59,7 +59,7 @@ class Activater():
         config.ClearField("device_filters")
         config.allow_soft_placement = True  # log_device_placement=True)
         config.gpu_options.allow_growth = True
-        server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc",
+        server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc+verbs",
                                            config=config)
         target = server.target
 
