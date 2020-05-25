@@ -38,18 +38,18 @@ for i in range(len(models)):
         tf.reset_default_graph()
         folder = "data/graph"+str(i+1)+"/"
         #adapt_cost(folder,288,288*3,18)
-        processes.append(mp.Process(target=adapt_cost,args=(folder,288,batch_sizes[1],18,)))
+        processes.append(mp.Process(target=adapt_cost,args=(folder,288,batch_sizes[1],8,)))
     if i==7:
         tf.reset_default_graph()
         folder = "data/graph"+str(i+1)+"/"
         #adapt_cost(folder,12,12*3,18)
-        processes.append(mp.Process(target=adapt_cost,args=(folder,12,batch_sizes[2],18,)))
+        processes.append(mp.Process(target=adapt_cost,args=(folder,6,batch_sizes[2],8,)))
 
     else:
         tf.reset_default_graph()
         folder = "data/graph"+str(i+1)+"/"
         #adapt_cost(folder,36,36*3,18)
-        processes.append(mp.Process(target=adapt_cost,args=(folder,36,batch_sizes[0],18,)))
+        processes.append(mp.Process(target=adapt_cost,args=(folder,24,batch_sizes[0],8,)))
 
 for process in processes:
     process.start()
