@@ -3,6 +3,8 @@ import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from tensorflow.distribute.cluster_resolver import TFConfigClusterResolver
 import json
+import google.protobuf.text_format as pbtf
+
 def serve_tf(list, index, protocol):
     import tensorflow as tf
     clus = dict()
@@ -11,14 +13,20 @@ def serve_tf(list, index, protocol):
     os.environ["TF_CONFIG"] = json.dumps(clus)
     resolver = TFConfigClusterResolver()
     cluster = resolver.cluster_spec()
+    '''
     dist = tf.distribute.experimental.MultiWorkerMirroredStrategy(
         tf.distribute.experimental.CollectiveCommunication.NCCL)
     config = dist.update_config_proto(tf.ConfigProto())
     config.ClearField("device_filters")
     config.allow_soft_placement = True  # log_device_placement=True)
     config.gpu_options.allow_growth = True
+    print(config)
+    '''
+    config = tf.ConfigProto()
+    with open("dist_config.pbtxt", "r") as f:
+        txt = f.read()
+    pbtf.Parse(txt, config)
     tf.distribute.Server(cluster, job_name='worker', task_index=index, protocol=protocol,config=config).join()
-
 pid = 0
 
 class Handler(BaseHTTPRequestHandler):

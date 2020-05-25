@@ -53,12 +53,18 @@ class Activater():
         tf.reset_default_graph()
         resolver = TFConfigClusterResolver()
         cluster = resolver.cluster_spec()
+        '''
         dist = tf.distribute.experimental.MultiWorkerMirroredStrategy(
             tf.distribute.experimental.CollectiveCommunication.NCCL)
         config = dist.update_config_proto(tf.ConfigProto())
         config.ClearField("device_filters")
         config.allow_soft_placement = True  # log_device_placement=True)
         config.gpu_options.allow_growth = True
+        '''
+        config = tf.ConfigProto()
+        with open("dist_config.pbtxt", "r") as f:
+            txt = f.read()
+        pbtf.Parse(txt, config)
         server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc+verbs",
                                            config=config)
         target = server.target
@@ -138,4 +144,3 @@ os.environ["TF_CONFIG"] = json.dumps(clus)
 
 act = Activater(activate_graphs,sinks=sinks)
 act.activate(288)
-
