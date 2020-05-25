@@ -64,7 +64,7 @@ os.environ["TF_CONFIG"] = json.dumps(clus)
 
 sinks = ["Adam"]
 
-setup_workers(workers, "grpc+verbs")
+setup_workers(workers, "grpc")
 
 resolver = TFConfigClusterResolver()
 cluster = resolver.cluster_spec()
@@ -80,7 +80,7 @@ config = tf.ConfigProto()
 with open("dist_config.pbtxt", "r") as f:
     txt = f.read()
 pbtf.Parse(txt, config)
-server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc+verbs", config=config)
+server = tf.distribute.Server(cluster, job_name='worker', task_index=0, protocol="grpc", config=config)
 
 
 def model_fn(model_name,batch_size):
@@ -164,7 +164,7 @@ def model_fn(model_name,batch_size):
         slim = tf.contrib.slim
         x = tf.placeholder(tf.float32, shape=(batch_size, 224, 224, 3))
         y = tf.placeholder(tf.float32, shape=(batch_size, 1000))
-        v= tf.get_variable(name="large_variable",shape=(5000,224, 224, 3),trainable=True)
+        v= tf.get_variable(name="large_variable",shape=(2000,224, 224, 3),trainable=True)
         x = tf.slice(v,[0,0,0,0],tf.shape(x),name="large_slice")
         net = slim.conv2d(x, 32, [5, 5],trainable=False)
         net = slim.max_pool2d(net, [2, 2], 2)
@@ -219,7 +219,7 @@ def generate_feature_file(folder,index):
     elif "data/graph8" in folder:
         batch_size = 6
     else:
-        batch_size=48
+        batch_size=24
     final_dict=dict()
     opt = model_fn(models[index],None)
     init = tf.global_variables_initializer()

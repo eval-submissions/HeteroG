@@ -35,7 +35,7 @@ batch_sizes = config_dict.get("batch_sizes",[48*2,288*2,6*2])
 
 device_mems=config_dict.get("device_mems", [16*10e9,16*10e9,16*10e9,16*10e9])
 
-sink=["GradientDescent"]
+sink=["Adam"]
 class Environment(object):
     def __init__(self,gdef_path,null_gdef_path,devices,folder):
 
