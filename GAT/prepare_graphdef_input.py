@@ -164,7 +164,7 @@ def model_fn(model_name,batch_size):
         slim = tf.contrib.slim
         x = tf.placeholder(tf.float32, shape=(batch_size, 224, 224, 3))
         y = tf.placeholder(tf.float32, shape=(batch_size, 1000))
-        v= tf.get_variable(name="large_variable",shape=(10000,224, 224, 3),trainable=True)
+        v= tf.get_variable(name="large_variable",shape=(5000,224, 224, 3),trainable=True)
         x = tf.slice(v,[0,0,0,0],tf.shape(x),name="large_slice")
         net = slim.conv2d(x, 32, [5, 5],trainable=False)
         net = slim.max_pool2d(net, [2, 2], 2)
@@ -174,9 +174,6 @@ def model_fn(model_name,batch_size):
         net = slim.fully_connected(net, 1024, activation_fn=tf.nn.sigmoid,trainable=False)
         net = slim.fully_connected(net, 1000, activation_fn=None,trainable=False)
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=net)
-        optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(
-            tf.reduce_sum(loss))
-        return optimizer
     optimizer = tf.train.AdamOptimizer(learning_rate=0.2,beta1=0.9,beta2=0.98, epsilon=1e-9).minimize(tf.reduce_sum(loss))
     return optimizer
 
