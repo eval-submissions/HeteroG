@@ -30,9 +30,9 @@ def setup_workers(workers, protocol="grpc"):
         assert urllib.request.urlopen(url).read() == b'ok'
     time.sleep(1)
 activate_graphs=config_dict.get("activate_graphs", ["data/graph1/nccl_dp_graph.pbtxt","data/graph1/grpc_dp_graph.pbtxt","data/graph1/single_graph.pbtxt","data/graph1/best_graph.pbtxt"])
-sinks = config_dict.get("activate_sink", ["GradientDescent"])
+sinks = config_dict.get("activate_sink", ["Adam"])
 class Activater():
-    def __init__(self, activate_path, sinks=["GradientDescent"]):
+    def __init__(self, activate_path, sinks=["Adam"]):
         self.graph_defs = []
         self.path = []
         for path in  activate_path:

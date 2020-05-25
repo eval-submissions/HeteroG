@@ -62,7 +62,7 @@ os.environ["TF_CONFIG"] = json.dumps(clus)
 
 
 
-sinks = ["GradientDescent"]
+sinks = ["Adam"]
 
 setup_workers(workers, "grpc+verbs")
 
