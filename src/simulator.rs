@@ -98,7 +98,7 @@ impl Simulator for SimpleSimulator {
         let mut tensorbufs = BTreeMap::<_, (u64, usize, bool)>::new(); // TensorBuf -> (size, ref count, activated)
         for (i, node) in nodes.iter().enumerate() {
             let mut in_tensors = vec![];
-            let wait_for: Vec<_> = node.input.iter().map(|input| {
+            let wait_for: Vec<_> = node.input.iter().enumerate().map(|(input_index_of_this_node, input)| {
                 if input.starts_with('^') {
                     return task_dict[node_dict[&input[1..]]]
                 }
@@ -107,7 +107,7 @@ impl Simulator for SimpleSimulator {
                 let input_id = node_dict[name];
                 let from = device_dict[&nodes[input_id].device[..]];
                 let to = device_dict[&node.device[..]];
-                let size = nodes[input_id].attr.get("_tge_input_sizes").and_then(|x| x.get_list().i.get(index)).copied().unwrap_or(0) as _;
+                let size = node.attr.get("_tge_input_sizes").and_then(|x| x.get_list().i.get(input_index_of_this_node)).copied().unwrap_or(0) as _;
 
                 // info!("{}:{} {}->{} {}", name, index, from, to, size);
 
@@ -126,7 +126,6 @@ impl Simulator for SimpleSimulator {
             let id = if node.op == "CollectiveReduce" {
                 let instance_key = node.attr["instance_key"].get_i() as _;
                 let group_key = node.attr["group_key"].get_i() as _;
-                let input_id = node_dict[parse_input(&node.input[0]).0];
                 let size = node.attr.get("_tge_input_sizes").and_then(|x| x.get_list().i.get(0)).copied().unwrap_or(0) as _;
                 Task::create(&mut tasks, TaskType::Collective { instance_key, group_key, size }, &wait_for, in_tensors, vec![])
             } else {
