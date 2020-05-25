@@ -127,7 +127,7 @@ impl Simulator for SimpleSimulator {
                 let instance_key = node.attr["instance_key"].get_i() as _;
                 let group_key = node.attr["group_key"].get_i() as _;
                 let input_id = node_dict[parse_input(&node.input[0]).0];
-                let size = nodes[input_id].attr.get("_tge_input_sizes").and_then(|x| x.get_list().i.get(0)).copied().unwrap_or(0) as _;
+                let size = node.attr.get("_tge_input_sizes").and_then(|x| x.get_list().i.get(0)).copied().unwrap_or(0) as _;
                 Task::create(&mut tasks, TaskType::Collective { instance_key, group_key, size }, &wait_for, in_tensors, vec![])
             } else {
                 Task::create(&mut tasks, TaskType::Computation { id: i, gpu: device_dict[&node.device[..]] }, &wait_for, in_tensors, vec![])
