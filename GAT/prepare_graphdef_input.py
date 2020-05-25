@@ -164,10 +164,9 @@ def model_fn(model_name,batch_size):
         slim = tf.contrib.slim
         x = tf.placeholder(tf.float32, shape=(batch_size, 224, 224, 3))
         y = tf.placeholder(tf.float32, shape=(batch_size, 1000))
-        v= tf.get_variable(name="large_variable",shape=(2000,224, 224, 3),trainable=True)
+        v= tf.get_variable(name="large_variable",shape=(3000,224, 224, 3),trainable=True)
         x = tf.slice(v,[0,0,0,0],tf.shape(x),name="large_slice")
-        net = slim.conv2d(x, 16, [5, 5],trainable=False)
-        net = slim.max_pool2d(net, [2, 2], 2)
+        net = slim.max_pool2d(x, [2, 2], 2)
         net = slim.conv2d(net, 128, [5, 5],trainable=False)
         net = slim.max_pool2d(net, [2, 2], 2)
         net = slim.conv2d(net, 128, [5, 5],trainable=False)
