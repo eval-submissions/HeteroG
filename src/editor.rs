@@ -59,6 +59,7 @@ pub fn edit(graph: &mut Graph, target: &mut Target, strategy: &BTreeMap<&str, (V
         match &node.raw_node.op[..] {
             n if apply_nodes_dict(n).is_some() => {
                 node.form.kind = FormKind::Full;
+                node.inputs[apply_nodes_dict(n).unwrap()].2 = FormKind::Full;
                 let (id, index, _) = &node.inputs[apply_nodes_dict(n).unwrap()];
                 if node.replicated().unwrap() {
                     let s = strategy.get(&node.raw_node.name[..]).cloned();
@@ -86,6 +87,8 @@ pub fn edit(graph: &mut Graph, target: &mut Target, strategy: &BTreeMap<&str, (V
             },
             "ScatterSub" => {
                 node.form.kind = FormKind::Full;
+                node.inputs[1].2 = FormKind::Full;
+                node.inputs[2].2 = FormKind::Full;
                 let (indices_id, indices_index, _) = &node.inputs[1];
                 let (updates_id, updates_index, _) = &node.inputs[2];
                 assert!(node.graph().nodes[*indices_id].form == node.graph().nodes[*updates_id].form);
