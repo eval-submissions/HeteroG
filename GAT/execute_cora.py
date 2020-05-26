@@ -646,7 +646,7 @@ class Graph_item():
             for j in range(device_choice.shape[0]):
                 device_choice[j] = sample_choice(output[j])
             if not sample_or_not:
-                device_choice[np.random.randint(0,device_choice.shape[0],size=(10,))] = np.random.randint(0, output.shape[1], size=(10,))
+                device_choice[np.random.randint(0,device_choice.shape[0],size=(100,))] = np.random.randint(0, output.shape[1], size=(100,))
                 print(self.folder_path, "random_choice0:", time.time() - ti)
 
         print(self.folder_path,device_choice.shape)
@@ -662,7 +662,7 @@ class Graph_item():
 
             if not sample_or_not:
                 #ps_or_reduce = np.array(list(map(random_choice, self.outputs[len(devices)])))
-                ps_or_reduce[np.random.randint(0,ps_or_reduce.shape[0],size=(10,))] = np.random.randint(0, 2,size=(10,))
+                ps_or_reduce[np.random.randint(0,ps_or_reduce.shape[0],size=(100,))] = np.random.randint(0, 2,size=(100,))
         # ps_or_reduce = self.outputs[max_replica_num]
         # group =  np.array(list(map(random_func1,self.outputs[-1])))
         group = np.array(self.init_group)
