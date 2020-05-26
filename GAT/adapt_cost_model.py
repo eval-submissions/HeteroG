@@ -43,7 +43,7 @@ for i in range(len(models)):
         tf.reset_default_graph()
         folder = "data/graph"+str(i+1)+"/"
         #adapt_cost(folder,12,12*3,18)
-        processes.append(mp.Process(target=adapt_cost,args=(folder,6,batch_sizes[2],8,)))
+        processes.append(mp.Process(target=adapt_cost,args=(folder,3,batch_sizes[2],8,)))
 
     else:
         tf.reset_default_graph()
