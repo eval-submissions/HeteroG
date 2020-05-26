@@ -11,7 +11,28 @@ use crate::proto::node_def::NodeDef;
 use crate::proto::tensor::TensorProto;
 use crate::simulator::{GRPC_LATENCY, FALLBACK_NCCL_MODEL};
 
-pub fn heft(target: &mut Target, profiler: &impl Profiler) {
+pub fn heft_control(target: &mut Target, profiler: &impl Profiler) {
+    heft_rank(target, profiler, true);
+
+    let name_dict: BTreeMap<String, usize> = target.pb.node.iter().enumerate().map(|(i, x)| (x.name.clone(), i)).collect();
+    let non_dangling_nodes = mark_non_dangling_nodes(target);
+
+    for dev in target.devices.iter() {
+        let mut list: Vec<_> = (0..name_dict.len()).filter(|&i| {
+            let node = &target.pb.node[i];
+            non_dangling_nodes.contains(&node.name) && *dev == node.device
+        }).collect();
+
+        list.sort_unstable_by_key(|&i| target.pb.node[i].attr.get("_priority").unwrap().get_i());
+        for window in list.windows(2) {
+            let dep = format!("^{}", target.pb.node[window[0]].name);
+            target.pb.node[window[1]].input.push(dep)
+            // TODO: skip unnecessary dependencies by depth-first search?
+        }
+    }
+}
+
+pub fn heft_rank(target: &mut Target, profiler: &impl Profiler, break_tie: bool) {
     let name_dict: BTreeMap<String, usize> = target.pb.node.iter().enumerate().map(|(i, x)| (x.name.clone(), i)).collect();
     let device_dict: BTreeMap<&String, usize> = target.devices.iter().enumerate().map(|(i, x)| (x, i)).collect();
     let mut ranks = vec![Option::<u64>::None; name_dict.len()];
@@ -44,27 +65,14 @@ pub fn heft(target: &mut Target, profiler: &impl Profiler) {
         let device_id = device_dict[&target.pb.node[i].device];
         let time = succs[i].iter().map(|&j| ranks[j].unwrap()).max().unwrap_or(0) +
                    profiler.profile(&target.pb.node[i], device_id).unwrap_or(0) +
-                   1; // additional rank to prevent ties on zero-time op which may cause dead locks
+                   break_tie as u64; // additional rank to prevent ties on zero-time op which may cause dead locks
         ranks[i] = Some(time)
     }
 
-    // for (node, rank) in target.pb.node.iter().zip(ranks.iter()) {
-    //     info!("{}: {}", node.name, rank.unwrap())
-    // }
-
     let non_dangling_nodes = mark_non_dangling_nodes(target);
-
-    for dev in target.devices.iter() {
-        let mut list: Vec<_> = (0..name_dict.len()).filter(|&i| {
-            let node = &target.pb.node[i];
-            non_dangling_nodes.contains(&node.name) && *dev == node.device
-        }).collect();
-
-        list.sort_unstable_by_key(|&x| ranks[x].unwrap());
-        for window in list.windows(2) {
-            let dep = format!("^{}", target.pb.node[window[0]].name);
-            target.pb.node[window[1]].input.push(dep)
-            // TODO: skip unnecessary dependencies by depth-first search?
+    for (node, rank) in target.pb.node.iter_mut().zip(ranks) {
+        if non_dangling_nodes.contains(&node.name) {
+            node.attr.insert("_priority".to_string(), AttrValue::new().apply(|x| x.set_i(rank.unwrap() as _))).ignore();
         }
     }
 }

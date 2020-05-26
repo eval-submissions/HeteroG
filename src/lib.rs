@@ -152,8 +152,13 @@ unsafe extern fn destroy_profiler(profiler: *mut DataProfiler) {
 }
 
 #[no_mangle]
-unsafe extern fn heft(target: *mut Target, profiler: *const DataProfiler) {
-    scheduler::heft(&mut *target, &*profiler)
+unsafe extern fn heft_rank(target: *mut Target, profiler: *const DataProfiler) {
+    scheduler::heft_rank(&mut *target, &*profiler, false)
+}
+
+#[no_mangle]
+unsafe extern fn heft_control(target: *mut Target, profiler: *const DataProfiler) { // this automatically calls rank inside
+    scheduler::heft_control(&mut *target, &*profiler)
 }
 
 #[no_mangle]

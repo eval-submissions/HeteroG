@@ -44,8 +44,11 @@ libtge.create_profiler.restype = ctypes.c_void_p
 libtge.destroy_profiler.argtypes = [ctypes.c_void_p]
 libtge.destroy_profiler.restype = None
 
-libtge.heft.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-libtge.heft.restype = None
+libtge.heft_rank.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+libtge.heft_rank.restype = None
+
+libtge.heft_control.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+libtge.heft_control.restype = None
 
 libtge.evaluate.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint64)]
 libtge.evaluate.restype = ctypes.c_uint64
@@ -125,12 +128,15 @@ class TGE:
         self.remove_shape_hint()
 
     @chain
-    def heft(self, profile_dict):
+    def heft(self, profile_dict, add_control_dependency=False):
         if not self.compiled:
             self.compile()
 
         self._create_profiler(profile_dict)
-        libtge.heft(self.target, self.profiler)
+        if add_control_dependency:
+            libtge.heft_control(self.target, self.profiler)
+        else:
+            libtge.heft_rank(self.target, self.profiler)
 
     def evaluate(self, profile_dict, trace_path=""):
         if not self.compiled: # for backward compatibility
