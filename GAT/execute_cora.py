@@ -181,7 +181,7 @@ class strategy_pool(object):
 
         # even data parallel 1
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
-        if True:
+        if False:
             # even data parallel 2
             #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
 
@@ -634,7 +634,10 @@ class Graph_item():
             return choice1
         ti = time.time()
         output = self.outputs[0]
+
+
         device_choice = np.zeros(shape=(output.shape[0]),dtype=np.int32)
+        random_size = np.random.randint(1,output.shape[0])
         if i == sample_times:
             #device_choice = np.array(list(map(argmax_func1, output)))
             for j in range(device_choice.shape[0]):
@@ -646,7 +649,7 @@ class Graph_item():
             for j in range(device_choice.shape[0]):
                 device_choice[j] = sample_choice(output[j])
             if not sample_or_not:
-                device_choice[np.random.randint(0,device_choice.shape[0],size=(100,))] = np.random.randint(0, output.shape[1], size=(100,))
+                device_choice[np.random.randint(0,device_choice.shape[0],size=(random_size,))] = np.random.randint(0, output.shape[1], size=(random_size,))
                 print(self.folder_path, "random_choice0:", time.time() - ti)
 
         print(self.folder_path,device_choice.shape)
@@ -662,7 +665,7 @@ class Graph_item():
 
             if not sample_or_not:
                 #ps_or_reduce = np.array(list(map(random_choice, self.outputs[len(devices)])))
-                ps_or_reduce[np.random.randint(0,ps_or_reduce.shape[0],size=(100,))] = np.random.randint(0, 2,size=(100,))
+                ps_or_reduce[np.random.randint(0,ps_or_reduce.shape[0],size=(random_size,))] = np.random.randint(0, 2,size=(random_size,))
         # ps_or_reduce = self.outputs[max_replica_num]
         # group =  np.array(list(map(random_func1,self.outputs[-1])))
         group = np.array(self.init_group)
