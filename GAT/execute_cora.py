@@ -549,8 +549,8 @@ class Graph_item():
         self.oom = []
         self.train_place = False
         self.counter=0
-        self.small_co = 0#0.001*5*5
-        self.large_co =0#self.small_co*50
+        self.small_co = 0.001*5*5
+        self.large_co =self.small_co*50
         self.co_entropy = self.small_co
         self.place_lr = lr
         self.record_time =[]
