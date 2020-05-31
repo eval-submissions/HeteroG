@@ -590,7 +590,7 @@ class Graph_item():
     def sample(self,epoch):
 
         global sample_prob
-        sample_prob = min(0.8+0.1*(epoch//60),0.8)
+        sample_prob = min(0.1+0.1*(epoch//60),0.8)
 
         print("[{}] sample_prob = {}".format(self.folder_path, sample_prob))
 
@@ -725,7 +725,7 @@ class Graph_item():
                             sample_ps_or_reduce = np.array(self.ps_or_reduces[index]),
                             ps_mask=np.array(self.replica_masks[index]),
                             sample_device_choice = np.array(self.device_choices[index]),
-                            time_ratio = 0.1*self.avg/self.rewards[index],
+                            time_ratio = self.rewards[index] - self.avg,
                             coef_entropy=self.co_entropy,
                             mems = self.mems,
                             init_group=self.init_group,
@@ -772,7 +772,7 @@ class Graph_item():
                             sample_ps_or_reduce = np.array(pool_strategy["ps_or_reduce"]),
                             ps_mask=np.array(pool_strategy["replica_mask"]),
                             sample_device_choice = np.array(pool_strategy["device_choice"]),
-                            time_ratio = 0.1*self.avg/pool_strategy["reward"],
+                            time_ratio = pool_strategy["reward"]-self.avg,
                             coef_entropy=self.co_entropy,
                             mems = self.mems,
                             init_group=self.init_group,
