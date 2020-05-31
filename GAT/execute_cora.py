@@ -549,7 +549,7 @@ class Graph_item():
         self.oom = []
         self.train_place = False
         self.counter=0
-        self.small_co = 0.001*5*5
+        self.small_co = 0.001*5*5*1000
         self.large_co =self.small_co*50
         self.co_entropy = self.small_co
         self.place_lr = lr
@@ -590,7 +590,7 @@ class Graph_item():
     def sample(self,epoch):
 
         global sample_prob
-        sample_prob = min(0.1+0.1*(epoch//60),0.8)
+        sample_prob = min(1+0.1*(epoch//60),1)
 
         print("[{}] sample_prob = {}".format(self.folder_path, sample_prob))
 
@@ -952,14 +952,14 @@ class new_place_GNN():
 
             oi = tf.nn.softmax(output[:,:len(devices)+2])
             self.device_choices = oi
-            #log_oi = tf.nn.log_softmax(output[:,i*(max_replica_num+1):(i+1)*(max_replica_num+1)])
-            log_oi = tf.log(oi+10e-8)
+            log_oi = tf.nn.log_softmax(output[:,:len(devices)+2])
+            #log_oi = tf.log(oi+10e-8)
             self.log_device_choices =log_oi
             sum = sum + tf.reduce_sum((log_oi* oi))
             ps_or_reduce_prob = tf.nn.softmax(output[:,-2:])
             self.ps_or_reduce = ps_or_reduce_prob
-            #self.log_ps_reduce = tf.nn.log_softmax(output[:,-2:])
-            self.log_ps_reduce = tf.log( self.ps_or_reduce+10e-8)
+            self.log_ps_reduce = tf.nn.log_softmax(output[:,-2:])
+            #self.log_ps_reduce = tf.log( self.ps_or_reduce+10e-8)
             self.entropy = tf.reduce_sum((self.log_ps_reduce * ps_or_reduce_prob), 1)
             self.entropy = -(tf.reduce_sum(self.entropy) + sum )
 
