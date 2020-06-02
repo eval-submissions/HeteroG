@@ -17,7 +17,7 @@ def evaluate(record, decisions):
     penalty = 1
     for k, v in strategy.items():
         if np.sum(v[1:]) == 0:
-            # penalty += 1
+            penalty += 1
             v[1] = 1
     tge = TGE(gdef, [dev for dev, _, _ in record["devices"]])
     tge.set_strategy(strategy)

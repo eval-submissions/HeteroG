@@ -13,7 +13,7 @@ def info(*args):
 records = get_all_data()
 
 with tf.device("/gpu:0"):
-    model = Model(5, 4)
+    model = Model(4, 1, 2, 2)
 
     try:
         model.load_weights('weights')
@@ -26,13 +26,15 @@ with tf.device("/gpu:0"):
     for epoch in range(1000):
         record = records[np.random.randint(len(records))]
 
-        computation_features = tf.convert_to_tensor(record["computation_features"], dtype=tf.float32)
-        device_features = tf.convert_to_tensor(record["device_features"], dtype=tf.float32)
-        model.set_graphs(record["computation_graph"], record["device_graph"])
+        cnfeats = tf.convert_to_tensor(record["cnfeats"], dtype=tf.float32)
+        cefeats = tf.convert_to_tensor(record["cefeats"], dtype=tf.float32)
+        tnfeats = tf.convert_to_tensor(record["tnfeats"], dtype=tf.float32)
+        tefeats = tf.convert_to_tensor(record["tefeats"], dtype=tf.float32)
+        model.set_graphs(record["cgraph"], record["tgraph"])
 
         with tf.GradientTape() as tape:
             tape.watch(model.trainable_weights)
-            logp = model([computation_features, device_features], training=True)
+            logp = model([cnfeats, cefeats, tnfeats, tefeats], training=True)
             results = evaluate_logp(record, logp.numpy()) # numpy to turn off gradient tracking
             loss = tf.add_n([loss_env * tf.reduce_sum(tf.boolean_mask(logp, mask)) for mask, loss_env in results])
             grads = tape.gradient(loss, model.trainable_weights)
