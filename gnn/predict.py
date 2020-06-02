@@ -1,32 +1,34 @@
 import numpy as np
 import time
 import tensorflow as tf
-import pickle
 
 from model import Model
 from data import gen_topo, gen_data
+from utils import save, load
 
 with tf.device("/gpu:1"):
-    model = Model(4, 3)
+    model = Model(4, 1, 2, 2)
     model.load_weights('weights')
 
-    gdef, prof_data = pickle.load(open("vgg.pickle", "rb"))
+    gdef, prof_data = load("vgg.pickle")
 
     for bandwidth in (2 ** n for n in range(4, 15)):
         topo = gen_topo([
             ("/job:worker/replica:0/task:0/device:GPU:0", 1, 6<<30),
             ("/job:worker/replica:0/task:0/device:GPU:1", 1, 6<<30),
-            ("/job:worker/replica:0/task:0/device:GPU:0", 1.2, 6<<30),
-            ("/job:worker/replica:0/task:0/device:GPU:1", 1.2, 6<<30),
-            ("/job:worker/replica:0/task:0/device:GPU:0", 1.5, 6<<30),
-            ("/job:worker/replica:0/task:0/device:GPU:1", 1.5, 6<<30),
-        ], intra=bandwidth)
+            ("/job:worker/replica:0/task:0/device:GPU:2", 1, 6<<30),
+            ("/job:worker/replica:0/task:0/device:GPU:3", 1, 6<<30),
+            ("/job:worker/replica:0/task:1/device:GPU:0", 1, 6<<30),
+        ], intra=bandwidth, inter=1)
         record = gen_data(gdef, prof_data, topo)
 
-        computation_features = tf.convert_to_tensor(record["computation_features"], dtype=tf.float32)
-        device_features = tf.convert_to_tensor(record["device_features"], dtype=tf.float32)
-        model.set_graphs(record["computation_graph"], record["device_graph"])
-        logp = model([computation_features, device_features])
+        cnfeats = tf.convert_to_tensor(record["cnfeats"], dtype=tf.float32)
+        cefeats = tf.convert_to_tensor(record["cefeats"], dtype=tf.float32)
+        tnfeats = tf.convert_to_tensor(record["tnfeats"], dtype=tf.float32)
+        tefeats = tf.convert_to_tensor(record["tefeats"], dtype=tf.float32)
+        model.set_graphs(record["cgraph"], record["tgraph"])
+
+        logp = model([cnfeats, cefeats, tnfeats, tefeats])
         p = np.argmax(logp.numpy(), axis=2)
         count = {}
         for i in range(p.shape[0]):
