@@ -942,7 +942,9 @@ class new_place_GNN():
             initializer = tf.initializers.random_normal(
                 stddev=0.02,
                 seed=None)
-            output,self.new_mems = transformer(log_resh,self.mems,n_layer,d_model,n_head,d_head,d_inner,0.1,0.1,initializer,True,mem_len=128)
+            w0,_ = transformer(log_resh,self.mems,1,d_model,n_head,d_head,d_inner,0.1,0.1,initializer,True,mem_len=128,scope='position_condition')
+
+            output,self.new_mems = transformer(log_resh,self.mems,n_layer,d_model,n_head,d_head,d_inner,0.1,0.1,initializer,True,mem_len=128,w0=w0)
             output = tf.reshape(output, [-1,d_model])
             #output = output[:,:(max_replica_num+1)*(len(devices))+2]
 

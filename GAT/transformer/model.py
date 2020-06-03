@@ -11,9 +11,11 @@ def positional_embedding(pos_seq, inv_freq, bsz=None):
 
 
 def positionwise_FF(inp, d_model, d_inner, dropout, kernel_initializer,
-                    scope='ff', is_training=True):
+                    w0=None,scope='ff',is_training=True):
   output = inp
   with tf.variable_scope(scope):
+    if w0 is not None:
+        inp = inp*w0
     output = tf.layers.dense(inp, d_inner, activation=tf.nn.relu,
                              kernel_initializer=kernel_initializer,
                              name='layer_1')
@@ -39,9 +41,10 @@ def rel_shift(x):
   return x
 
 
+
 def rel_multihead_attn(w, r, r_w_bias, r_r_bias, attn_mask, mems, d_model,
                        n_head, d_head, dropout, dropatt, is_training,
-                       kernel_initializer, scope='rel_attn'):
+                       kernel_initializer, w0,scope='rel_attn'):
   scale = 1 / (d_head ** 0.5)
   with tf.variable_scope(scope):
     qlen = tf.shape(w)[0]
@@ -83,7 +86,8 @@ def rel_multihead_attn(w, r, r_w_bias, r_r_bias, attn_mask, mems, d_model,
     attn_vec = tf.einsum('ijbn,jbnd->ibnd', attn_prob, w_head_v)
     size_t = tf.shape(attn_vec)
     attn_vec = tf.reshape(attn_vec, [size_t[0], size_t[1], n_head * d_head])
-
+    if w0 is not None:
+        attn_vec = attn_vec*w0
     attn_out = tf.layers.dense(attn_vec, d_model, use_bias=False,
                                kernel_initializer=kernel_initializer, name='o')
     attn_out = tf.layers.dropout(attn_out, dropout, training=is_training)
@@ -439,6 +443,7 @@ def transformer(dec_inp, mems, n_layer, d_model,
                 mem_len=None,
                 same_length=False, clamp_len=-1,
                 untie_r=False,
+                w0 = None,
                 scope='transformer'):
   """
   cutoffs: a list of python int. Cutoffs for adaptive softmax.
@@ -497,14 +502,16 @@ def transformer(dec_inp, mems, n_layer, d_model,
             dropout=dropout,
             dropatt=dropatt,
             is_training=is_training,
-            kernel_initializer=initializer)
+            kernel_initializer=initializer,
+            w0=w0)
         output = positionwise_FF(
             inp=output,
             d_model=d_model,
             d_inner=d_inner,
             dropout=dropout,
             kernel_initializer=initializer,
-            is_training=is_training)
+            is_training=is_training,
+            w0=w0)
 
     output = tf.layers.dropout(output, dropout, training=is_training)
 
