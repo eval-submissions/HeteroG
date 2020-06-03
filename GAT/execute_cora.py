@@ -71,7 +71,7 @@ lr = config_dict.get("learning_rate", 0.01)  # learning rate
 l2_coef = 0.0002  # weight decay
 hid_units = [512]  # numbers of hidden units per each attention head in each layer
 n_heads = [4, 4]  # additional entry for the output layer
-place_hid_units = [1024, 256]
+place_hid_units = [512,256]
 place_n_heads = [4,4,1]
 residual = False
 
@@ -916,14 +916,14 @@ class new_place_GNN():
             self.unique_group = unique_group
 
         with tf.variable_scope("place_nn"):
-            with tf.device("/device:GPU:1"):
+            with tf.device("/device:GPU:0"):
                 logits = model.inference(self.ftr_in, 1024, self.nb_node, self.is_train,
                                          self.attn_drop, self.ffd_drop,
                                          bias_mat=self.bias_in,
                                          hid_units=hid_units, n_heads=n_heads,
                                          residual=residual, activation=nonlinearity)
 
-            with tf.device("/device:GPU:0"):
+            with tf.device("/device:GPU:1"):
                 logits = model.inference(logits, d_model, self.nb_node, self.is_train,
                                          self.attn_drop, self.ffd_drop,
                                          bias_mat=self.bias_in,
