@@ -140,6 +140,8 @@ def post_process_device_choice(device_choice,batch_size):
             new_device_choice[i][0:] = 1
             new_device_choice[i][0] =2
             new_device_choice[i][1] =2
+            new_device_choice[i][2] = 2
+            new_device_choice[i][3] = 2
             mask[i] = 1
 
     print("after process")
