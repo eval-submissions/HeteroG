@@ -11,6 +11,16 @@ def sample(logp):
             result[i, j] = s
     return mask, result
 
+def explore(logp):
+    mask = np.zeros(logp.shape, dtype=bool)
+    result = np.zeros(logp.shape[:-1], dtype=int)
+    for i in range(logp.shape[0]):
+        for j in range(logp.shape[1]):
+            s = int(np.random.choice(logp.shape[2]))
+            mask[i, j, s] = 1
+            result[i, j] = s
+    return mask, result
+
 def evaluate(record, decisions):
     gdef = record["gdef"]
     strategy = { gdef.node[i].name: [2, *decisions[i]] for i in range(decisions.shape[0]) }
@@ -37,11 +47,39 @@ def sample_and_evaluate(record, logp):
     loss = evaluate(record, decisions)
     return mask, loss
 
-def evaluate_logp(record, logp, nsample=8, nprocess=8):
-    results = [sample_and_evaluate(record, logp) for _ in range(nsample)]
-    # for mask, loss in results:
-    #     if "best" not in record or loss < record["best"][1]:
-    #         record["best"] = mask, loss
-    # best_loss = record["best"][1]
+def explore_and_evaluate(record, logp):
+    mask, decisions = explore(logp)
+    loss = evaluate(record, decisions)
+    return mask, loss
 
-    return [(mask, loss) for mask, loss in results]
+def evaluate_logp(record, logp, nsample=8, npool=4, nexplore=4, poolsize=100):
+    if "pool" not in record:
+        record["pool"] = []
+    pool = record["pool"]
+    results = []
+
+    for _ in range(nsample):
+        mask, loss = sample_and_evaluate(record, logp)
+        results.append((mask, loss))
+        if len(pool) < poolsize:
+            pool.append((mask, loss))
+        else: # randomly replace one in the pool
+            i = np.random.choice(poolsize)
+            if pool[i][1] > loss:
+                pool[i] = mask, loss
+
+    for _ in range(nexplore):
+        mask, loss = explore_and_evaluate(record, logp)
+        results.append((mask, loss))
+        if len(pool) < poolsize:
+            pool.append((mask, loss))
+        else: # randomly replace one in the pool
+            i = np.random.choice(poolsize)
+            if pool[i][1] > loss:
+                pool[i] = mask, loss
+
+    for _ in range(npool):
+        i = np.random.choice(len(pool))
+        results.append(pool[i])
+
+    return results

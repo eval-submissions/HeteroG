@@ -16,12 +16,12 @@ with tf.device("/gpu:0"):
     model = Model(4, 1, 2, 2)
 
     try:
-        model.load_weights('weights')
+        # model.load_weights('weights')
         info("load saved weight")
     except:
         info("no saved weight")
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001, epsilon=1e-8)
+    optimizer = tf.keras.optimizers.SGD(learning_rate=0.00001)
 
     for epoch in range(1000):
         record = records[np.random.randint(len(records))]
@@ -36,9 +36,10 @@ with tf.device("/gpu:0"):
             tape.watch(model.trainable_weights)
             logp = model([cnfeats, cefeats, tnfeats, tefeats], training=True)
             results = evaluate_logp(record, logp.numpy()) # numpy to turn off gradient tracking
-            loss = tf.add_n([loss_env * tf.reduce_sum(tf.boolean_mask(logp, mask)) for mask, loss_env in results])
+            lps = [tf.reduce_sum(tf.boolean_mask(logp, mask)) for mask, loss_env in results]
+            lsp = tf.reduce_logsumexp(tf.concat([tf.expand_dims(x, 0) for x in lps], 0))
+            loss = tf.add_n([-loss_env * (lp - lsp) for (_, loss_env), lp in zip(results, lps)])
             grads = tape.gradient(loss, model.trainable_weights)
-            grads = [tf.clip_by_value(grad, -1., 1.) for grad in grads]
             optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
         if epoch % 10 == 0:
