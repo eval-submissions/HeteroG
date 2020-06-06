@@ -183,7 +183,7 @@ class strategy_pool(object):
 
         # even data parallel 1
         #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
-        if False:
+        if True:
             # even data parallel 2
             #device_choice = np.zeros(shape=(self.node_num, len(devices)), dtype=np.int32)
 
@@ -200,6 +200,8 @@ class strategy_pool(object):
             for i,item in enumerate(device_choice):
                 item[0] = 2
                 item[1] = 2
+                item[2] = 2
+                item[3] = 2
             mask = generate_mask(device_choice)
             ps_or_reduce = np.ones(shape=(self.init_group_num,), dtype=np.int32)
             reward, out_of_memory = self.env.get_reward2(device_choice, ps_or_reduce, self.index_id_dict, self.sink,
