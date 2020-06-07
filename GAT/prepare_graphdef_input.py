@@ -112,11 +112,11 @@ def model_fn(model_name,batch_size):
         output, _ = resnet_v2.resnet_v2_152(x, 1000)
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
 
-    elif model_name=="resnet50":
-        from tensorflow.contrib.slim.nets import resnet_v2
+    elif model_name=="nasnet_cifar":
+        from tensorflow.contrib.slim.nets import nasnet
         x = tf.placeholder(tf.float32, shape=(batch_size, 224, 224, 3))
-        y = tf.placeholder(tf.float32, shape=(batch_size,1,1, 1000))
-        output, _ = resnet_v2.resnet_v2_50(x, 1000)
+        y = tf.placeholder(tf.float32, shape=(batch_size,1000))
+        output, _ = nasnet.build_nasnet_cifar(x, 1000)
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
 
     elif model_name=="inceptionv3":
@@ -312,9 +312,9 @@ def generate_feature_file(folder,index):
     with open(folder+"cost.pkl", "wb") as f:
         pkl.dump(final_dict,f)
 
-models = ["vgg19","resnet200","resnet50","resnet101","resnet152","inceptionv3","transformer","bert","small"]
+models = ["vgg19","resnet200","nasnet_cifar","resnet101","resnet152","inceptionv3","transformer","bert","small"]
 for i in range(len(models)):
-    if i!=8:
+    if i!=2:
         continue
     tf.reset_default_graph()
     folder = "data/graph"+str(i+1)+"/"
