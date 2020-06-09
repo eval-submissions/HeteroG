@@ -34,7 +34,8 @@ def gen_topo(devices, inter=2810, intra=2810):
 def gen_data(gdef, prof_data, topo):
     g = dgl.DGLGraph()
     g.add_nodes(len(gdef.node))
-    nfeats = [[np.mean(prof_data[(node.name, nrep)]) for nrep in (1, 2, 3, 4)] for node in gdef.node]
+    nfeats = [[np.mean(prof_data[(node.name, nrep)]) / 1000 for nrep in (1, 2, 3, 4)] for node in gdef.node]
+    # TODO: op type embedding
     efeats = []
     reverse_dict = { node.name: i for i, node in enumerate(gdef.node) }
     for i, node in enumerate(gdef.node):
@@ -47,7 +48,7 @@ def gen_data(gdef, prof_data, topo):
             g.add_edge(reverse_dict[x], i)
             efeats.append([1]) # TODO: tensorsize. Note the batchsize need to be given somewhere
             efeats.append([-1])
-    prof_data = { key: [int(np.mean(times) * time_ratio / 1000) for _, time_ratio, _ in topo["devices"]] for key, times in prof_data.items() }
+    prof_data = { key: [int(np.mean(times) * time_ratio) for _, time_ratio, _ in topo["devices"]] for key, times in prof_data.items() }
     return {
         "gdef": gdef,
         "prof_data": prof_data,
@@ -64,7 +65,7 @@ def gen_data(gdef, prof_data, topo):
     }
 
 def get_all_data():
-    models = [pickle.load(open("{}.pickle".format(m), "rb")) for m in ("vgg", "mlp", "lenet")] # "resnet",
+    models = [pickle.load(open("{}.pickle".format(m), "rb")) for m in ("vgg",)] # "resnet", , "mlp", "lenet"
     topos1 = [gen_topo([
         ("/job:worker/replica:0/task:0/device:GPU:0", 1, 6<<30),
         ("/job:worker/replica:0/task:0/device:GPU:1", 1, 6<<30),
@@ -94,5 +95,5 @@ def get_all_data():
         ("/job:worker/replica:0/task:0/device:GPU:3", 1, 6<<30),
         ("/job:worker/replica:0/task:1/device:GPU:0", 1, 6<<30),
         ("/job:worker/replica:0/task:1/device:GPU:1", 1, 6<<30),
-    ], intra=bandwidth, inter=100) for bandwidth in (100, 1000, 10000)]
-    return [gen_data(gdef, prof_data, topo) for gdef, prof_data in models for topo in topos1 + topos2 + topos3 + topos4]
+    ], intra=bandwidth, inter=10) for bandwidth in (1000, 10000)]
+    return [gen_data(gdef, prof_data, topo) for gdef, prof_data in models for topo in topos1 + topos4]

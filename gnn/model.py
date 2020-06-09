@@ -2,6 +2,10 @@ import tensorflow as tf
 import dgl.function as fn
 import numpy as np
 
+import sys
+def info(*args):
+    print(*args, file=sys.stdout, flush=True)
+
 class GConv(tf.keras.layers.Layer):
     '''Graph Conv layer that concats the edge features before sending message'''
     def __init__(self,
@@ -56,18 +60,17 @@ class Model(tf.keras.Model):
     def __init__(self, cfeat_len, cedge_len, tfeat_len, tedge_len):
         super(Model, self).__init__()
 
-        num_hidden = 1024
-        num_rnn_hidden = 256
+        num_hidden = 32
+        num_rnn_hidden = 16
 
-        self.c_gconv_layers = [
-            GConv(cfeat_len, num_hidden, cedge_len, tf.nn.elu),
-            GConv(num_hidden, num_hidden, cedge_len, tf.nn.elu),
-            GConv(num_hidden, num_hidden, cedge_len, None)
-        ]
+        # self.c_gconv_layers = [
+        #     GConv(cfeat_len, num_hidden, cedge_len, tf.nn.elu),
+        #     GConv(num_hidden, num_hidden, cedge_len, tf.nn.elu),
+        #     GConv(num_hidden, num_hidden, cedge_len, None)
+        # ]
 
         self.t_gconv_layers = [
             GConv(tfeat_len, num_hidden, tedge_len, tf.nn.elu),
-            GConv(num_hidden, num_hidden, tedge_len, tf.nn.elu),
             GConv(num_hidden, num_hidden, tedge_len, None)
         ]
 
@@ -77,7 +80,7 @@ class Model(tf.keras.Model):
             tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True))
         ]
 
-        self.final = tf.keras.layers.Dense(3, activation=tf.nn.log_softmax) # put 0, 1, 2 replicas
+        self.final = tf.keras.layers.Dense(2, activation=tf.nn.log_softmax) # put 0 or 1 replicas
 
     def set_graphs(self, cgraph, tgraph):
         self.cgraph = cgraph
@@ -87,9 +90,9 @@ class Model(tf.keras.Model):
         [cfeats, cedge_feats, tfeats, tedge_feats] = inputs
 
         x = cfeats
-        for layer in self.c_gconv_layers:
-            x = layer(self.cgraph, x, cedge_feats)
-            x = tf.reshape(x, (x.shape[0], -1))
+        # for layer in self.c_gconv_layers:
+        #     x = layer(self.cgraph, x, cedge_feats)
+        #     x = tf.reshape(x, (x.shape[0], -1))
         c_embedding = x
 
         x = tfeats
@@ -102,6 +105,7 @@ class Model(tf.keras.Model):
         for i in range(c_embedding.shape[0]):
             x = tf.repeat(tf.reshape(c_embedding[i, :], (1, c_embedding.shape[1])), repeats=[t_embedding.shape[0]], axis=0)
             x = tf.concat([x, t_embedding], 1) # TODO: add combination features (running time of a node in a device) here
+            x = t_embedding
             batches.append(tf.expand_dims(x, 0))
         x = tf.concat(batches, 0) # [batchsize, seq_len, num_feature]
         for layer in self.rnn_layers:

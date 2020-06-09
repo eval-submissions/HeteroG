@@ -5,23 +5,29 @@ import tensorflow as tf
 from data import get_all_data
 from model import Model
 from environment import evaluate_logp
+from utils import save, load
 
 import sys
 def info(*args):
-    print(*args, file=sys.stderr, flush=True)
+    print(*args, file=sys.stdout, flush=True)
 
-records = get_all_data()
+try:
+    records = load("records")
+    info("load saved records")
+except:
+    records = get_all_data()
+    info("no saved records")
 
 with tf.device("/gpu:0"):
     model = Model(4, 1, 2, 2)
 
     try:
-        # model.load_weights('weights')
+        model.load_weights('weights')
         info("load saved weight")
     except:
         info("no saved weight")
 
-    optimizer = tf.keras.optimizers.SGD(learning_rate=0.00001)
+    optimizer = tf.keras.optimizers.SGD(learning_rate=.0001, clipnorm=6.)
 
     for epoch in range(1000):
         record = records[np.random.randint(len(records))]
@@ -35,15 +41,17 @@ with tf.device("/gpu:0"):
         with tf.GradientTape() as tape:
             tape.watch(model.trainable_weights)
             logp = model([cnfeats, cefeats, tnfeats, tefeats], training=True)
-            results = evaluate_logp(record, logp.numpy()) # numpy to turn off gradient tracking
-            lps = [tf.reduce_sum(tf.boolean_mask(logp, mask)) for mask, loss_env in results]
-            lsp = tf.reduce_logsumexp(tf.concat([tf.expand_dims(x, 0) for x in lps], 0))
-            loss = tf.add_n([-loss_env * (lp - lsp) for (_, loss_env), lp in zip(results, lps)])
+            mask, loss_env = evaluate_logp(record, logp.numpy()) # numpy to turn off gradient tracking
+            loss = -tf.reduce_sum(tf.boolean_mask(logp, mask))
+            # for weight in model.trainable_weights:
+            #     loss = loss + 0.000001 * tf.nn.l2_loss(weight)
             grads = tape.gradient(loss, model.trainable_weights)
+            # info([tf.reduce_mean(tf.abs(grad)).numpy() for grad in grads])
             optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
         if epoch % 10 == 0:
             model.save_weights('weights')
+            save(records, "records")
 
         p = np.argmax(logp.numpy(), axis=2)
         count = {}
@@ -52,4 +60,5 @@ with tf.device("/gpu:0"):
             count[d] = count.get(d, 0) + 1
         info(count)
 
-        info("loss: ", loss.numpy() / 1000000)
+        info("loss: ", loss.numpy() / 100000)
+        info("loss_env: ", loss_env)

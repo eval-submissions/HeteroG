@@ -12,7 +12,7 @@ with tf.device("/gpu:1"):
 
     gdef, prof_data = load("vgg.pickle")
 
-    for bandwidth in (2 ** n for n in range(4, 15)):
+    for bandwidth in (2 ** n for n in range(5, 15)):
         topo = gen_topo([
             ("/job:worker/replica:0/task:0/device:GPU:0", 1, 6<<30),
             ("/job:worker/replica:0/task:0/device:GPU:1", 1, 6<<30),

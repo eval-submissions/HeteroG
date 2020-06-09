@@ -101,7 +101,7 @@ def group_around_topk_costs(gdef, groups, profile_data, k):
 def save(var, file):
     import pickle
     with open(file, 'wb') as f:
-        pickle.dump(record, f)
+        pickle.dump(var, f)
 
 def load(file):
     import pickle
