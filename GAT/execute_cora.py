@@ -73,7 +73,7 @@ hid_units = [512]  # numbers of hidden units per each attention head in each lay
 n_heads = [4, 4]  # additional entry for the output layer
 place_hid_units = [512,256]
 place_n_heads = [4,4,1]
-residual = False
+residual = True
 
 
 global_batch_size=288

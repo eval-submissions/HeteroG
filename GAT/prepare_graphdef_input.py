@@ -118,6 +118,12 @@ def model_fn(model_name,batch_size):
         y = tf.placeholder(tf.float32, shape=(batch_size,1000))
         output, _ = nasnet.build_nasnet_cifar(x, 1000)
         loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
+    elif model_name=="mobile_net":
+        from tensorflow.contrib.slim.nets import mobilenet_v2
+        x = tf.placeholder(tf.float32, shape=(batch_size, 224, 224, 3))
+        y = tf.placeholder(tf.float32, shape=(batch_size,1000))
+        output, _ = mobilenet_v2.mobilenet(x, 1000)
+        loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
 
     elif model_name=="inceptionv3":
         from tensorflow.contrib.slim.nets import inception_v3
@@ -312,7 +318,7 @@ def generate_feature_file(folder,index):
     with open(folder+"cost.pkl", "wb") as f:
         pkl.dump(final_dict,f)
 
-models = ["vgg19","resnet200","nasnet_cifar","resnet101","resnet152","inceptionv3","transformer","bert","small"]
+models = ["vgg19","resnet200","mobile_net","resnet101","resnet152","inceptionv3","transformer","bert","small"]
 for i in range(len(models)):
     if i!=2:
         continue
