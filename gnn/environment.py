@@ -25,6 +25,20 @@ def explore(logp):
             result[i, j] = s
     return mask, result
 
+def crossover(logp, d1, d2):
+    mask = np.zeros(logp.shape, dtype=bool)
+    result = np.zeros(logp.shape[:-1], dtype=int)
+    for i in range(logp.shape[0]):
+        if np.random.rand() < 0.8:
+            d = d1
+        else:
+            d = d2
+        for j in range(logp.shape[1]):
+            s = d[i, j]
+            mask[i, j, s] = 1
+            result[i, j] = s
+    return mask, result
+
 def evaluate(record, decisions):
     gdef = record["gdef"]
     strategy = { gdef.node[i].name: [0, *decisions[i]] for i in range(decisions.shape[0]) }
@@ -56,10 +70,16 @@ def explore_and_evaluate(record, logp):
     loss = evaluate(record, decisions)
     return mask, loss
 
-def evaluate_logp(record, logp, nsample=2, nexplore=2, poolsize=20):
+def modify_and_evaluate(record, origin_mask):
+    _, explored = explore(origin_mask)
+    mask, decisions = crossover(origin_mask, np.argmax(origin_mask, 2), explored)
+    loss = evaluate(record, decisions)
+    return mask, loss
+
+def evaluate_logp(record, logp, nsample=1, nexplore=0, nmodify=4, poolsize=4):
     if "pool" not in record:
         record["pool"] = [explore_and_evaluate(record, logp) for _ in range(poolsize)]
-        nexplore += logp.shape[1] * poolsize
+        nexplore += 10 * logp.shape[1] * poolsize
     pool = record["pool"]
 
     for _ in range(nsample):
@@ -74,11 +94,13 @@ def evaluate_logp(record, logp, nsample=2, nexplore=2, poolsize=20):
         if pool[i][1] > loss:
             pool[i] = mask, loss
 
+    for _ in range(nmodify):
+        i = np.random.choice(poolsize)
+        mask, loss = modify_and_evaluate(record, pool[i][0])
+        if pool[i][1] > loss:
+            pool[i] = mask, loss
+
     i = np.random.choice(len(pool))
-    for _ in range(5): # avoid worst candidate to prevent wrong direction at early stage
-        j = np.random.choice(len(pool))
-        if pool[i][1] > pool[j][1]:
-            i = j
 
     # info("s0", evaluate(record, np.array([[1] * logp.shape[1] for _ in range(logp.shape[0])])))
     # info("s1", evaluate(record, np.array([[1] + [0] * (logp.shape[1] - 1) for _ in range(logp.shape[0])])))

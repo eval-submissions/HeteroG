@@ -27,9 +27,9 @@ with tf.device("/gpu:0"):
     except:
         info("no saved weight")
 
-    optimizer = tf.keras.optimizers.SGD(learning_rate=.0001, clipnorm=6.)
+    optimizer = tf.keras.optimizers.SGD(learning_rate=.000001, clipnorm=6.)
 
-    for epoch in range(1000):
+    for epoch in range(10000):
         record = records[np.random.randint(len(records))]
 
         cnfeats = tf.convert_to_tensor(record["cnfeats"], dtype=tf.float32)
@@ -53,12 +53,18 @@ with tf.device("/gpu:0"):
             model.save_weights('weights')
             save(records, "records")
 
+        p = np.argmax(mask, axis=2)
+        count = {}
+        for i in range(p.shape[0]):
+            d = tuple(p[i, :])
+            count[d] = count.get(d, 0) + 1
+        info(count)
+        info("loss_env: ", loss_env)
+
         p = np.argmax(logp.numpy(), axis=2)
         count = {}
         for i in range(p.shape[0]):
             d = tuple(p[i, :])
             count[d] = count.get(d, 0) + 1
         info(count)
-
         info("loss: ", loss.numpy() / 100000)
-        info("loss_env: ", loss_env)

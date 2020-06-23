@@ -8,24 +8,21 @@ def info(*args):
 
 class GConv(tf.keras.layers.Layer):
     '''Graph Conv layer that concats the edge features before sending message'''
-    def __init__(self,
-                 in_feats,
-                 out_feats,
-                 edge_feats,
-                 activation=None):
+    def __init__(self, in_feats, out_feats, edge_feats, residual=False, activation=None):
         super(GConv, self).__init__()
-        self._in_feats = in_feats + edge_feats
-        self._out_feats = out_feats
+        self.in_feats = in_feats + edge_feats
+        self.out_feats = out_feats
 
         xinit = tf.keras.initializers.glorot_uniform()
         self.weight = tf.Variable(initial_value=xinit(
-            shape=(self._in_feats, self._out_feats), dtype='float32'), trainable=True)
+            shape=(self.in_feats, self.out_feats), dtype='float32'), trainable=True)
 
         zeroinit = tf.keras.initializers.zeros()
         self.bias = tf.Variable(initial_value=zeroinit(
-            shape=(self._out_feats, ), dtype='float32'), trainable=True)
+            shape=(self.out_feats, ), dtype='float32'), trainable=True)
 
-        self._activation = activation
+        self.activation = activation
+        self.residual = residual
 
     def call(self, graph, feat, edge_feat):
         graph = graph.local_var()
@@ -51,8 +48,11 @@ class GConv(tf.keras.layers.Layer):
         norm = tf.reshape(norm, shp)
         rst = rst * norm + self.bias
 
-        if self._activation is not None:
-            rst = self._activation(rst)
+        if self.activation is not None:
+            rst = self.activation(rst)
+
+        if self.residual:
+            rst = feat + rst
 
         return rst
 
@@ -60,18 +60,20 @@ class Model(tf.keras.Model):
     def __init__(self, cfeat_len, cedge_len, tfeat_len, tedge_len):
         super(Model, self).__init__()
 
-        num_hidden = 32
-        num_rnn_hidden = 16
+        num_hidden = 256
+        num_rnn_hidden = 64
 
-        # self.c_gconv_layers = [
-        #     GConv(cfeat_len, num_hidden, cedge_len, tf.nn.elu),
-        #     GConv(num_hidden, num_hidden, cedge_len, tf.nn.elu),
-        #     GConv(num_hidden, num_hidden, cedge_len, None)
-        # ]
+        self.c_gconv_layers = [
+            GConv(cfeat_len, num_hidden, cedge_len, False, tf.sigmoid),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.sigmoid),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.sigmoid),
+            GConv(num_hidden, num_hidden, cedge_len, False, None)
+        ]
 
         self.t_gconv_layers = [
-            GConv(tfeat_len, num_hidden, tedge_len, tf.nn.elu),
-            GConv(num_hidden, num_hidden, tedge_len, None)
+            GConv(tfeat_len, num_hidden, tedge_len, False, tf.sigmoid),
+            GConv(num_hidden, num_hidden, tedge_len, True, tf.sigmoid),
+            GConv(num_hidden, num_hidden, tedge_len, False, None)
         ]
 
         self.rnn_layers = [
@@ -90,9 +92,9 @@ class Model(tf.keras.Model):
         [cfeats, cedge_feats, tfeats, tedge_feats] = inputs
 
         x = cfeats
-        # for layer in self.c_gconv_layers:
-        #     x = layer(self.cgraph, x, cedge_feats)
-        #     x = tf.reshape(x, (x.shape[0], -1))
+        for layer in self.c_gconv_layers:
+            x = layer(self.cgraph, x, cedge_feats)
+            x = tf.reshape(x, (x.shape[0], -1))
         c_embedding = x
 
         x = tfeats
