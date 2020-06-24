@@ -79,7 +79,8 @@ def modify_and_evaluate(record, origin_mask):
 def evaluate_logp(record, logp, nsample=1, nexplore=0, nmodify=4, poolsize=4):
     if "pool" not in record:
         record["pool"] = [explore_and_evaluate(record, logp) for _ in range(poolsize)]
-        nexplore += 10 * logp.shape[1] * poolsize
+        nexplore += 20 * logp.shape[1] * poolsize
+        nmodify += 20 * logp.shape[1] * poolsize
     pool = record["pool"]
 
     for _ in range(nsample):
@@ -101,10 +102,5 @@ def evaluate_logp(record, logp, nsample=1, nexplore=0, nmodify=4, poolsize=4):
             pool[i] = mask, loss
 
     i = np.random.choice(len(pool))
-
-    # info("s0", evaluate(record, np.array([[1] * logp.shape[1] for _ in range(logp.shape[0])])))
-    # info("s1", evaluate(record, np.array([[1] + [0] * (logp.shape[1] - 1) for _ in range(logp.shape[0])])))
-    # info("s2", evaluate(record, np.array([[0] * logp.shape[1] for _ in range(logp.shape[0])])))
-    # info("smin", pool[i][1])
 
     return pool[i]

@@ -65,7 +65,7 @@ def gen_data(gdef, prof_data, topo):
     }
 
 def get_all_data():
-    models = [pickle.load(open("{}.pickle".format(m), "rb")) for m in ("vgg", )] # "resnet", "mlp", "lenet"
+    models = [pickle.load(open("{}.pickle".format(m), "rb")) for m in ("vgg", "mlp", "lenet")] # "resnet",
     topos1 = [gen_topo([
         ("/job:worker/replica:0/task:0/device:GPU:0", 1, 6<<30),
         ("/job:worker/replica:0/task:0/device:GPU:1", 1, 6<<30),
@@ -75,11 +75,11 @@ def get_all_data():
         ("/job:worker/replica:0/task:0/device:GPU:5", 1.2, 6<<30),
         ("/job:worker/replica:0/task:0/device:GPU:6", 1.2, 6<<30),
         ("/job:worker/replica:0/task:0/device:GPU:7", 1.2, 6<<30),
-    ], intra=bandwidth) for bandwidth in (10, 100, 1000, 10000)]
+    ], intra=bandwidth) for bandwidth in (10, 100, 1000, 10000, 100000)]
     topos2 = [gen_topo([
         ("/job:worker/replica:0/task:0/device:GPU:0", 1.5, 6<<30),
         ("/job:worker/replica:0/task:0/device:GPU:1", 1.2, 6<<30),
-    ], intra=bandwidth) for bandwidth in (200, 2000)]
+    ], intra=bandwidth) for bandwidth in (200, 2000, 20000)]
     topos3 = [gen_topo([
         ("/job:worker/replica:0/task:0/device:GPU:0", 1, 6<<30),
         ("/job:worker/replica:0/task:0/device:GPU:1", 1, 6<<30),
@@ -87,7 +87,7 @@ def get_all_data():
         ("/job:worker/replica:0/task:0/device:GPU:3", 1.2, 6<<30),
         ("/job:worker/replica:0/task:0/device:GPU:4", 1.5, 6<<30),
         ("/job:worker/replica:0/task:0/device:GPU:5", 1.5, 6<<30),
-    ], intra=bandwidth) for bandwidth in (400, 4000)]
+    ], intra=bandwidth) for bandwidth in (400, 4000, 40000)]
     topos4 = [gen_topo([
         ("/job:worker/replica:0/task:0/device:GPU:0", 1, 6<<30),
         ("/job:worker/replica:0/task:0/device:GPU:1", 1, 6<<30),
@@ -95,5 +95,5 @@ def get_all_data():
         ("/job:worker/replica:0/task:0/device:GPU:3", 1, 6<<30),
         ("/job:worker/replica:0/task:1/device:GPU:0", 1, 6<<30),
         ("/job:worker/replica:0/task:1/device:GPU:1", 1, 6<<30),
-    ], intra=bandwidth, inter=10) for bandwidth in (1000, 10000)]
-    return [gen_data(gdef, prof_data, topo) for gdef, prof_data in models for topo in topos1 + topos4]
+    ], intra=bandwidth, inter=10) for bandwidth in (1000, 10000, 100000)]
+    return [gen_data(gdef, prof_data, topo) for gdef, prof_data in models for topo in topos1 + topos2 + topos3 + topos4]

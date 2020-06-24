@@ -61,7 +61,7 @@ class Model(tf.keras.Model):
         super(Model, self).__init__()
 
         num_hidden = 256
-        num_rnn_hidden = 64
+        num_rnn_hidden = 128
 
         self.c_gconv_layers = [
             GConv(cfeat_len, num_hidden, cedge_len, False, tf.sigmoid),
@@ -107,7 +107,6 @@ class Model(tf.keras.Model):
         for i in range(c_embedding.shape[0]):
             x = tf.repeat(tf.reshape(c_embedding[i, :], (1, c_embedding.shape[1])), repeats=[t_embedding.shape[0]], axis=0)
             x = tf.concat([x, t_embedding], 1) # TODO: add combination features (running time of a node in a device) here
-            x = t_embedding
             batches.append(tf.expand_dims(x, 0))
         x = tf.concat(batches, 0) # [batchsize, seq_len, num_feature]
         for layer in self.rnn_layers:
