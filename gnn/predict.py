@@ -8,19 +8,19 @@ from utils import save, load
 from environment import sample
 
 with tf.device("/gpu:1"):
-    model = Model(4, 1, 2, 2)
+    model = Model(4, 1, 2, 3)
     model.load_weights('weights')
 
     gdef, prof_data = load("vgg.pickle")
 
-    for bandwidth in (2 ** n for n in range(5, 22)):
+    for bandwidth in (2 ** n for n in range(8, 20)):
         topo = gen_topo([
             ("/job:worker/replica:0/task:0/device:GPU:0", 1, 6<<30),
             ("/job:worker/replica:0/task:0/device:GPU:1", 1, 6<<30),
             ("/job:worker/replica:0/task:0/device:GPU:2", 1, 6<<30),
             ("/job:worker/replica:0/task:0/device:GPU:3", 1, 6<<30),
             ("/job:worker/replica:0/task:1/device:GPU:0", 1, 6<<30),
-        ], intra=bandwidth, inter=1)
+        ], intra=bandwidth, inter=10)
         record = gen_data(gdef, prof_data, topo)
 
         cnfeats = tf.convert_to_tensor(record["cnfeats"], dtype=tf.float32)

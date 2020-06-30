@@ -88,6 +88,9 @@ class Model(tf.keras.Model):
         self.cgraph = cgraph
         self.tgraph = tgraph
 
+    def set_groups(self, groups):
+        self.groups = groups
+
     def call(self, inputs):
         [cfeats, cedge_feats, tfeats, tedge_feats] = inputs
 
@@ -102,6 +105,9 @@ class Model(tf.keras.Model):
             x = layer(self.tgraph, x, tedge_feats)
             x = tf.reshape(x, (x.shape[0], -1))
         t_embedding = x
+
+        if self.groups is not None:
+            c_embedding = tf.concat([tf.expand_dims(tf.math.add_n([c_embedding[i, :] for i in group]) / len(group), 0) for group in self.groups], 0)
 
         batches = []
         for i in range(c_embedding.shape[0]):

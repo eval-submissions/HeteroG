@@ -41,7 +41,10 @@ def crossover(logp, d1, d2):
 
 def evaluate(record, decisions):
     gdef = record["gdef"]
-    strategy = { gdef.node[i].name: [0, *decisions[i]] for i in range(decisions.shape[0]) }
+    if record["groups"] is not None:
+        strategy = { gdef.node[i].name: [0, *decisions[gi]] for gi, group in enumerate(record["groups"]) for i in group }
+    else:
+        strategy = { gdef.node[i].name: [0, *decisions[i]] for i in range(decisions.shape[0]) }
     penalty = 1
     for k, v in strategy.items():
         if np.sum(v[1:]) == 0:

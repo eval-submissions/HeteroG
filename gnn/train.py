@@ -19,7 +19,7 @@ except:
     info("no saved records")
 
 with tf.device("/gpu:0"):
-    model = Model(4, 1, 2, 2)
+    model = Model(4, 1, 2, 3)
 
     try:
         model.load_weights('weights')
@@ -27,7 +27,7 @@ with tf.device("/gpu:0"):
     except:
         info("no saved weight")
 
-    optimizer = tf.keras.optimizers.SGD(learning_rate=.00001, clipnorm=6.)
+    optimizer = tf.keras.optimizers.SGD(learning_rate=.000002, clipnorm=6.)
 
     for epoch in range(10000):
         record = records[np.random.randint(len(records))]
@@ -37,6 +37,7 @@ with tf.device("/gpu:0"):
         tnfeats = tf.convert_to_tensor(record["tnfeats"], dtype=tf.float32)
         tefeats = tf.convert_to_tensor(record["tefeats"], dtype=tf.float32)
         model.set_graphs(record["cgraph"], record["tgraph"])
+        model.set_groups(record["groups"])
 
         with tf.GradientTape() as tape:
             tape.watch(model.trainable_weights)
