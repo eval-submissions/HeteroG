@@ -5,7 +5,7 @@ import tensorflow as tf
 from model import Model
 from data import gen_topo, gen_data
 from utils import save, load
-from environment import sample
+from environment import sample, kmeans_sample
 
 with tf.device("/gpu:1"):
     model = Model(4, 1, 2, 3)
@@ -28,10 +28,12 @@ with tf.device("/gpu:1"):
         tnfeats = tf.convert_to_tensor(record["tnfeats"], dtype=tf.float32)
         tefeats = tf.convert_to_tensor(record["tefeats"], dtype=tf.float32)
         model.set_graphs(record["cgraph"], record["tgraph"])
+        model.set_groups(record["groups"])
 
         logp = model([cnfeats, cefeats, tnfeats, tefeats])
-        p = np.argmax(logp.numpy(), axis=2)
+        # p = np.argmax(logp.numpy(), axis=2)
         # _, p = sample(logp.numpy())
+        _, p = kmeans_sample(logp.numpy())
         count = {}
         for i in range(p.shape[0]):
             d = tuple(p[i, :])

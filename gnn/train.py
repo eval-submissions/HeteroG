@@ -4,7 +4,7 @@ import tensorflow as tf
 
 from data import get_all_data
 from model import Model
-from environment import evaluate_logp
+from environment import evaluate_logp, sample, evaluate, kmeans_sample
 from utils import save, load
 
 import sys
@@ -62,10 +62,12 @@ with tf.device("/gpu:0"):
         info(count)
         info("loss_env: ", loss_env)
 
-        p = np.argmax(logp.numpy(), axis=2)
+        # p = np.argmax(logp.numpy(), axis=2)
+        # _, p = sample(logp.numpy())
+        _, p = kmeans_sample(logp.numpy())
         count = {}
         for i in range(p.shape[0]):
             d = tuple(p[i, :])
             count[d] = count.get(d, 0) + 1
         info(count)
-        info("loss: ", loss.numpy() / 100000)
+        info("loss_pred: ", evaluate(record, p))

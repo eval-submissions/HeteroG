@@ -54,7 +54,7 @@ def gen_data(gdef, prof_data, topo):
     group_table = {}
     for i, node in enumerate(gdef.node):
         if node.name.startswith("GradientDescent") or node.name.startswith("gradients"):
-            prefix = '/'.join(node.name.split('/')[:3])
+            prefix = '/'.join(node.name.split('/')[1:3])
         else:
             prefix = '/'.join(node.name.split('/')[:2])
         if prefix in group_table:

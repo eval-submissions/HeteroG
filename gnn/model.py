@@ -67,18 +67,21 @@ class Model(tf.keras.Model):
             GConv(cfeat_len, num_hidden, cedge_len, False, tf.sigmoid),
             GConv(num_hidden, num_hidden, cedge_len, True, tf.sigmoid),
             GConv(num_hidden, num_hidden, cedge_len, True, tf.sigmoid),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.sigmoid),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.sigmoid),
             GConv(num_hidden, num_hidden, cedge_len, False, None)
         ]
 
         self.t_gconv_layers = [
             GConv(tfeat_len, num_hidden, tedge_len, False, tf.sigmoid),
             GConv(num_hidden, num_hidden, tedge_len, True, tf.sigmoid),
+            GConv(num_hidden, num_hidden, tedge_len, True, tf.sigmoid),
             GConv(num_hidden, num_hidden, tedge_len, False, None)
         ]
 
         self.rnn_layers = [
             # tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True)),
-            # tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True)),
+            tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True)),
             tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True))
         ]
 
