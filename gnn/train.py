@@ -19,7 +19,7 @@ except:
     info("no saved records")
 
 with tf.device("/gpu:0"):
-    model = Model(4, 1, 2, 3)
+    model = Model(4, 1, 2, 3, records[0]["op_table"])
 
     try:
         model.load_weights('weights')
@@ -34,6 +34,7 @@ with tf.device("/gpu:0"):
 
         cnfeats = tf.convert_to_tensor(record["cnfeats"], dtype=tf.float32)
         cefeats = tf.convert_to_tensor(record["cefeats"], dtype=tf.float32)
+        cntypes = tf.convert_to_tensor(record["cntypes"], dtype=tf.float32)
         tnfeats = tf.convert_to_tensor(record["tnfeats"], dtype=tf.float32)
         tefeats = tf.convert_to_tensor(record["tefeats"], dtype=tf.float32)
         model.set_graphs(record["cgraph"], record["tgraph"])
@@ -41,7 +42,7 @@ with tf.device("/gpu:0"):
 
         with tf.GradientTape() as tape:
             tape.watch(model.trainable_weights)
-            logp = model([cnfeats, cefeats, tnfeats, tefeats], training=True)
+            logp = model([cnfeats, cefeats, cntypes, tnfeats, tefeats], training=True)
             mask, loss_env = evaluate_logp(record, logp.numpy()) # numpy to turn off gradient tracking
             loss = -tf.reduce_sum(tf.boolean_mask(logp, mask))
             # for weight in model.trainable_weights:

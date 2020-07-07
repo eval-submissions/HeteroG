@@ -57,14 +57,17 @@ class GConv(tf.keras.layers.Layer):
         return rst
 
 class Model(tf.keras.Model):
-    def __init__(self, cfeat_len, cedge_len, tfeat_len, tedge_len):
+    def __init__(self, cfeat_len, cedge_len, tfeat_len, tedge_len, op_table):
         super(Model, self).__init__()
 
         num_hidden = 256
         num_rnn_hidden = 128
+        op_embedding_len = 4
+
+        self.op_embedding = tf.keras.layers.Embedding(len(op_table), op_embedding_len, input_length=1)
 
         self.c_gconv_layers = [
-            GConv(cfeat_len, num_hidden, cedge_len, False, tf.sigmoid),
+            GConv(cfeat_len + op_embedding_len, num_hidden, cedge_len, False, tf.sigmoid),
             GConv(num_hidden, num_hidden, cedge_len, True, tf.sigmoid),
             GConv(num_hidden, num_hidden, cedge_len, True, tf.sigmoid),
             GConv(num_hidden, num_hidden, cedge_len, True, tf.sigmoid),
@@ -95,9 +98,10 @@ class Model(tf.keras.Model):
         self.groups = groups
 
     def call(self, inputs):
-        [cfeats, cedge_feats, tfeats, tedge_feats] = inputs
+        [cfeats, cedge_feats, ctypes, tfeats, tedge_feats] = inputs
 
-        x = cfeats
+        op_embedding = self.op_embedding(tf.expand_dims(ctypes, 1)) # shape: (n_nodes, 1, op_embedding_len)
+        x = tf.concat([cfeats, tf.squeeze(op_embedding, axis=1)], 1)
         for layer in self.c_gconv_layers:
             x = layer(self.cgraph, x, cedge_feats)
             x = tf.reshape(x, (x.shape[0], -1))

@@ -32,11 +32,15 @@ def gen_topo(devices, inter=2810, intra=2810):
                         efeats.append([1, inter / 10000, math.log(inter) / 10])
     return { "devices": devices, "graph": g, "nfeats": nfeats, "efeats": efeats, "inter": inter, "intra": intra }
 
-def gen_data(gdef, prof_data, topo):
+def gen_data(gdef, prof_data, topo, op_table):
     g = dgl.DGLGraph()
     g.add_nodes(len(gdef.node))
+    ntypes = []
+    for node in gdef.node:
+        if node.op not in op_table:
+            op_table[node.op] = len(op_table)
+        ntypes.append(op_table[node.op])
     nfeats = [[np.mean(prof_data[(node.name, nrep)]) / 1000 for nrep in (1, 2, 3, 4)] for node in gdef.node]
-    # TODO: op type embedding
     efeats = []
     reverse_dict = { node.name: i for i, node in enumerate(gdef.node) }
     for i, node in enumerate(gdef.node):
@@ -68,11 +72,13 @@ def gen_data(gdef, prof_data, topo):
         "devices": topo["devices"],
         "cgraph": g,
         "cnfeats": nfeats,
+        "cntypes": ntypes,
         "cefeats": efeats,
         "tgraph": topo["graph"],
         "tnfeats": topo["nfeats"],
         "tefeats": topo["efeats"],
         "groups": list(group_table.values()),
+        "op_table": op_table,
         # the two are workarounds; should write a graph parser in tge.py to get the links and bandwidth from graph
         "inter": topo["inter"],
         "intra": topo["intra"]
@@ -110,4 +116,5 @@ def get_all_data():
         ("/job:worker/replica:0/task:1/device:GPU:0", 1, 6<<30),
         ("/job:worker/replica:0/task:1/device:GPU:1", 1, 6<<30),
     ], intra=bandwidth, inter=10) for bandwidth in (10, 100, 1000, 10000, 100000)]
-    return [gen_data(gdef, prof_data, topo) for gdef, prof_data in models for topo in topos1 + topos2 + topos3 + topos4]
+    op_table = {}
+    return [gen_data(gdef, prof_data, topo, op_table) for gdef, prof_data in models for topo in topos1 + topos2 + topos3 + topos4]
