@@ -107,7 +107,7 @@ impl Graph {
         // mark batch splittability
         for node in self.nodes.iter_mut() {
             match &node.raw_node.op[..] {
-                "Placeholder" | "IteratorGetNext" | "Conv2D" | "MaxPool" | "MatMul" | "Conv2DBackpropInput" | "BiasAdd" => {
+                "Placeholder" | "IteratorGetNext" | "Conv2D" | "MaxPool" | "Conv2DBackpropInput" | "BiasAdd" => {
                     node.get_output(0).set_flag(Tensor::IS_BATCHED);
                 },
                 "Cast" | "ZerosLike" |"GreaterEqual" | "Neg" | "Log1p" | "Exp" | "Slice" |
@@ -124,9 +124,14 @@ impl Graph {
                         break
                     }
                 },
+                "MatMul" => {
+                    let (id, index, _) = &node.inputs[0];
+                    if node.graph().nodes[*id].get_output(*index).has_flag(Tensor::IS_BATCHED) && node.raw_node.attr["transpose_a"].get_b() {
+                        node.get_output(0).set_flag(Tensor::IS_BATCHED);
+                    }
+                }
                 _ => {}
                 // todo: Select?
-                // todo: matmul has an attr that transpose the input on the fly
                 // todo: shape -> fill or shape -> broadcast also gives a splittable tensor
             }
         }
