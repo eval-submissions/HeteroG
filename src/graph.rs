@@ -126,7 +126,7 @@ impl Graph {
                 },
                 "MatMul" => {
                     let (id, index, _) = &node.inputs[0];
-                    if node.graph().nodes[*id].get_output(*index).has_flag(Tensor::IS_BATCHED) && node.raw_node.attr["transpose_a"].get_b() {
+                    if node.graph().nodes[*id].get_output(*index).has_flag(Tensor::IS_BATCHED) && !node.raw_node.attr["transpose_a"].get_b() {
                         node.get_output(0).set_flag(Tensor::IS_BATCHED);
                     }
                 }
