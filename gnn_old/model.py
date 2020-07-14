@@ -82,7 +82,13 @@ class Model(tf.keras.Model):
             GConv(num_hidden, num_hidden, tedge_len, False, None)
         ]
 
-        self.final = tf.keras.layers.Dense(8, activation=tf.nn.log_softmax)
+        self.rnn_layers = [
+            # tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True)),
+            tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True)),
+            tf.keras.layers.Bidirectional(tf.keras.layers.GRU(num_rnn_hidden, return_sequences=True))
+        ]
+
+        self.final = tf.keras.layers.Dense(2, activation=tf.nn.log_softmax) # put 0 or 1 replicas
 
     def set_graphs(self, cgraph, tgraph):
         self.cgraph = cgraph
@@ -110,8 +116,14 @@ class Model(tf.keras.Model):
         if self.groups is not None:
             c_embedding = tf.concat([tf.expand_dims(tf.math.add_n([c_embedding[i, :] for i in group]) / len(group), 0) for group in self.groups], 0)
 
-        x = tf.repeat(tf.reshape(t_embedding, (1, -1)), repeats=[c_embedding.shape[0]], axis=0)
-        x = tf.concat([c_embedding, x], 1) # [n_node, c_embedding_len + 6 * t_embedding_len]
-        x = self.final(x) # [n_node, 8]
+        batches = []
+        for i in range(c_embedding.shape[0]):
+            x = tf.repeat(tf.reshape(c_embedding[i, :], (1, c_embedding.shape[1])), repeats=[t_embedding.shape[0]], axis=0)
+            x = tf.concat([x, t_embedding], 1) # TODO: add combination features (running time of a node in a device) here
+            batches.append(tf.expand_dims(x, 0))
+        x = tf.concat(batches, 0) # [batchsize, seq_len, num_feature]
+        for layer in self.rnn_layers:
+            x = layer(x)
+        x = self.final(x) # the Dense layer is applied on the last axis of input tensor (https://github.com/tensorflow/tensorflow/issues/30882)
 
         return x

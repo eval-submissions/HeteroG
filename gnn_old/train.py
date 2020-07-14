@@ -4,7 +4,7 @@ import tensorflow as tf
 
 from data import get_all_data
 from model import Model
-from environment import evaluate_logp, evaluate
+from environment import evaluate_logp, sample, evaluate, kmeans_sample
 from utils import save, load
 
 import sys
@@ -27,7 +27,7 @@ with tf.device("/gpu:0"):
     except:
         info("no saved weight")
 
-    optimizer = tf.keras.optimizers.SGD(learning_rate=.00001, clipnorm=6.)
+    optimizer = tf.keras.optimizers.SGD(learning_rate=.000002, clipnorm=6.)
 
     for epoch in range(10000):
         record = records[np.random.randint(len(records))]
@@ -43,10 +43,10 @@ with tf.device("/gpu:0"):
         with tf.GradientTape() as tape:
             tape.watch(model.trainable_weights)
             logp = model([cnfeats, cefeats, cntypes, tnfeats, tefeats], training=True)
-            mask, loss_rel = evaluate_logp(record, logp.numpy()) # numpy to turn off gradient tracking
-            loss = loss_rel * tf.reduce_mean(logp * mask)
-            for weight in model.trainable_weights:
-                loss = loss + 0.000001 * tf.nn.l2_loss(weight)
+            mask, loss_env = evaluate_logp(record, logp.numpy()) # numpy to turn off gradient tracking
+            loss = -tf.reduce_sum(tf.boolean_mask(logp, mask))
+            # for weight in model.trainable_weights:
+            #     loss = loss + 0.000001 * tf.nn.l2_loss(weight)
             grads = tape.gradient(loss, model.trainable_weights)
             # info([tf.reduce_mean(tf.abs(grad)).numpy() for grad in grads])
             optimizer.apply_gradients(zip(grads, model.trainable_weights))
@@ -55,17 +55,20 @@ with tf.device("/gpu:0"):
             model.save_weights('weights')
             save(records, "records")
 
-        p = np.argmax(mask, axis=1)
+        p = np.argmax(mask, axis=2)
         count = {}
         for i in range(p.shape[0]):
-            d = p[i]
+            d = tuple(p[i, :])
             count[d] = count.get(d, 0) + 1
         info(count)
-        info("loss_rel: ", loss_rel)
+        info("loss_env: ", loss_env)
 
+        # p = np.argmax(logp.numpy(), axis=2)
+        # _, p = sample(logp.numpy())
+        _, p = kmeans_sample(logp.numpy())
         count = {}
         for i in range(p.shape[0]):
-            d = p[i]
+            d = tuple(p[i, :])
             count[d] = count.get(d, 0) + 1
         info(count)
         info("loss_pred: ", evaluate(record, p))

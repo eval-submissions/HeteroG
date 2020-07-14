@@ -109,12 +109,12 @@ def get_all_data():
         ("/job:worker/replica:0/task:0/device:GPU:5", 1.5, 6<<30),
     ], intra=bandwidth) for bandwidth in (40, 400, 4000, 40000)]
     topos4 = [gen_topo([
-        ("/job:worker/replica:0/task:0/device:GPU:0", 1, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:1", 1, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:2", 1, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:3", 1, 12<<30),
-        ("/job:worker/replica:0/task:1/device:GPU:0", 1, 12<<30),
-        ("/job:worker/replica:0/task:1/device:GPU:1", 1, 12<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:0", 1, 6<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:1", 1, 6<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:2", 1, 6<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:3", 1, 6<<30),
+        ("/job:worker/replica:0/task:1/device:GPU:0", 1, 6<<30),
+        ("/job:worker/replica:0/task:1/device:GPU:1", 1, 6<<30),
     ], intra=bandwidth, inter=10) for bandwidth in (10, 100, 1000, 10000, 100000)]
     op_table = {}
-    return [gen_data(gdef, prof_data, topo, op_table) for gdef, prof_data in models for topo in topos4]
+    return [gen_data(gdef, prof_data, topo, op_table) for gdef, prof_data in models for topo in topos1 + topos2 + topos3 + topos4]
