@@ -98,7 +98,7 @@ class Model(tf.keras.Model):
         self.groups = groups
 
     def call(self, inputs):
-        [cfeats, cedge_feats, ctypes, tfeats, tedge_feats] = inputs
+        [cfeats, cedge_feats, ctypes, tfeats, tedge_feats, combined_feats] = inputs
 
         op_embedding = self.op_embedding(tf.expand_dims(ctypes, 1)) # shape: (n_nodes, 1, op_embedding_len)
         x = tf.concat([cfeats, tf.squeeze(op_embedding, axis=1)], 1)
