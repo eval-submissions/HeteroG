@@ -48,7 +48,7 @@ pub fn remove_dangling_nodes(target: &mut Target) {
     // hacky way to avoid clone
     let mut x = std::mem::replace(&mut target.pb.node, vec![].into()).into_vec();
     x.retain(|x| keep.contains(&x.name[..]));
-    std::mem::replace(&mut target.pb.node, x.into());
+    target.pb.node = x.into()
 }
 
 pub fn destruct_names(target: &mut Target) {
