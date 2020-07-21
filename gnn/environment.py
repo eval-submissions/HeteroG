@@ -5,37 +5,34 @@ import sys
 def info(*args):
     print(*args, file=sys.stdout, flush=True)
 
-def sample(logp):
+def sample(logp, e=.02):
     mask = np.zeros(logp.shape, dtype='bool')
     d = []
     for i in range(logp.shape[0]):
-        s = int(np.random.choice(logp.shape[1], p=np.exp(logp[i])))
+        if np.random.rand() < e:
+            s = int(np.random.choice(logp.shape[1]))
+        else:
+            s = int(np.random.choice(logp.shape[1], p=np.exp(logp[i])))
         d.append(s)
         mask[i, s] = 1
     return mask, d
 
 def evaluate(record, decisions):
     decision_map = [
-        [0, 1, 0, 0, 0, 0, 0],
-        [0, 0, 1, 0, 0, 0, 0],
-        [0, 0, 0, 1, 0, 0, 0],
-        [0, 0, 0, 0, 1, 0, 0],
-        [0, 0, 0, 0, 0, 1, 0],
-        [0, 0, 0, 0, 0, 0, 1],
-        [0, 1, 1, 1, 1, 0, 0],
-        [2, 1, 1, 1, 1, 0, 0]
+        [2 if len(group) >= 2 else 0] + [1 if i in group else 0 for i in range(len(record["devices"]))]
+        for group in record["tgroups"]
     ]
 
     gdef = record["gdef"]
-    if record["groups"] is not None:
-        strategy = { gdef.node[i].name: decision_map[decisions[gi]] for gi, group in enumerate(record["groups"]) for i in group }
+    if record["cgroups"] is not None:
+        strategy = { gdef.node[i].name: decision_map[decisions[gi]] for gi, group in enumerate(record["cgroups"]) for i in group }
     else:
         strategy = { gdef.node[i].name: decision_map[decisions[i]] for i in range(len(decisions)) }
     penalty = 1
-    for k, v in strategy.items():
-        if np.sum(v[1:]) == 0:
-            penalty += 1
-            v[1] = 1
+    # for k, v in strategy.items():
+    #     if np.sum(v[1:]) == 0:
+    #         penalty += 1
+    #         v[1] = 1
     tge = TGE(gdef, [dev for dev, _, _ in record["devices"]])
     tge.set_strategy(strategy)
     tge.fill_batchsize(48)
@@ -63,28 +60,26 @@ def sample_and_evaluate(record, logp):
     return mask, loss
 
 def evaluate_logp(record, logp):
-    if 'hist' not in record:
-        loss = 9999999
-        for i in range(8):
-            d = np.zeros(logp.shape[0], dtype=int)
-            d[:] = i
-            l = evaluate(record, d)
-            if l < loss:
-                loss = l
+    if 'pool' not in record:
+        record['pool'] = []
+        for i in range(6):
+            decisions = np.zeros(logp.shape[0], dtype=int)
+            decisions[:] = i
+            loss = evaluate(record, decisions)
+            mask = np.zeros(logp.shape, dtype=bool)
+            for i in range(logp.shape[0]):
+                mask[i, decisions[i]] = 1
+            record['pool'].append((mask, loss))
 
-        record['hist'] = [loss]
+    pool = record['pool']
 
-    if np.random.rand() < .9:
-        mask, loss = sample_and_evaluate(record, logp)
+    i = np.random.choice(range(len(pool)))
+    if np.random.rand() < .05:
+        mask, loss = pool[i]
     else:
-        d = np.zeros(logp.shape[0], dtype=int)
-        loss = evaluate(record, d)
-        mask = np.zeros(logp.shape, dtype=bool)
-        for i in range(logp.shape[0]):
-            mask[i, d[i]] = 1
-
-    avg = sum(record['hist']) / len(record['hist'])
-    if loss < avg:
-        record['hist'].append(loss)
+        mask, loss = sample_and_evaluate(record, logp)
+        if loss < pool[i][1]:
+            pool[i] = mask, loss
+    avg = sum(l for _, l in pool) / len(pool)
 
     return mask, (loss - avg) / avg

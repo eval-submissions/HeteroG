@@ -30,7 +30,7 @@ with tf.device("/gpu:1"):
         tnfeats = tf.convert_to_tensor(record["tnfeats"], dtype=tf.float32)
         tefeats = tf.convert_to_tensor(record["tefeats"], dtype=tf.float32)
         model.set_graphs(record["cgraph"], record["tgraph"])
-        model.set_groups(record["groups"])
+        model.set_groups(record["cgroups"], record["tgroups"])
 
         logp = model([cnfeats, cefeats, cntypes, tnfeats, tefeats])
         p = np.argmax(logp.numpy(), axis=1)

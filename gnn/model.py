@@ -82,14 +82,15 @@ class Model(tf.keras.Model):
             GConv(num_hidden, num_hidden, tedge_len, False, None)
         ]
 
-        self.final = tf.keras.layers.Dense(8, activation=tf.nn.log_softmax)
+        self.final = tf.keras.layers.Dense(6, activation=tf.nn.log_softmax)
 
     def set_graphs(self, cgraph, tgraph):
         self.cgraph = cgraph
         self.tgraph = tgraph
 
-    def set_groups(self, groups):
-        self.groups = groups
+    def set_groups(self, cgroups, tgroups):
+        self.cgroups = cgroups
+        self.tgroups = tgroups
 
     def call(self, inputs):
         [cfeats, cedge_feats, ctypes, tfeats, tedge_feats] = inputs
@@ -101,17 +102,20 @@ class Model(tf.keras.Model):
             x = tf.reshape(x, (x.shape[0], -1))
         c_embedding = x
 
+        if self.cgroups is not None:
+            c_embedding = tf.concat([tf.expand_dims(tf.math.add_n([c_embedding[i, :] for i in group]) / len(group), 0) for group in self.cgroups], 0)
+
         x = tfeats
         for layer in self.t_gconv_layers:
             x = layer(self.tgraph, x, tedge_feats)
             x = tf.reshape(x, (x.shape[0], -1))
         t_embedding = x
 
-        if self.groups is not None:
-            c_embedding = tf.concat([tf.expand_dims(tf.math.add_n([c_embedding[i, :] for i in group]) / len(group), 0) for group in self.groups], 0)
+        if self.tgroups is not None:
+            t_embedding = tf.concat([tf.expand_dims(tf.math.add_n([t_embedding[i, :] for i in group]), 0) for group in self.tgroups], 0)
 
         x = tf.repeat(tf.reshape(t_embedding, (1, -1)), repeats=[c_embedding.shape[0]], axis=0)
         x = tf.concat([c_embedding, x], 1) # [n_node, c_embedding_len + 6 * t_embedding_len]
-        x = self.final(x) # [n_node, 8]
+        x = self.final(x) # [n_node, 6]
 
         return x

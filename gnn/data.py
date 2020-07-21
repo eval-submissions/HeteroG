@@ -30,7 +30,8 @@ def gen_topo(devices, inter=2810, intra=2810):
                         g.add_edge(another_dev, dev)
                         efeats.append([1, inter / 10000, math.log(inter) / 10])
                         efeats.append([1, inter / 10000, math.log(inter) / 10])
-    return { "devices": devices, "graph": g, "nfeats": nfeats, "efeats": efeats, "inter": inter, "intra": intra }
+    groups = k_spanning_tree(g)
+    return { "devices": devices, "graph": g, "nfeats": nfeats, "efeats": efeats, "groups": groups, "inter": inter, "intra": intra }
 
 def gen_data(gdef, prof_data, topo, op_table):
     g = dgl.DGLGraph()
@@ -71,13 +72,14 @@ def gen_data(gdef, prof_data, topo, op_table):
         "prof_data": prof_data,
         "devices": topo["devices"],
         "cgraph": g,
+        "cgroups": list(group_table.values()),
         "cnfeats": nfeats,
         "cntypes": ntypes,
         "cefeats": efeats,
         "tgraph": topo["graph"],
+        "tgroups": topo["groups"],
         "tnfeats": topo["nfeats"],
         "tefeats": topo["efeats"],
-        "groups": list(group_table.values()),
         "op_table": op_table,
         # the two are workarounds; should write a graph parser in tge.py to get the links and bandwidth from graph
         "inter": topo["inter"],
@@ -109,12 +111,15 @@ def get_all_data():
         ("/job:worker/replica:0/task:0/device:GPU:5", 1.5, 6<<30),
     ], intra=bandwidth) for bandwidth in (40, 400, 4000, 40000)]
     topos4 = [gen_topo([
-        ("/job:worker/replica:0/task:0/device:GPU:0", 1, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:1", 1, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:2", 1, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:3", 1, 12<<30),
-        ("/job:worker/replica:0/task:1/device:GPU:0", 1, 12<<30),
-        ("/job:worker/replica:0/task:1/device:GPU:1", 1, 12<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:0", 1, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:1", 1, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:2", 1, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:3", 1, 2<<30),
+        ("/job:worker/replica:0/task:1/device:GPU:0", 1, 2<<30),
+        ("/job:worker/replica:0/task:1/device:GPU:1", 1, 2<<30),
     ], intra=bandwidth, inter=10) for bandwidth in (10, 100, 1000, 10000, 100000)]
     op_table = {}
     return [gen_data(gdef, prof_data, topo, op_table) for gdef, prof_data in models for topo in topos4]
+
+def k_spanning_tree(g):
+    return [[0], [0,1], [2,3], [0,1,2,3], [4,5], [0,1,2,3,4,5]]

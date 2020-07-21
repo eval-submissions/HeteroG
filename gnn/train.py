@@ -27,7 +27,7 @@ with tf.device("/gpu:0"):
     except:
         info("no saved weight")
 
-    optimizer = tf.keras.optimizers.SGD(learning_rate=.00001, clipnorm=6.)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=.00001, clipnorm=.6)
 
     for epoch in range(10000):
         record = records[np.random.randint(len(records))]
@@ -38,15 +38,15 @@ with tf.device("/gpu:0"):
         tnfeats = tf.convert_to_tensor(record["tnfeats"], dtype=tf.float32)
         tefeats = tf.convert_to_tensor(record["tefeats"], dtype=tf.float32)
         model.set_graphs(record["cgraph"], record["tgraph"])
-        model.set_groups(record["groups"])
+        model.set_groups(record["cgroups"], record["tgroups"])
 
         with tf.GradientTape() as tape:
             tape.watch(model.trainable_weights)
             logp = model([cnfeats, cefeats, cntypes, tnfeats, tefeats], training=True)
             mask, loss_rel = evaluate_logp(record, logp.numpy()) # numpy to turn off gradient tracking
             loss = loss_rel * tf.reduce_mean(logp * mask)
-            for weight in model.trainable_weights:
-                loss = loss + 0.000001 * tf.nn.l2_loss(weight)
+            # for weight in model.trainable_weights:
+            #     loss = loss + 0.000001 * tf.nn.l2_loss(weight)
             grads = tape.gradient(loss, model.trainable_weights)
             # info([tf.reduce_mean(tf.abs(grad)).numpy() for grad in grads])
             optimizer.apply_gradients(zip(grads, model.trainable_weights))
