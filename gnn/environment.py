@@ -5,7 +5,7 @@ import sys
 def info(*args):
     print(*args, file=sys.stdout, flush=True)
 
-def sample(logp, e=.02):
+def sample(logp, e=0):
     mask = np.zeros(logp.shape, dtype='bool')
     d = []
     for i in range(logp.shape[0]):
@@ -40,7 +40,8 @@ def evaluate(record, decisions):
     tge.set_bandwidth(intra=record["intra"], inter=record["inter"])
     time, mem = tge.evaluate(record["prof_data"])
 
-    for m, (_, limit, _) in zip(mem, record["devices"]):
+    for m, (_, _, limit) in zip(mem, record["devices"]):
+        info(m, limit)
         if m > limit:
             penalty += 1
 
@@ -81,5 +82,12 @@ def evaluate_logp(record, logp):
         if loss < pool[i][1]:
             pool[i] = mask, loss
     avg = sum(l for _, l in pool) / len(pool)
+
+    # j = 0
+    # for i in range(len(pool)):
+    #     if pool[i][1] < pool[j][1]:
+    #         j = i
+
+    # info(pool[j])
 
     return mask, (loss - avg) / avg

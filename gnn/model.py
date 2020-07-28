@@ -37,7 +37,12 @@ class GConv(tf.keras.layers.Layer):
 
         graph.srcdata['h'] = feat
         graph.edata['e'] = edge_feat
-        graph.update_all(lambda edge: {'m': tf.concat([edge.src['h'], edge.data['e']], axis=1)}, fn.sum(msg='m', out='h'))
+        def update(edge):
+            m = tf.concat([edge.src['h'], edge.data['e']], axis=1)
+            if self.activation is not None:
+                m = self.activation(m)
+            return {'m': m}
+        graph.update_all(update, fn.sum(msg='m', out='h'))
         rst = graph.dstdata['h']
         rst = tf.matmul(rst, self.weight)
 

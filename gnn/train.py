@@ -28,6 +28,8 @@ with tf.device("/gpu:0"):
         info("no saved weight")
 
     optimizer = tf.keras.optimizers.Adam(learning_rate=.00001, clipnorm=.6)
+    col_diversity_factor = 1.
+    L2_regularization_factor = .000001
 
     for epoch in range(10000):
         record = records[np.random.randint(len(records))]
@@ -45,8 +47,16 @@ with tf.device("/gpu:0"):
             logp = model([cnfeats, cefeats, cntypes, tnfeats, tefeats], training=True)
             mask, loss_rel = evaluate_logp(record, logp.numpy()) # numpy to turn off gradient tracking
             loss = loss_rel * tf.reduce_mean(logp * mask)
-            # for weight in model.trainable_weights:
-            #     loss = loss + 0.000001 * tf.nn.l2_loss(weight)
+
+            if col_diversity_factor > 0: # add diversity for different placements
+                negative_col_diversity = tf.reduce_mean(tf.square(tf.reduce_mean(tf.exp(logp), axis=0)))
+                # info(loss.numpy(), col_diversity_factor * negative_col_diversity.numpy())
+                loss += col_diversity_factor * negative_col_diversity
+
+            if L2_regularization_factor > 0:
+                for weight in model.trainable_weights:
+                    loss = loss + L2_regularization_factor * tf.nn.l2_loss(weight)
+
             grads = tape.gradient(loss, model.trainable_weights)
             # info([tf.reduce_mean(tf.abs(grad)).numpy() for grad in grads])
             optimizer.apply_gradients(zip(grads, model.trainable_weights))
