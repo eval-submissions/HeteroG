@@ -62,32 +62,31 @@ class GConv(tf.keras.layers.Layer):
         return rst
 
 class Model(tf.keras.Model):
-    def __init__(self, cfeat_len, cedge_len, tfeat_len, tedge_len, op_table):
+    def __init__(self, cfeat_len, cedge_len, tfeat_len, tedge_len, tgroups_len, op_table):
         super(Model, self).__init__()
 
         num_hidden = 256
-        num_rnn_hidden = 128
         op_embedding_len = 4
 
         self.op_embedding = tf.keras.layers.Embedding(len(op_table), op_embedding_len, input_length=1)
 
         self.c_gconv_layers = [
-            GConv(cfeat_len + op_embedding_len, num_hidden, cedge_len, False, tf.sigmoid),
-            GConv(num_hidden, num_hidden, cedge_len, True, tf.sigmoid),
-            GConv(num_hidden, num_hidden, cedge_len, True, tf.sigmoid),
-            GConv(num_hidden, num_hidden, cedge_len, True, tf.sigmoid),
-            GConv(num_hidden, num_hidden, cedge_len, True, tf.sigmoid),
+            GConv(cfeat_len + op_embedding_len + tgroups_len * num_hidden, num_hidden, cedge_len, False, tf.tanh),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.tanh),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.tanh),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.tanh),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.tanh),
             GConv(num_hidden, num_hidden, cedge_len, False, None)
         ]
 
         self.t_gconv_layers = [
-            GConv(tfeat_len, num_hidden, tedge_len, False, tf.sigmoid),
-            GConv(num_hidden, num_hidden, tedge_len, True, tf.sigmoid),
-            GConv(num_hidden, num_hidden, tedge_len, True, tf.sigmoid),
+            GConv(tfeat_len, num_hidden, tedge_len, False, tf.tanh),
+            GConv(num_hidden, num_hidden, tedge_len, True, tf.tanh),
+            GConv(num_hidden, num_hidden, tedge_len, True, tf.tanh),
             GConv(num_hidden, num_hidden, tedge_len, False, None)
         ]
 
-        self.final = tf.keras.layers.Dense(6, activation=tf.nn.log_softmax)
+        self.final = tf.keras.layers.Dense(tgroups_len, activation=tf.nn.log_softmax)
 
     def set_graphs(self, cgraph, tgraph):
         self.cgraph = cgraph
@@ -100,16 +99,6 @@ class Model(tf.keras.Model):
     def call(self, inputs):
         [cfeats, cedge_feats, ctypes, tfeats, tedge_feats] = inputs
 
-        op_embedding = self.op_embedding(tf.expand_dims(ctypes, 1)) # shape: (n_nodes, 1, op_embedding_len)
-        x = tf.concat([cfeats, tf.squeeze(op_embedding, axis=1)], 1)
-        for layer in self.c_gconv_layers:
-            x = layer(self.cgraph, x, cedge_feats)
-            x = tf.reshape(x, (x.shape[0], -1))
-        c_embedding = x
-
-        if self.cgroups is not None:
-            c_embedding = tf.concat([tf.expand_dims(tf.math.add_n([c_embedding[i, :] for i in group]) / len(group), 0) for group in self.cgroups], 0)
-
         x = tfeats
         for layer in self.t_gconv_layers:
             x = layer(self.tgraph, x, tedge_feats)
@@ -119,8 +108,15 @@ class Model(tf.keras.Model):
         if self.tgroups is not None:
             t_embedding = tf.concat([tf.expand_dims(tf.math.add_n([t_embedding[i, :] for i in group]), 0) for group in self.tgroups], 0)
 
-        x = tf.repeat(tf.reshape(t_embedding, (1, -1)), repeats=[c_embedding.shape[0]], axis=0)
-        x = tf.concat([c_embedding, x], 1) # [n_node, c_embedding_len + 6 * t_embedding_len]
-        x = self.final(x) # [n_node, 6]
+        op_embedding = self.op_embedding(tf.expand_dims(ctypes, 1)) # shape: (n_nodes, 1, op_embedding_len)
+        t_embedding = tf.repeat(tf.reshape(t_embedding, (1, -1)), repeats=[cfeats.shape[0]], axis=0) # shape: (n_nodes, t_embedding_len * num_t_groups)
+        x = tf.concat([cfeats, tf.squeeze(op_embedding, axis=1), t_embedding], 1)
+        for layer in self.c_gconv_layers:
+            x = layer(self.cgraph, x, cedge_feats)
+            x = tf.reshape(x, (x.shape[0], -1))
+        c_embedding = x
 
-        return x
+        if self.cgroups is not None:
+            c_embedding = tf.concat([tf.expand_dims(tf.math.add_n([c_embedding[i, :] for i in group]) / len(group), 0) for group in self.cgroups], 0)
+
+        return self.final(c_embedding)

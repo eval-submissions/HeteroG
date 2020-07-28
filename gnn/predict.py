@@ -9,7 +9,7 @@ from environment import sample
 
 with tf.device("/gpu:1"):
     records = load("records")
-    model = Model(4, 1, 2, 3, records[0]["op_table"])
+    model = Model(4, 2, 2, 3, 8, records[0]["op_table"])
     model.load_weights('weights')
 
     gdef, prof_data = load("vgg.pickle")

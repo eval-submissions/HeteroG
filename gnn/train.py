@@ -19,7 +19,7 @@ except:
     info("no saved records")
 
 with tf.device("/gpu:0"):
-    model = Model(4, 1, 2, 3, records[0]["op_table"])
+    model = Model(4, 2, 2, 3, 8, records[0]["op_table"])
 
     try:
         model.load_weights('weights')
@@ -28,10 +28,10 @@ with tf.device("/gpu:0"):
         info("no saved weight")
 
     optimizer = tf.keras.optimizers.Adam(learning_rate=.00001, clipnorm=.6)
-    col_diversity_factor = 1.
+    col_diversity_factor = .02
     L2_regularization_factor = .000001
 
-    for epoch in range(10000):
+    for epoch in range(20000):
         record = records[np.random.randint(len(records))]
 
         cnfeats = tf.convert_to_tensor(record["cnfeats"], dtype=tf.float32)
@@ -70,12 +70,7 @@ with tf.device("/gpu:0"):
         for i in range(p.shape[0]):
             d = p[i]
             count[d] = count.get(d, 0) + 1
-        info(count)
+        for d, c in sorted(list(count.items()), key=lambda x: -x[1]):
+            info("{}/{}:".format(d, tuple(record["tgroups"][d])), c)
         info("loss_rel: ", loss_rel)
-
-        count = {}
-        for i in range(p.shape[0]):
-            d = p[i]
-            count[d] = count.get(d, 0) + 1
-        info(count)
         info("loss_pred: ", evaluate(record, p))

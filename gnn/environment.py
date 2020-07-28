@@ -41,7 +41,7 @@ def evaluate(record, decisions):
     time, mem = tge.evaluate(record["prof_data"])
 
     for m, (_, _, limit) in zip(mem, record["devices"]):
-        info(m, limit)
+        # info(m, limit)
         if m > limit:
             penalty += 1
 
@@ -63,7 +63,7 @@ def sample_and_evaluate(record, logp):
 def evaluate_logp(record, logp):
     if 'pool' not in record:
         record['pool'] = []
-        for i in range(6):
+        for i in range(logp.shape[1]):
             decisions = np.zeros(logp.shape[0], dtype=int)
             decisions[:] = i
             loss = evaluate(record, decisions)
