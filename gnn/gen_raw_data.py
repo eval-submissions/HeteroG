@@ -41,6 +41,15 @@ def lenet(bsize=None):
     optimizer = tf.train.GradientDescentOptimizer(0.001).minimize(tf.reduce_sum(loss))
     return optimizer
 
+def inception():
+    from tensorflow.contrib.slim.nets import inception
+    x = tf.placeholder(tf.float32, shape=(None, 224, 224, 3))
+    y = tf.placeholder(tf.float32, shape=(None, 1000))
+    output, _ = inception.inception_v3(x, 1000)
+    loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=y, logits=output)
+    optimizer = tf.train.GradientDescentOptimizer(0.2).minimize(tf.reduce_sum(loss))
+    return optimizer
+
 import tensorflow as tf
 import pickle
 from profiler import Profiler

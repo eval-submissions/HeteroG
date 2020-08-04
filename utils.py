@@ -107,3 +107,22 @@ def load(file):
     import pickle
     with open(file, 'rb') as f:
         return pickle.load(f)
+
+def groupby(it, key=lambda x: x, value=lambda x: x):
+    result = {}
+    for item in it:
+        k = key(item)
+        if k in result:
+            result[k].append(value(item))
+        else:
+            result[k] = [value(item)]
+    return result
+
+def car(x):
+    return x[0]
+
+def cdr(x):
+    return x[1:]
+
+def cadr(x):
+    return x[1]

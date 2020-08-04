@@ -27,8 +27,8 @@ with tf.device("/gpu:0"):
     except:
         info("no saved weight")
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=.00001, clipnorm=.6)
-    col_diversity_factor = .02
+    optimizer = tf.keras.optimizers.Adam(learning_rate=.00002, clipnorm=.6)
+    col_diversity_factor = 0 #.5
     L2_regularization_factor = .000001
 
     for epoch in range(20000):
@@ -44,10 +44,13 @@ with tf.device("/gpu:0"):
 
         with tf.GradientTape() as tape:
             tape.watch(model.trainable_weights)
+            loss = 0
             logp = model([cnfeats, cefeats, cntypes, tnfeats, tefeats], training=True)
-            mask, loss_rel = evaluate_logp(record, logp.numpy()) # numpy to turn off gradient tracking
-            loss = loss_rel * tf.reduce_mean(logp * mask)
+            for _ in range(4):
+                mask, loss_rel = evaluate_logp(record, logp.numpy()) # numpy to turn off gradient tracking
+                loss += loss_rel * tf.reduce_mean(logp * mask)
 
+            # todo: add consideration for nccl diversity
             if col_diversity_factor > 0: # add diversity for different placements
                 negative_col_diversity = tf.reduce_mean(tf.square(tf.reduce_mean(tf.exp(logp), axis=0)))
                 # info(loss.numpy(), col_diversity_factor * negative_col_diversity.numpy())
@@ -55,7 +58,7 @@ with tf.device("/gpu:0"):
 
             if L2_regularization_factor > 0:
                 for weight in model.trainable_weights:
-                    loss = loss + L2_regularization_factor * tf.nn.l2_loss(weight)
+                    loss += L2_regularization_factor * tf.nn.l2_loss(weight)
 
             grads = tape.gradient(loss, model.trainable_weights)
             # info([tf.reduce_mean(tf.abs(grad)).numpy() for grad in grads])
@@ -65,12 +68,12 @@ with tf.device("/gpu:0"):
             model.save_weights('weights')
             save(records, "records")
 
-        p = np.argmax(mask, axis=1)
+        p = np.argmax(mask[:, 1:], axis=1)
         count = {}
         for i in range(p.shape[0]):
-            d = p[i]
+            d = mask[i, 0], p[i]
             count[d] = count.get(d, 0) + 1
         for d, c in sorted(list(count.items()), key=lambda x: -x[1]):
-            info("{}/{}:".format(d, tuple(record["tgroups"][d])), c)
+            info("{}/{}:".format(d, tuple(d[0] + record["tgroups"][d[1]])), c)
         info("loss_rel: ", loss_rel)
-        info("loss_pred: ", evaluate(record, p))
+        info("loss_pred: ", evaluate(record, np.concatenate(mask[:, 0], p)))

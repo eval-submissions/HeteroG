@@ -8,7 +8,7 @@ def info(*args):
 
 class GConv(tf.keras.layers.Layer):
     '''Graph Conv layer that concats the edge features before sending message'''
-    def __init__(self, in_feats, out_feats, edge_feats, residual=False, activation=None):
+    def __init__(self, in_feats, out_feats, edge_feats, residual=False, activation=None, double_activation=False):
         super(GConv, self).__init__()
         self.in_feats = in_feats + edge_feats
         self.out_feats = out_feats
@@ -22,6 +22,7 @@ class GConv(tf.keras.layers.Layer):
             shape=(self.out_feats, ), dtype='float32'), trainable=True)
 
         self.activation = activation
+        self.double_activation = double_activation
         self.residual = residual
 
     def call(self, graph, feat, edge_feat):
@@ -39,7 +40,7 @@ class GConv(tf.keras.layers.Layer):
         graph.edata['e'] = edge_feat
         def update(edge):
             m = tf.concat([edge.src['h'], edge.data['e']], axis=1)
-            if self.activation is not None:
+            if self.activation is not None and self.double_activation:
                 m = self.activation(m)
             return {'m': m}
         graph.update_all(update, fn.sum(msg='m', out='h'))
@@ -71,22 +72,23 @@ class Model(tf.keras.Model):
         self.op_embedding = tf.keras.layers.Embedding(len(op_table), op_embedding_len, input_length=1)
 
         self.c_gconv_layers = [
-            GConv(cfeat_len + op_embedding_len + tgroups_len * num_hidden, num_hidden, cedge_len, False, tf.tanh),
-            GConv(num_hidden, num_hidden, cedge_len, True, tf.tanh),
-            GConv(num_hidden, num_hidden, cedge_len, True, tf.tanh),
-            GConv(num_hidden, num_hidden, cedge_len, True, tf.tanh),
-            GConv(num_hidden, num_hidden, cedge_len, True, tf.tanh),
+            GConv(cfeat_len + op_embedding_len + tgroups_len * num_hidden, num_hidden, cedge_len, False, tf.nn.relu, True),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.nn.relu),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.nn.relu),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.nn.relu),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.nn.relu),
             GConv(num_hidden, num_hidden, cedge_len, False, None)
         ]
 
         self.t_gconv_layers = [
-            GConv(tfeat_len, num_hidden, tedge_len, False, tf.tanh),
-            GConv(num_hidden, num_hidden, tedge_len, True, tf.tanh),
-            GConv(num_hidden, num_hidden, tedge_len, True, tf.tanh),
+            GConv(tfeat_len, num_hidden, tedge_len, False, tf.nn.relu, True),
+            GConv(num_hidden, num_hidden, tedge_len, True, tf.nn.relu),
+            GConv(num_hidden, num_hidden, tedge_len, True, tf.nn.relu),
             GConv(num_hidden, num_hidden, tedge_len, False, None)
         ]
 
-        self.final = tf.keras.layers.Dense(tgroups_len, activation=tf.nn.log_softmax)
+        self.final_strategy = tf.keras.layers.Dense(tgroups_len, activation=tf.nn.log_softmax)
+        self.final_nccl = tf.keras.layers.Dense(1, activation=tf.math.log_sigmoid)
 
     def set_graphs(self, cgraph, tgraph):
         self.cgraph = cgraph
@@ -117,6 +119,6 @@ class Model(tf.keras.Model):
         c_embedding = x
 
         if self.cgroups is not None:
-            c_embedding = tf.concat([tf.expand_dims(tf.math.add_n([c_embedding[i, :] for i in group]) / len(group), 0) for group in self.cgroups], 0)
+            c_embedding = tf.concat([tf.expand_dims(tf.math.add_n([c_embedding[i, :] for i in group]), 0) for group in self.cgroups], 0)
 
-        return self.final(c_embedding)
+        return tf.concat([self.final_nccl(c_embedding), self.final_strategy(c_embedding)], axis=1)
