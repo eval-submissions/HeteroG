@@ -4,7 +4,7 @@ import tensorflow as tf
 
 from data import get_all_data
 from model import Model
-from environment import evaluate_logp, evaluate
+from environment import sample, evaluate_logp, evaluate
 from utils import save, load
 
 import sys
@@ -20,7 +20,7 @@ except:
     save(records, "records")
 
 with tf.device("/gpu:0"):
-    model = Model(4, 2, 2, 3, 8, records[0]["op_table"])
+    model = Model(4, 2, 2, 3, 20, records[0]["op_table"])
 
     try:
         model.load_weights('weights')
@@ -28,7 +28,7 @@ with tf.device("/gpu:0"):
     except:
         info("no saved weight")
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=.00002, clipnorm=6)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=.000001, clipnorm=6)
     col_diversity_factor = .5
     L2_regularization_factor = .000001
 
@@ -46,10 +46,11 @@ with tf.device("/gpu:0"):
         with tf.GradientTape() as tape:
             tape.watch(model.trainable_weights)
             loss = 0
-            logp = model([cnfeats, cefeats, cntypes, tnfeats, tefeats], training=True)
+            nccllogp, logp = model([cnfeats, cefeats, cntypes, tnfeats, tefeats], training=True)
+            # info(np.exp(logp.numpy()))
             for _ in range(4):
-                mask, loss_rel = evaluate_logp(record, logp.numpy()) # numpy to turn off gradient tracking
-                loss += loss_rel * tf.reduce_mean(logp * mask)
+                ncclmask, mask, loss_rel = evaluate_logp(record, nccllogp.numpy(), logp.numpy()) # numpy to turn off gradient tracking
+                loss += loss_rel * (tf.reduce_mean(logp * mask) + tf.reduce_mean(nccllogp * ncclmask))
 
             if col_diversity_factor > 0: # add diversity for different placements
                 negative_col_diversity = tf.reduce_mean(tf.square(tf.reduce_mean(tf.exp(logp[:, 1:]), axis=0)))
@@ -68,12 +69,12 @@ with tf.device("/gpu:0"):
             model.save_weights('weights')
             save(records, "records")
 
-        p = np.argmax(mask[:, 1:], axis=1)
+        _ncclmask, _mask = sample(nccllogp), sample(logp)
+        p = [ [int(_ncclmask[gi])] + [ int(_mask[j, gi]) for j in range(_mask.shape[0]) ] for gi, group in enumerate(record["cgroups"]) ]
         count = {}
-        for i in range(p.shape[0]):
-            d = mask[i, 0], p[i]
+        for l in p:
+            d = tuple(l)
             count[d] = count.get(d, 0) + 1
         for d, c in sorted(list(count.items()), key=lambda x: -x[1]):
-            info("{},{}/{}:".format(int(d[0]), d[1], tuple(record["tgroups"][d[1]])), c)
-        info("loss_rel: ", loss_rel)
-        info("loss_pred: ", evaluate(record, [ (mask[i, 0], p[i]) for i in range(len(p)) ]))
+            info(f"{d}: {c}")
+        info("loss: ", loss_rel)

@@ -144,7 +144,7 @@ def gen_data(gdef, prof_data, topo, op_table):
         "cntypes": ntypes,
         "cefeats": efeats,
         "tgraph": topo["graph"],
-        "tgroups": topo["groups"],
+        "tgroups": None, # topo["groups"],
         "tnfeats": topo["nfeats"],
         "tefeats": topo["efeats"],
         "op_table": op_table,

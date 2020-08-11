@@ -11,11 +11,11 @@ def sample(logp, e=.05):
     d = []
     for i in range(logp.shape[0]):
         if np.random.rand() < e:
-            nccl = np.random.choice(1)
-            s = int(np.random.choice(logp.shape[1]))
+            nccl = np.random.choice(2)
+            s = int(np.random.choice(logp.shape[1]-1))
         else:
             nccl = int(np.exp(logp[i, 1]) > np.random.rand())
-            s = int(np.random.choice(logp.shape[1], p=np.exp(logp[i, 1:])))
+            s = int(np.random.choice(logp.shape[1]-1, p=np.exp(logp[i, 1:])))
         d.append((nccl, s))
         mask[i, 0] = nccl
         mask[i, 1+s] = 1
@@ -26,9 +26,9 @@ def evaluate(record, decisions):
 
     gdef = record["gdef"]
     if record["cgroups"] is not None:
-        strategy = { gdef.node[i].name: [2 if decisions[gi][0] != 0 else 0] + decision_map[decisions[gi][1]] for gi, group in enumerate(record["cgroups"]) for i in group }
+        strategy = { gdef.node[i].name: [1 if decisions[gi][0] != 0 else 0] + decision_map[decisions[gi][1]] for gi, group in enumerate(record["cgroups"]) for i in group }
     else:
-        strategy = { gdef.node[i].name: [2 if decisions[i][0] != 0 else 0] + decision_map[decisions[i][1]] for i in range(len(decisions)) }
+        strategy = { gdef.node[i].name: [1 if decisions[i][0] != 0 else 0] + decision_map[decisions[i][1]] for i in range(len(decisions)) }
     penalty = 1
     # for k, v in strategy.items():
     #     if np.sum(v[1:]) == 0:
@@ -36,8 +36,8 @@ def evaluate(record, decisions):
     #         v[1] = 1
     tge = TGE(gdef, [dev for dev, _, _ in record["devices"]])
     tge.set_strategy(strategy)
-    tge.fill_batchsize(48)
-    tge.replace_placeholder(48)
+    tge.fill_batchsize(120)
+    tge.replace_placeholder(120)
     tge.set_bandwidth(intra=int(record["intra"]), inter=int(record["inter"]))
     tge.set_nccl_model(record["nccl_models"])
     time, mem = tge.evaluate(record["prof_data"])
@@ -57,17 +57,16 @@ def sample_and_evaluate(record, logp):
 def evaluate_logp(record, logp):
     if 'best_single' not in record:
         best_single = None, 9999
-        for nccl in range(1):
-            for i in range(logp.shape[1]):
+        for nccl in range(2):
+            for i in range(logp.shape[1] - 1):
                 decisions = [ [nccl, i] for _ in range(logp.shape[0]) ]
                 loss = evaluate(record, decisions)
                 if loss < cadr(best_single):
                     mask = np.zeros(logp.shape, dtype=bool)
-                    for i in range(logp.shape[0]):
-                        mask[i, 0] = decisions[i][0]
-                        mask[i, decisions[i][1]] = 1
+                    for j in range(logp.shape[0]):
+                        mask[j, 0] = decisions[j][0]
+                        mask[j, 1+decisions[j][1]] = 1
                     best_single = mask, loss
-        info(best_single[0][0])
         record["best_single"] = best_single
 
     mask, loss = sample_and_evaluate(record, logp)

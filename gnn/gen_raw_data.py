@@ -54,7 +54,7 @@ import tensorflow as tf
 import pickle
 from profiler import Profiler
 
-BATCHSIZE=48
+BATCHSIZE=120
 
 devices = (
     "/GPU:0",
@@ -65,7 +65,7 @@ import sys
 model_fn = eval(sys.argv[1])
 
 prof_dict = {}
-for nrep in (1, 2, 3, 4):
+for nrep in (1, 2, 4, 6, 8):
     tf.reset_default_graph()
     opt = model_fn()
     init = tf.global_variables_initializer()

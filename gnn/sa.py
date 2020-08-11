@@ -15,30 +15,34 @@ def info(*args):
 
 def neighbour(strategy):
     new_strategy = copy(s)
-    new_strategy[np.random.choice(len(s))] = np.random.choice(8)
+    new_strategy[np.random.choice(len(s))] = np.random.choice(1), np.random.choice(8)
     return new_strategy
 
 def P(loss_old, loss_new, T):
     if loss_new <= loss_old:
         return 1
     else:
-        return np.exp(-1 / T)
+        return np.exp(1 - 1 / T)
 
-record = get_all_data()[8]
+record = get_all_data()[2]
+
+# decisions = [ [1, 7] for _ in range(len(record["cgroups"])) ]
+# evaluate(record, decisions)
+# sys.exit(0)
 
 s, baseline = None, 9999
-for i in range(8):
-    decisions = [i for _ in range(len(record["cgroups"]))]
-    loss = evaluate(record, decisions)
-    if loss < baseline:
-        s, baseline = decisions, loss
-
-info(s)
+for nccl in range(2):
+    for i in range(8):
+        decisions = [ [nccl, i] for _ in range(len(record["cgroups"])) ]
+        loss = evaluate(record, decisions)
+        info(decisions, loss)
+        if loss < baseline:
+            s, baseline = decisions, loss
 
 loss = 1
 best = 1
-for epoch in range(10000):
-    T = (epoch + 1) / 1000
+for epoch in range(20000):
+    T = (0.5 * epoch + 10000) / 20000
     s_new = neighbour(s)
     loss_new = evaluate(record, s_new) / baseline
     if loss_new < best:
