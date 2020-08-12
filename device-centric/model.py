@@ -40,8 +40,8 @@ class GConv(tf.keras.layers.Layer):
         graph.edata['e'] = edge_feat
         def update(edge):
             m = tf.concat([edge.src['h'], edge.data['e']], axis=1)
-            if self.activation is not None and self.double_activation:
-                m = self.activation(m)
+            # if self.activation is not None and self.double_activation:
+            #     m = self.activation(m)
             return {'m': m}
         graph.update_all(update, fn.sum(msg='m', out='h'))
         rst = graph.dstdata['h']
@@ -66,7 +66,7 @@ class Model(tf.keras.Model):
     def __init__(self, cfeat_len, cedge_len, tfeat_len, tedge_len, cgroups_len, op_table):
         super(Model, self).__init__()
 
-        num_hidden = 256
+        num_hidden = 512
         op_embedding_len = 4
         c_embedding_len = 32
         t_embedding_len = 32
@@ -74,23 +74,25 @@ class Model(tf.keras.Model):
         self.op_embedding = tf.keras.layers.Embedding(len(op_table), op_embedding_len, input_length=1)
 
         self.c_gconv_layers = [
-            GConv(cfeat_len + op_embedding_len, num_hidden, cedge_len, False, tf.nn.relu, True),
-            GConv(num_hidden, num_hidden, cedge_len, True, tf.nn.relu),
-            GConv(num_hidden, num_hidden, cedge_len, True, tf.nn.relu),
-            GConv(num_hidden, num_hidden, cedge_len, True, tf.nn.relu),
-            GConv(num_hidden, num_hidden, cedge_len, True, tf.nn.relu),
+            GConv(cfeat_len + op_embedding_len, num_hidden, cedge_len, False, tf.math.tanh, True),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.math.tanh),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.math.tanh),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.math.tanh),
+            GConv(num_hidden, num_hidden, cedge_len, True, tf.math.tanh),
             GConv(num_hidden, c_embedding_len, cedge_len, False, None)
         ]
 
         self.t_gconv_layers = [
-            GConv(tfeat_len + cgroups_len * c_embedding_len, num_hidden, tedge_len, False, tf.nn.relu, True),
-            GConv(num_hidden, num_hidden, tedge_len, True, tf.nn.relu),
-            GConv(num_hidden, num_hidden, tedge_len, True, tf.nn.relu),
+            GConv(tfeat_len + cgroups_len * c_embedding_len, num_hidden, tedge_len, False, tf.math.tanh, True),
+            GConv(num_hidden, num_hidden, tedge_len, True, tf.math.tanh),
+            GConv(num_hidden, num_hidden, tedge_len, True, tf.math.tanh),
+            GConv(num_hidden, num_hidden, tedge_len, True, tf.math.tanh),
+            GConv(num_hidden, num_hidden, tedge_len, True, tf.math.tanh),
             GConv(num_hidden, t_embedding_len, tedge_len, False, None)
         ]
 
-        self.final_strategy = tf.keras.layers.Dense(cgroups_len, activation=tf.math.log_sigmoid)
-        self.final_nccl = tf.keras.layers.Dense(1, activation=tf.math.log_sigmoid)
+        self.final_strategy = tf.keras.layers.Dense(cgroups_len, activation=None)
+        self.final_nccl = tf.keras.layers.Dense(1, activation=None)
 
     def set_graphs(self, cgraph, tgraph):
         self.cgraph = cgraph

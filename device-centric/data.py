@@ -14,7 +14,7 @@ def info(*args):
 def gen_topo(devices, inter=2810, intra=2810):
     g = dgl.DGLGraph()
     g.add_nodes(len(devices))
-    nfeats = [[time_ratio, memory / 10000000000] for _, time_ratio, memory in devices]
+    nfeats = [[time_ratio, memory / 10_000_000_000] for _, time_ratio, memory in devices]
     efeats = []
     tasks = {}
     for i, (name, *_) in enumerate(devices):
@@ -23,8 +23,8 @@ def gen_topo(devices, inter=2810, intra=2810):
             for other in tasks[task]:
                 g.add_edge(other, i)
                 g.add_edge(i, other)
-                efeats.append([0, intra / 10000, math.log(intra) / 10])
-                efeats.append([0, intra / 10000, math.log(intra) / 10])
+                efeats.append([0, intra / 100_000, math.log(intra) / 10])
+                efeats.append([0, intra / 100_000, math.log(intra) / 10])
             tasks[task].append(i)
         else:
             tasks[task] = [i]
@@ -35,8 +35,8 @@ def gen_topo(devices, inter=2810, intra=2810):
                     for another_dev in other_devs:
                         g.add_edge(dev, another_dev)
                         g.add_edge(another_dev, dev)
-                        efeats.append([1, inter / 10000, math.log(inter) / 10])
-                        efeats.append([1, inter / 10000, math.log(inter) / 10])
+                        efeats.append([1, inter / 100_000, math.log(inter) / 10])
+                        efeats.append([1, inter / 100_000, math.log(inter) / 10])
     bandwidth = [x for _, x, _ in efeats]
     groups = k_spanning_tree(g, bandwidth, 2) + k_spanning_tree(g, bandwidth, 4) + [[0]] + [list(range(len(devices)))]
 
@@ -61,7 +61,7 @@ def gen_data(gdef, prof_data, topo, op_table):
         if node.op not in op_table:
             op_table[node.op] = len(op_table)
         ntypes.append(op_table[node.op])
-    nfeats = [[np.mean(prof_data[(node.name, nrep)]) / 1000 for nrep in (1, 2, 4, 8)] for node in gdef.node]
+    nfeats = [[np.mean(prof_data[(node.name, nrep)]) / 10_000 for nrep in (1, 2, 4, 8)] for node in gdef.node]
     efeats = []
     reverse_dict = { node.name: i for i, node in enumerate(gdef.node) }
     for i, node in enumerate(gdef.node):
@@ -89,8 +89,8 @@ def gen_data(gdef, prof_data, topo, op_table):
                     tensorsize *= size
             except:
                 tensorsize = -1
-            efeats.append([1, tensorsize / 1000_000])
-            efeats.append([-1, tensorsize / 1000_000])
+            efeats.append([1, tensorsize / 100_000_000])
+            efeats.append([-1, tensorsize / 100_000_000])
     prof_data = { key: [int(np.mean(times) * time_ratio) for _, time_ratio, _ in topo["devices"]] for key, times in prof_data.items() }
 
     def group_with_layer_name():
