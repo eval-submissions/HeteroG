@@ -61,23 +61,25 @@ class Model(tf.keras.Model):
         super(Model, self).__init__()
 
         num_hidden = 512
-        op_embedding_len = 4
-        c_embedding_len = 32
-        t_embedding_len = 32
+        op_embedding_len = 8
+        c_embedding_len = 64
+        t_embedding_len = 64
 
         self.op_embedding = tf.keras.layers.Embedding(len(op_table), op_embedding_len, input_length=1)
 
         self.c_gconv_layers = [
-            GConv(cfeat_len + op_embedding_len, num_hidden, cedge_len, tf.math.sigmoid),
-            GConv(num_hidden, num_hidden, cedge_len, tf.math.sigmoid),
-            GConv(num_hidden, num_hidden, cedge_len, tf.math.sigmoid),
+            GConv(cfeat_len + op_embedding_len, num_hidden, cedge_len, tf.nn.relu),
+            GConv(num_hidden, num_hidden, cedge_len, tf.nn.relu),
+            GConv(num_hidden, num_hidden, cedge_len, tf.nn.relu),
+            GConv(num_hidden, num_hidden, cedge_len, tf.nn.relu),
             GConv(num_hidden, c_embedding_len, cedge_len, None)
         ]
 
         self.t_gconv_layers = [
-            GConv(tfeat_len, num_hidden, tedge_len, tf.math.sigmoid),
-            GConv(num_hidden, num_hidden, tedge_len, tf.math.sigmoid),
-            GConv(num_hidden, num_hidden, tedge_len, tf.math.sigmoid),
+            GConv(tfeat_len, num_hidden, tedge_len, tf.nn.relu),
+            GConv(num_hidden, num_hidden, tedge_len, tf.nn.relu),
+            GConv(num_hidden, num_hidden, tedge_len, tf.nn.relu),
+            GConv(num_hidden, num_hidden, tedge_len, tf.nn.relu),
             GConv(num_hidden, t_embedding_len, tedge_len, None)
         ]
 
@@ -104,15 +106,15 @@ class Model(tf.keras.Model):
             c_embedding = self.c_gconv_layers[i](self.cgraph, c_embedding, cedge_feats)
             t_embedding = self.t_gconv_layers[i](self.tgraph, t_embedding, tedge_feats)
 
-            if 2 <= i < n_layers - 1 :
-                c_embedding = tf.expand_dims(c_embedding, 0)
-                t_embedding = tf.expand_dims(t_embedding, 0)
+            # if i >= 2:
+            #     c_embedding = tf.expand_dims(c_embedding, 0)
+            #     t_embedding = tf.expand_dims(t_embedding, 0)
 
-                c_embedding = tf.keras.layers.Attention()([c_embedding, t_embedding])
-                t_embedding = tf.keras.layers.Attention()([t_embedding, c_embedding])
+            #     c_embedding = tf.keras.layers.Attention()([c_embedding, t_embedding])
+            #     t_embedding = tf.keras.layers.Attention()([t_embedding, c_embedding])
 
-                c_embedding = tf.squeeze(c_embedding, axis=0)
-                t_embedding = tf.squeeze(t_embedding, axis=0)
+            #     c_embedding = tf.squeeze(c_embedding, axis=0)
+            #     t_embedding = tf.squeeze(t_embedding, axis=0)
 
         if self.cgroups is not None:
             c_embedding = tf.concat([tf.expand_dims(tf.math.add_n([c_embedding[i, :] for i in group]), 0) for group in self.cgroups], 0)

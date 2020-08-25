@@ -28,22 +28,26 @@ def evaluate(record, ncclmask, nodemask):
     tge.set_nccl_model(record["nccl_models"])
     time, mem = tge.evaluate(record["prof_data"])
 
-    oom = [ i for i in range(len(mem)) if mem[i] > record["devices"][2] ]
+    oom = [ i for i in range(len(mem)) if mem[i] > record["devices"][i][2] ]
 
-    return np.sqrt(time / 1_000_000)
+    return np.sqrt(time / 1_000_000), oom, leftout
 
 def sample_and_evaluate(record, nccllogit, nodelogit):
     ncclmask = sample(nccllogit)
     nodemask = sample(nodelogit)
-    time, oom, leftout = evaluate(record, ncclmask, nodemask)
+    sqrt_time, oom, leftout = evaluate(record, ncclmask, nodemask)
 
     if 'hist' not in record:
         record["hist"] = []
 
-    record["hist"].append(time)
-    record["hist"] = record["hist"][-100:]
+    if len(oom) == 0 and len(leftout) == 0:
+        record["hist"].append(sqrt_time)
+        record["hist"] = record["hist"][-100:]
 
-    baseline = np.mean(record["hist"])
-    advantage = (time - baseline) / baseline
+    if len(record["hist"]) == 0:
+        baseline = sqrt_time
+    else:
+        baseline = np.mean(record["hist"])
+    advantage = -(sqrt_time - baseline) / baseline
 
-    return ncclmask, nodemask, time, oom, leftout
+    return ncclmask, nodemask, advantage, sqrt_time, oom, leftout
