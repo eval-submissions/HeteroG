@@ -126,3 +126,7 @@ def cdr(x):
 
 def cadr(x):
     return x[1]
+
+def info(*args):
+    import sys
+    print(*args, file=sys.stdout, flush=True)

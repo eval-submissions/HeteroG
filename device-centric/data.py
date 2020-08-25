@@ -14,7 +14,7 @@ def info(*args):
 def gen_topo(devices, inter=2810, intra=2810):
     g = dgl.DGLGraph()
     g.add_nodes(len(devices))
-    nfeats = [[time_ratio, memory / 10_000_000_000] for _, time_ratio, memory in devices]
+    nfeats = [[time_ratio / 10, memory / 10_000_000_000] for _, time_ratio, memory in devices]
     efeats = []
     tasks = {}
     for i, (name, *_) in enumerate(devices):
@@ -157,30 +157,30 @@ def gen_data(gdef, prof_data, topo, op_table):
 def get_all_data():
     models = [pickle.load(open("{}.pickle".format(m), "rb")) for m in ("vgg", "resnet", "inception", )] #  , "mlp", "lenet"
     topos1 = [gen_topo([
-        ("/job:worker/replica:0/task:0/device:GPU:0", 1, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:1", 1, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:2", 1, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:3", 1, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:4", 1.5, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:5", 1.5, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:6", 1.5, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:7", 1.5, 12<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:0", 1, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:1", 1, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:2", 1, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:3", 1, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:4", 1.5, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:5", 1.5, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:6", 1.5, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:7", 1.5, 2<<30),
     ], intra=bandwidth) for bandwidth in (1000, 10000)]
     topos2 = [gen_topo([
-        ("/job:worker/replica:0/task:0/device:GPU:0", 1, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:1", 1.5, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:2", 2, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:3", 2.5, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:4", 3, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:5", 3.5, 12<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:0", 1, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:1", 1.5, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:2", 2, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:3", 2.5, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:4", 3, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:5", 3.5, 2<<30),
     ], intra=bandwidth) for bandwidth in (400, 4000, 40000)]
     topos3 = [gen_topo([
-        ("/job:worker/replica:0/task:0/device:GPU:0", 1, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:1", 1, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:2", 1, 12<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:3", 1, 12<<30),
-        ("/job:worker/replica:0/task:1/device:GPU:0", 1, 12<<30),
-        ("/job:worker/replica:0/task:1/device:GPU:1", 1, 12<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:0", 1, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:1", 1, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:2", 1, 2<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:3", 1, 2<<30),
+        ("/job:worker/replica:0/task:1/device:GPU:0", 1, 2<<30),
+        ("/job:worker/replica:0/task:1/device:GPU:1", 1, 2<<30),
     ], intra=bandwidth, inter=1000) for bandwidth in (4000, 40000)]
     op_table = {}
     return [gen_data(gdef, prof_data, topo, op_table) for gdef, prof_data in models for topo in topos1 + topos2 + topos3]

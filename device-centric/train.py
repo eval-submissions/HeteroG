@@ -5,11 +5,7 @@ import tensorflow as tf
 from data import get_all_data
 from model import Model
 from environment import sample, evaluate, sample_and_evaluate
-from utils import save, load
-
-import sys
-def info(*args):
-    print(*args, file=sys.stdout, flush=True)
+from utils import save, load, info
 
 try:
     records = load("records")
