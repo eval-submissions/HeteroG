@@ -4,12 +4,8 @@ import tensorflow as tf
 
 from data import get_all_data
 from model import Model
-from environment import evaluate_logp, evaluate
-from utils import save, load
-
-import sys
-def info(*args):
-    print(*args, file=sys.stdout, flush=True)
+from environment import sample, evaluate, sample_and_evaluate
+from utils import save, load, info
 
 try:
     records = load("records")
@@ -20,7 +16,7 @@ except:
     save(records, "records")
 
 with tf.device("/gpu:0"):
-    model = Model(4, 2, 2, 3, 8, records[0]["op_table"])
+    model = Model(4, 2, 2, 3, 20, records[0]["op_table"])
 
     try:
         model.load_weights('weights')
@@ -28,9 +24,8 @@ with tf.device("/gpu:0"):
     except:
         info("no saved weight")
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=.00002, clipnorm=6)
-    col_diversity_factor = .5
-    L2_regularization_factor = .000001
+    optimizer = tf.keras.optimizers.Adam(learning_rate=.001, clipnorm=1)
+    L2_regularization_factor = .0005
 
     for epoch in range(20000):
         record = records[np.random.randint(len(records))]
@@ -45,35 +40,40 @@ with tf.device("/gpu:0"):
 
         with tf.GradientTape() as tape:
             tape.watch(model.trainable_weights)
+            nccllogit, nodelogit = model([cnfeats, cefeats, cntypes, tnfeats, tefeats], training=True)
             loss = 0
-            logp = model([cnfeats, cefeats, cntypes, tnfeats, tefeats], training=True)
             for _ in range(4):
-                mask, loss_rel = evaluate_logp(record, logp.numpy()) # numpy to turn off gradient tracking
-                loss += loss_rel * tf.reduce_mean(logp * mask)
-
-            if col_diversity_factor > 0: # add diversity for different placements
-                negative_col_diversity = tf.reduce_mean(tf.square(tf.reduce_mean(tf.exp(logp[:, 1:]), axis=0)))
-                # info(loss.numpy(), col_diversity_factor * negative_col_diversity.numpy())
-                loss += col_diversity_factor * negative_col_diversity
+                ncclmask, nodemask, advantage, sqrt_time, oom, leftout = sample_and_evaluate(record, nccllogit.numpy(), nodelogit.numpy()) # numpy to turn off gradient tracking
+                for i in oom:
+                    negative_logp = tf.nn.sigmoid_cross_entropy_with_logits([0.] * nodelogit.shape[1], nodelogit[i, :])
+                    loss += .01 * tf.reduce_sum(negative_logp)
+                for gi in leftout:
+                    negative_logp = tf.nn.sigmoid_cross_entropy_with_logits([1.] * nodelogit.shape[0], nodelogit[:, gi])
+                    loss += .01 * tf.reduce_sum(negative_logp)
+                if len(oom) == 0: # and len(leftout) == 0:
+                    negative_ncclunionlogp = tf.nn.sigmoid_cross_entropy_with_logits(ncclmask.astype(np.float32), nccllogit)
+                    negative_nodeunionlogp = tf.nn.sigmoid_cross_entropy_with_logits(nodemask.astype(np.float32), nodelogit)
+                    loss += advantage * (tf.reduce_sum(negative_ncclunionlogp) + tf.reduce_sum(negative_nodeunionlogp))
+                    info(advantage)
 
             if L2_regularization_factor > 0:
                 for weight in model.trainable_weights:
                     loss += L2_regularization_factor * tf.nn.l2_loss(weight)
 
             grads = tape.gradient(loss, model.trainable_weights)
-            # info([tf.reduce_mean(tf.abs(grad)).numpy() for grad in grads])
+            info([tf.reduce_mean(tf.abs(grad)).numpy() for grad in grads])
             optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
         if epoch % 10 == 0:
             model.save_weights('weights')
             save(records, "records")
 
-        p = np.argmax(mask[:, 1:], axis=1)
+        ncclmask, nodemask, advantage, sqrt_time, oom, leftout = sample_and_evaluate(record, nccllogit.numpy(), nodelogit.numpy())
+        p = [ [int(ncclmask[gi])] + [ int(nodemask[j, gi]) for j in range(nodemask.shape[0]) ] for gi, group in enumerate(record["cgroups"]) ]
         count = {}
-        for i in range(p.shape[0]):
-            d = mask[i, 0], p[i]
+        for l in p:
+            d = tuple(l)
             count[d] = count.get(d, 0) + 1
         for d, c in sorted(list(count.items()), key=lambda x: -x[1]):
-            info("{},{}/{}:".format(int(d[0]), d[1], tuple(record["tgroups"][d[1]])), c)
-        info("loss_rel: ", loss_rel)
-        info("loss_pred: ", evaluate(record, [ (mask[i, 0], p[i]) for i in range(len(p)) ]))
+            info(f"{d}: {c}")
+        info("time: ", sqrt_time, oom, leftout)

@@ -1,39 +1,25 @@
 from tge import TGE
-from utils import car, cadr, cdr
+from utils import car, cadr, cdr, info
 import numpy as np
+import tensorflow as tf
 
-import sys
-def info(*args):
-    print(*args, file=sys.stdout, flush=True)
-
-def sample(logp, e=.05):
-    mask = np.zeros(logp.shape, dtype='bool')
-    d = []
-    for i in range(logp.shape[0]):
+def sample(logit, e=0):
+    p = tf.math.sigmoid(logit)
+    def f(x):
         if np.random.rand() < e:
-            nccl = np.random.choice(2)
-            s = int(np.random.choice(logp.shape[1]-1))
+            return np.random.choice(2)
         else:
-            nccl = int(np.exp(logp[i, 1]) > np.random.rand())
-            s = int(np.random.choice(logp.shape[1]-1, p=np.exp(logp[i, 1:])))
-        d.append((nccl, s))
-        mask[i, 0] = nccl
-        mask[i, 1+s] = 1
-    return mask, d
+            return int(np.random.rand() < x)
+    return np.vectorize(f)(p)
 
-def evaluate(record, decisions):
-    decision_map = [ [ 1 if i in group else 0 for i in range(len(record["devices"])) ] for group in record["tgroups"] ]
-
+def evaluate(record, ncclmask, nodemask):
     gdef = record["gdef"]
-    if record["cgroups"] is not None:
-        strategy = { gdef.node[i].name: [1 if decisions[gi][0] != 0 else 0] + decision_map[decisions[gi][1]] for gi, group in enumerate(record["cgroups"]) for i in group }
-    else:
-        strategy = { gdef.node[i].name: [1 if decisions[i][0] != 0 else 0] + decision_map[decisions[i][1]] for i in range(len(decisions)) }
-    penalty = 1
-    # for k, v in strategy.items():
-    #     if np.sum(v[1:]) == 0:
-    #         penalty += 1
-    #         v[1] = 1
+    strategy = { gdef.node[i].name: [int(ncclmask[gi])] + [ int(nodemask[j, gi]) for j in range(nodemask.shape[0]) ] for gi, group in enumerate(record["cgroups"]) for i in group }
+    # info(strategy)
+    leftout = [ gi for gi in range(nodemask.shape[1]) if np.sum(nodemask[:, gi]) == 0 ]
+    for k, v in strategy.items():
+        if np.sum(v[1:]) == 0:
+            v[1] = 1
     tge = TGE(gdef, [dev for dev, _, _ in record["devices"]])
     tge.set_strategy(strategy)
     tge.fill_batchsize(120)
@@ -42,37 +28,24 @@ def evaluate(record, decisions):
     tge.set_nccl_model(record["nccl_models"])
     time, mem = tge.evaluate(record["prof_data"])
 
-    for m, (_, _, limit) in zip(mem, record["devices"]):
-        # info(m, limit)
-        if m > limit:
-            penalty += 1
+    oom = [ i for i in range(len(mem)) if mem[i] > record["devices"][i][2] ]
 
-    return (time / 1000000) * penalty ** .5
+    return np.sqrt(time / 1_000_000), oom, leftout
 
-def sample_and_evaluate(record, logp):
-    mask, decisions = sample(logp)
-    loss = evaluate(record, decisions)
-    return mask, loss
+def sample_and_evaluate(record, nccllogit, nodelogit):
+    ncclmask = sample(nccllogit)
+    nodemask = sample(nodelogit)
+    sqrt_time, oom, leftout = evaluate(record, ncclmask, nodemask)
 
-def evaluate_logp(record, logp):
-    if 'best_single' not in record:
-        best_single = None, 9999
-        for nccl in range(2):
-            for i in range(logp.shape[1] - 1):
-                decisions = [ [nccl, i] for _ in range(logp.shape[0]) ]
-                loss = evaluate(record, decisions)
-                if loss < cadr(best_single):
-                    mask = np.zeros(logp.shape, dtype=bool)
-                    for j in range(logp.shape[0]):
-                        mask[j, 0] = decisions[j][0]
-                        mask[j, 1+decisions[j][1]] = 1
-                    best_single = mask, loss
-        record["best_single"] = best_single
+    if 'hist' not in record:
+        record["hist"] = []
 
-    mask, loss = sample_and_evaluate(record, logp)
-    baseline = cadr(record["best_single"])
+    if len(oom) == 0 and len(leftout) == 0:
+        record["hist"].append(sqrt_time)
+        record["hist"] = record["hist"][-100:]
+        baseline = np.mean(record["hist"])
+        advantage = -(sqrt_time - baseline) / baseline
+    else:
+        advantage = 0
 
-    if 'best' not in record or loss < cadr(record['best']):
-        record["best"] = mask, loss
-
-    return mask, (loss - baseline) / baseline
+    return ncclmask, nodemask, advantage, sqrt_time, oom, leftout
