@@ -139,7 +139,7 @@ def gen_data(gdef, prof_data, topo, op_table):
         "prof_data": prof_data,
         "devices": topo["devices"],
         "cgraph": g,
-        "cgroups": cgroups,
+        "cgroups": None, # cgroups,
         "cnfeats": nfeats,
         "cntypes": ntypes,
         "cefeats": efeats,

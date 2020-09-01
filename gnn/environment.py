@@ -32,10 +32,9 @@ def evaluate(record, ncclmask, nodemask):
 
     return np.sqrt(time / 1_000_000), oom, leftout
 
-def sample_and_evaluate(record, nccllogit, nodelogit):
-    ncclmask = sample(nccllogit)
-    nodemask = sample(nodelogit)
-    sqrt_time, oom, leftout = evaluate(record, ncclmask, nodemask)
+def sample_and_evaluate(record, placement_logit):
+    placement_mask = sample(nodelogit)
+    sqrt_time, oom, leftout = evaluate(record, placement_mask)
 
     if 'hist' not in record:
         record["hist"] = []

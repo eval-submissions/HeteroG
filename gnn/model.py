@@ -56,9 +56,23 @@ class GConv(tf.keras.layers.Layer):
 
         return rst
 
+class Cross(tf.keras.layers.Layer):
+    '''Attention layer across two graphs'''
+    def __init__(self, activation=None):
+        super(Cross, self).__init__()
+        self.attention = tf.keras.layers.Attention()
+
+    def call(self, list):
+        return self.attention(list)
+
 class Model(tf.keras.Model):
-    def __init__(self, cfeat_len, cedge_len, tfeat_len, tedge_len, cgroups_len, op_table):
+    def __init__(self, op_table):
         super(Model, self).__init__()
+
+        cfeat_len = 4
+        cedge_len = 2
+        tfeat_len = 2
+        tedge_len = 3
 
         num_hidden = 512
         op_embedding_len = 8
@@ -75,6 +89,14 @@ class Model(tf.keras.Model):
             GConv(num_hidden, c_embedding_len, cedge_len, None)
         ]
 
+        self.c_corss_layers = [
+            Cross(),
+            Cross(),
+            Cross(),
+            Cross(),
+            Cross(),
+        ]
+
         self.t_gconv_layers = [
             GConv(tfeat_len, num_hidden, tedge_len, tf.nn.relu),
             GConv(num_hidden, num_hidden, tedge_len, tf.nn.relu),
@@ -83,8 +105,16 @@ class Model(tf.keras.Model):
             GConv(num_hidden, t_embedding_len, tedge_len, None)
         ]
 
-        self.final_strategy = tf.keras.layers.Dense(cgroups_len, activation=None)
-        self.final_nccl = tf.keras.layers.Dense(1, activation=None)
+        self.t_corss_layers = [
+            Cross(),
+            Cross(),
+            Cross(),
+            Cross(),
+            Cross(),
+        ]
+
+        # self.final_strategy = tf.keras.layers.Dense(cgroups_len, activation=None)
+        # self.final_nccl = tf.keras.layers.Dense(1, activation=None)
 
     def set_graphs(self, cgraph, tgraph):
         self.cgraph = cgraph
@@ -95,7 +125,7 @@ class Model(tf.keras.Model):
         self.tgroups = tgroups
 
     def call(self, inputs):
-        [cfeats, cedge_feats, ctypes, tfeats, tedge_feats] = inputs
+        [cfeats, cedge_feats, ctypes, tfeats, tedge_feats, placement, runtime_stats] = inputs
 
         op_embedding = self.op_embedding(tf.expand_dims(ctypes, 1)) # shape: (n_nodes, 1, op_embedding_len)
         c_embedding = tf.concat([cfeats, tf.squeeze(op_embedding, axis=1)], 1)
@@ -106,15 +136,14 @@ class Model(tf.keras.Model):
             c_embedding = self.c_gconv_layers[i](self.cgraph, c_embedding, cedge_feats)
             t_embedding = self.t_gconv_layers[i](self.tgraph, t_embedding, tedge_feats)
 
-            # if i >= 2:
-            #     c_embedding = tf.expand_dims(c_embedding, 0)
-            #     t_embedding = tf.expand_dims(t_embedding, 0)
+            c_embedding = tf.expand_dims(c_embedding, 0)
+            t_embedding = tf.expand_dims(t_embedding, 0)
 
-            #     c_embedding = tf.keras.layers.Attention()([c_embedding, t_embedding])
-            #     t_embedding = tf.keras.layers.Attention()([t_embedding, c_embedding])
+            c_embedding = self.c_corss_layers[i]([c_embedding, t_embedding])
+            t_embedding = self.t_corss_layers[i]([t_embedding, c_embedding])
 
-            #     c_embedding = tf.squeeze(c_embedding, axis=0)
-            #     t_embedding = tf.squeeze(t_embedding, axis=0)
+            c_embedding = tf.squeeze(c_embedding, axis=0)
+            t_embedding = tf.squeeze(t_embedding, axis=0)
 
         if self.cgroups is not None:
             c_embedding = tf.concat([tf.expand_dims(tf.math.add_n([c_embedding[i, :] for i in group]), 0) for group in self.cgroups], 0)
@@ -122,4 +151,4 @@ class Model(tf.keras.Model):
         if self.tgroups is not None:
             t_embedding = tf.concat([tf.expand_dims(tf.math.add_n([t_embedding[i, :] for i in group]), 0) for group in self.tgroups], 0)
 
-        return tf.squeeze(self.final_nccl(c_embedding), axis=1), self.final_strategy(t_embedding)
+        return tf.matmul(c_embedding, t_embedding, transpose_b=True)
