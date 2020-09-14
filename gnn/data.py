@@ -147,6 +147,7 @@ def gen_data(gdef, prof_data, topo, op_table):
         "tgroups": None, # topo["groups"],
         "tnfeats": topo["nfeats"],
         "tefeats": topo["efeats"],
+        "topoid": topo["id"],
         "op_table": op_table,
         # the two are workarounds; should write a graph parser in tge.py to get the links and bandwidth from graph
         "inter": topo["inter"],
@@ -175,15 +176,18 @@ def get_all_data():
         ("/job:worker/replica:0/task:0/device:GPU:5", 3.5, 3<<30),
     ], intra=bandwidth) for bandwidth in (400, 4000, 40000)]
     topos3 = [gen_topo([
-        ("/job:worker/replica:0/task:0/device:GPU:0", 1, 3<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:1", 1, 3<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:2", 1, 3<<30),
-        ("/job:worker/replica:0/task:0/device:GPU:3", 1, 3<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:0", 1.5, 3<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:1", 1.5, 3<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:2", 1.5, 3<<30),
+        ("/job:worker/replica:0/task:0/device:GPU:3", 1.5, 3<<30),
         ("/job:worker/replica:0/task:1/device:GPU:0", 1, 3<<30),
         ("/job:worker/replica:0/task:1/device:GPU:1", 1, 3<<30),
-    ], intra=bandwidth, inter=1000) for bandwidth in (4000, 40000)]
+    ], intra=bandwidth, inter=100) for bandwidth in (4000, 40000)]
+    topos = topos1 + topos2 + topos3
+    for i in range(len(topos)):
+        topos[i]["id"] = i
     op_table = {}
-    return [gen_data(gdef, prof_data, topo, op_table) for gdef, prof_data in models for topo in topos1 + topos2 + topos3]
+    return [gen_data(gdef, prof_data, topo, op_table) for gdef, prof_data in models for topo in topos]
 
 # prim's algorithm
 # alternative: https://networkx.github.io/documentation/stable/reference/algorithms/tree.html#module-networkx.algorithms.tree.mst

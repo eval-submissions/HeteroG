@@ -30,10 +30,10 @@ class GConv(tf.keras.layers.Layer):
         norm = tf.pow(degs, -0.5)
         shp = norm.shape + (1,) * (feat.ndim - 1)
         norm = tf.reshape(norm, shp)
-        feat = feat * norm
+        feat_normed = feat * norm
         # TODO: normalize edge feature?
 
-        graph.srcdata['h'] = feat
+        graph.srcdata['h'] = feat_normed
         graph.edata['e'] = edge_feat
         def update(edge):
             m = tf.concat([edge.src['h'], edge.data['e']], axis=1)
@@ -54,65 +54,84 @@ class GConv(tf.keras.layers.Layer):
 
         # rst = self.dense(tf.concat([feat, rst], axis=1))
 
-        return rst
+        return tf.concat([feat, rst], axis=1)
 
 class Cross(tf.keras.layers.Layer):
     '''Attention layer across two graphs'''
-    def __init__(self, activation=None):
+    def __init__(self, feature_len):
         super(Cross, self).__init__()
-        self.attention = tf.keras.layers.Attention()
+        self.query_transform1 = tf.keras.layers.Dense(feature_len // 4, activation=None)
+        self.key_transform1 = tf.keras.layers.Dense(feature_len // 4, activation=None)
+        self.value_transform1 = tf.keras.layers.Dense(feature_len, activation=None)
 
-    def call(self, list):
-        return self.attention(list)
+        self.query_transform2 = tf.keras.layers.Dense(feature_len // 4, activation=None)
+        self.key_transform2 = tf.keras.layers.Dense(feature_len // 4, activation=None)
+        self.value_transform2 = tf.keras.layers.Dense(feature_len, activation=None)
+
+    def call(self, this, that, mask):
+        s1 = tf.matmul(self.query_transform1(this), self.key_transform1(that), transpose_b=True)
+        w1 = tf.nn.softmax(s1)
+        r1 = tf.matmul(w1, self.value_transform1(that))
+
+        s2 = tf.matmul(self.query_transform2(this), self.key_transform2(that), transpose_b=True)
+        s2 -= 1.e9 * tf.cast(tf.logical_not(mask), dtype=tf.float32)
+        w2 = tf.nn.softmax(s2)
+        r2 = tf.matmul(w2, self.value_transform2(that))
+
+        return tf.concat([r1, r2], 1)
+
+# class Cross(tf.keras.layers.Layer):
+#     def __init__(self):
+#         super(Cross, self).__init__()
+#         self.dense = tf.keras.layers.Dense(512, activation=tf.math.tanh)
+
+#     def call(self, this, that, mask):
+#         those = tf.matmul(tf.cast(mask, tf.float32), that)
+
+#         return self.dense(tf.concat([this, those], 1)) + this
 
 class Model(tf.keras.Model):
     def __init__(self, op_table):
         super(Model, self).__init__()
 
-        cfeat_len = 4
-        cedge_len = 2
-        tfeat_len = 2
-        tedge_len = 3
-
-        num_hidden = 512
+        node_hidden = 256
+        edge_hidden = 8
         op_embedding_len = 8
-        c_embedding_len = 64
-        t_embedding_len = 64
+        c_embedding_len = 1024
+        t_embedding_len = 1024
 
         self.op_embedding = tf.keras.layers.Embedding(len(op_table), op_embedding_len, input_length=1)
 
+        self.cntrans = tf.keras.layers.Dense(node_hidden, activation=tf.math.tanh)
+        self.cetrans = tf.keras.layers.Dense(edge_hidden, activation=tf.math.tanh)
+        self.tntrans = tf.keras.layers.Dense(node_hidden, activation=tf.math.tanh)
+        self.tetrans = tf.keras.layers.Dense(edge_hidden, activation=tf.math.tanh)
+
         self.c_gconv_layers = [
-            GConv(cfeat_len + op_embedding_len, num_hidden, cedge_len, tf.nn.relu),
-            GConv(num_hidden, num_hidden, cedge_len, tf.nn.relu),
-            GConv(num_hidden, num_hidden, cedge_len, tf.nn.relu),
-            GConv(num_hidden, num_hidden, cedge_len, tf.nn.relu),
-            GConv(num_hidden, c_embedding_len, cedge_len, None)
+            GConv(node_hidden, node_hidden, edge_hidden, tf.math.tanh),
+            GConv(2*node_hidden, node_hidden, edge_hidden, tf.math.tanh)
         ]
 
         self.c_corss_layers = [
-            Cross(),
-            Cross(),
-            Cross(),
-            Cross(),
-            Cross(),
+            Cross(node_hidden),
+            Cross(2*node_hidden),
         ]
 
         self.t_gconv_layers = [
-            GConv(tfeat_len, num_hidden, tedge_len, tf.nn.relu),
-            GConv(num_hidden, num_hidden, tedge_len, tf.nn.relu),
-            GConv(num_hidden, num_hidden, tedge_len, tf.nn.relu),
-            GConv(num_hidden, num_hidden, tedge_len, tf.nn.relu),
-            GConv(num_hidden, t_embedding_len, tedge_len, None)
+            GConv(node_hidden, node_hidden, edge_hidden, tf.math.tanh),
+            GConv(2*node_hidden, node_hidden, edge_hidden, tf.math.tanh)
         ]
 
         self.t_corss_layers = [
-            Cross(),
-            Cross(),
-            Cross(),
-            Cross(),
-            Cross(),
+            Cross(node_hidden),
+            Cross(2*node_hidden),
         ]
 
+        self.c_final = tf.keras.layers.Dense(c_embedding_len, activation=None)
+        self.t_final = tf.keras.layers.Dense(t_embedding_len, activation=None)
+
+        self.final_time = tf.keras.layers.Dense(1, activation=None)
+        self.final_memory = tf.keras.layers.Dense(1, activation=None)
         # self.final_strategy = tf.keras.layers.Dense(cgroups_len, activation=None)
         # self.final_nccl = tf.keras.layers.Dense(1, activation=None)
 
@@ -128,22 +147,25 @@ class Model(tf.keras.Model):
         [cfeats, cedge_feats, ctypes, tfeats, tedge_feats, placement, runtime_stats] = inputs
 
         op_embedding = self.op_embedding(tf.expand_dims(ctypes, 1)) # shape: (n_nodes, 1, op_embedding_len)
-        c_embedding = tf.concat([cfeats, tf.squeeze(op_embedding, axis=1)], 1)
+        cfeats = tf.concat([cfeats, tf.squeeze(op_embedding, axis=1)], 1)
+
+        cfeats = self.cntrans(cfeats)
+        cedge_feats = self.cetrans(cedge_feats)
+        tfeats = self.tntrans(tfeats)
+        tedge_feats = self.tetrans(tedge_feats)
+
+        c_embedding = cfeats
         t_embedding = tfeats
 
-        n_layers = len(self.c_gconv_layers)
-        for i in range(n_layers):
+        for i in range(len(self.c_gconv_layers)):
             c_embedding = self.c_gconv_layers[i](self.cgraph, c_embedding, cedge_feats)
             t_embedding = self.t_gconv_layers[i](self.tgraph, t_embedding, tedge_feats)
 
-            c_embedding = tf.expand_dims(c_embedding, 0)
-            t_embedding = tf.expand_dims(t_embedding, 0)
+            c_embedding = self.c_corss_layers[i](c_embedding, t_embedding, placement)
+            t_embedding = self.t_corss_layers[i](t_embedding, c_embedding, tf.transpose(placement))
 
-            c_embedding = self.c_corss_layers[i]([c_embedding, t_embedding])
-            t_embedding = self.t_corss_layers[i]([t_embedding, c_embedding])
-
-            c_embedding = tf.squeeze(c_embedding, axis=0)
-            t_embedding = tf.squeeze(t_embedding, axis=0)
+        # c_embedding = self.c_final(c_embedding)
+        # t_embedding = self.t_final(t_embedding)
 
         if self.cgroups is not None:
             c_embedding = tf.concat([tf.expand_dims(tf.math.add_n([c_embedding[i, :] for i in group]), 0) for group in self.cgroups], 0)
@@ -151,4 +173,7 @@ class Model(tf.keras.Model):
         if self.tgroups is not None:
             t_embedding = tf.concat([tf.expand_dims(tf.math.add_n([t_embedding[i, :] for i in group]), 0) for group in self.tgroups], 0)
 
-        return tf.matmul(c_embedding, t_embedding, transpose_b=True)
+        time = self.final_time(tf.reduce_sum(c_embedding, axis=0, keepdims=True))
+        memory = self.final_memory(t_embedding)
+        return [time, memory]
+        # return tf.matmul(c_embedding, t_embedding, transpose_b=True)

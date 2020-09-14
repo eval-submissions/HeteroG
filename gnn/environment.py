@@ -14,7 +14,8 @@ def sample(logit, e=0):
 
 def evaluate(record, ncclmask, nodemask):
     gdef = record["gdef"]
-    strategy = { gdef.node[i].name: [int(ncclmask[gi])] + [ int(nodemask[j, gi]) for j in range(nodemask.shape[0]) ] for gi, group in enumerate(record["cgroups"]) for i in group }
+    strategy = { gdef.node[i].name: [int(ncclmask[i])] + [ int(nodemask[i, j]) for j in range(nodemask.shape[1]) ] for i in range(nodemask.shape[0]) }
+    # strategy = { gdef.node[i].name: [int(ncclmask[gi])] + [ int(nodemask[j, gi]) for j in range(nodemask.shape[0]) ] for gi, group in enumerate(record["cgroups"]) for i in group }
     # info(strategy)
     leftout = [ gi for gi in range(nodemask.shape[1]) if np.sum(nodemask[:, gi]) == 0 ]
     for k, v in strategy.items():
@@ -29,8 +30,8 @@ def evaluate(record, ncclmask, nodemask):
     time, mem = tge.evaluate(record["prof_data"])
 
     oom = [ i for i in range(len(mem)) if mem[i] > record["devices"][i][2] ]
-
-    return np.sqrt(time / 1_000_000), oom, leftout
+    return time / 1_000_000, [x / 1_000_000_000 for x in mem]
+    # return np.sqrt(time / 1_000_000), oom, leftout
 
 def sample_and_evaluate(record, placement_logit):
     placement_mask = sample(nodelogit)
