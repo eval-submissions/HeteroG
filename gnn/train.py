@@ -48,8 +48,8 @@ with tf.device("/gpu:0"):
                 else: # gpu0
                     strategy[:, 0] = 1
 
-                time, memory = evaluate(record, [1 for _ in range(cnfeats.shape[0])], strategy)
-                [time_predict, memory_predict] = model([cnfeats, cefeats, cntypes, tnfeats, tefeats, strategy, None], training=True)
+                nodelogit = model([cnfeats, cefeats, cntypes, tnfeats, tefeats, strategy, None], training=True)
+                loss += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(strategy.astype(np.float32), nodelogit))
 
                 # ncclmask, nodemask, advantage, sqrt_time, oom, leftout = sample_and_evaluate(record, nccllogit.numpy(), nodelogit.numpy()) # numpy to turn off gradient tracking
                 # for i in oom:
@@ -67,11 +67,9 @@ with tf.device("/gpu:0"):
                 # loss += (time_predict[0, 0] - time) * (time_predict[0, 0] - time)
                 # loss += tf.reduce_sum((memory_predict[:, 0] - memory) * (memory_predict[:, 0] - memory))
 
-                loss = memory_predict[0, 0] - memory_predict[1, 0]
+                # info(loss)
 
-                info(loss)
-
-            # info(loss.numpy())
+            info(loss.numpy())
 
             if L2_regularization_factor > 0:
                 for weight in model.trainable_weights:
@@ -79,7 +77,6 @@ with tf.device("/gpu:0"):
 
             grads = tape.gradient(loss, model.trainable_weights)
             # info([tf.reduce_mean(tf.abs(grad)).numpy() for grad in grads])
-            info(grads)
             optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
         if epoch % 50 == 0:
