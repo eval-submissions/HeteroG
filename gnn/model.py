@@ -5,54 +5,21 @@ from utils import info
 
 class GConv(tf.keras.layers.Layer):
     '''Graph Conv layer that concats the edge features before sending message'''
-    def __init__(self, in_feats, out_feats, edge_feats, activation=None):
+    def __init__(self, out_feats, activation=None):
         super(GConv, self).__init__()
-        self.in_feats = in_feats + edge_feats
-        self.out_feats = out_feats
-
-        xinit = tf.keras.initializers.glorot_uniform()
-        self.weight = tf.Variable(initial_value=xinit(
-            shape=(self.in_feats, self.out_feats), dtype='float32'), trainable=True)
-
-        zeroinit = tf.keras.initializers.zeros()
-        self.bias = tf.Variable(initial_value=zeroinit(
-            shape=(self.out_feats, ), dtype='float32'), trainable=True)
-
-        # self.dense = tf.keras.layers.Dense(out_feats, activation=activation)
-
-        self.activation = activation
+        self.dense = tf.keras.layers.Dense(out_feats, activation=activation)
 
     def call(self, graph, feat, edge_feat):
         graph = graph.local_var()
 
-        degs = tf.clip_by_value(tf.cast(graph.out_degrees(), tf.float32),
-                                clip_value_min=1, clip_value_max=np.inf)
-        norm = tf.pow(degs, -0.5)
-        shp = norm.shape + (1,) * (feat.ndim - 1)
-        norm = tf.reshape(norm, shp)
-        feat_normed = feat * norm
-        # TODO: normalize edge feature?
-
-        graph.srcdata['h'] = feat_normed
+        graph.srcdata['h'] = feat
         graph.edata['e'] = edge_feat
+        # TODO: use built-in method to concat src to edge and run dense layer on graph.edata may be faster
         def update(edge):
             m = tf.concat([edge.src['h'], edge.data['e']], axis=1)
             return {'m': m}
         graph.update_all(update, fn.sum(msg='m', out='h'))
-        rst = graph.dstdata['h']
-        rst = tf.matmul(rst, self.weight)
-
-        degs = tf.clip_by_value(tf.cast(graph.in_degrees(), tf.float32),
-                                clip_value_min=1, clip_value_max=np.inf)
-        norm = tf.pow(degs, -0.5)
-        shp = norm.shape + (1,) * (feat.ndim - 1)
-        norm = tf.reshape(norm, shp)
-        rst = rst * norm + self.bias
-
-        if self.activation is not None:
-            rst = self.activation(rst)
-
-        # rst = self.dense(tf.concat([feat, rst], axis=1))
+        rst = self.dense(graph.dstdata['h'])
 
         return feat + rst
 
@@ -110,8 +77,8 @@ class Model(tf.keras.Model):
         self.tetrans = tf.keras.layers.Dense(edge_hidden, activation=tf.math.tanh)
 
         self.c_gconv_layers = [
-            GConv(node_hidden, node_hidden, edge_hidden, tf.math.tanh),
-            GConv(node_hidden, node_hidden, edge_hidden, tf.math.tanh)
+            GConv(node_hidden, tf.math.tanh),
+            GConv(node_hidden, tf.math.tanh)
         ]
 
         self.c_corss_layers = [
@@ -120,8 +87,8 @@ class Model(tf.keras.Model):
         ]
 
         self.t_gconv_layers = [
-            GConv(node_hidden, node_hidden, edge_hidden, tf.math.tanh),
-            GConv(node_hidden, node_hidden, edge_hidden, tf.math.tanh)
+            GConv(node_hidden, tf.math.tanh),
+            GConv(node_hidden, tf.math.tanh)
         ]
 
         self.t_corss_layers = [
