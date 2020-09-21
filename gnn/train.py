@@ -24,11 +24,12 @@ with tf.device("/gpu:0"):
     except:
         info("no saved weight")
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=.000002, clipnorm=1)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=.00002, clipnorm=1)
     L2_regularization_factor = 0 #.0005
 
     for epoch in range(20000):
-        record = records[np.random.randint(len(records))]
+        # record = records[np.random.randint(len(records))]
+        record = records[1]
 
         cnfeats = tf.convert_to_tensor(record["cnfeats"], dtype=tf.float32)
         cefeats = tf.convert_to_tensor(record["cefeats"], dtype=tf.float32)
@@ -43,10 +44,10 @@ with tf.device("/gpu:0"):
             loss = 0
             for _ in range(10):
                 strategy = np.zeros((cnfeats.shape[0], tnfeats.shape[0]), dtype=np.bool)
-                if np.random.rand() > 0.5: # dp
-                    strategy[:, :] = 1
-                else: # gpu0
-                    strategy[:, 0] = 1
+                for i in range(cnfeats.shape[0]):
+                    for j in range(tnfeats.shape[0]):
+                        if np.random.rand() > 0.5:
+                            strategy[i, j] = 1
 
                 nodelogit = model([cnfeats, cefeats, cntypes, tnfeats, tefeats, strategy, None], training=True)
                 loss += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(strategy.astype(np.float32), nodelogit))
