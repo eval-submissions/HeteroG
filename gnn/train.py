@@ -24,12 +24,12 @@ with tf.device("/gpu:0"):
     except:
         info("no saved weight")
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=.001, clipnorm=6)
-    L2_regularization_factor = 0 #.0005
+    optimizer = tf.keras.optimizers.Adam(learning_rate=.01, clipnorm=6)
+    L2_regularization_factor = .0005
 
     for epoch in range(20000):
-        # record = records[np.random.randint(len(records))]
-        record = records[1]
+        record = records[np.random.randint(len(records))]
+        # record = records[1]
 
         op_types = tf.convert_to_tensor(record["op_types"], dtype=tf.float32)
         op_feats = tf.convert_to_tensor(record["op_feats"], dtype=tf.float32)
@@ -52,7 +52,7 @@ with tf.device("/gpu:0"):
                 placement_feats = tf.convert_to_tensor(placement_feats, dtype=tf.float32)
 
                 nodelogit = model([op_feats, device_feats, tensor_feats, link_feats, placement_feats, op_types], training=True)
-                loss += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(strategy, nodelogit))
+                loss += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(placement_feats, nodelogit))
 
                 # ncclmask, nodemask, advantage, sqrt_time, oom, leftout = sample_and_evaluate(record, nccllogit.numpy(), nodelogit.numpy()) # numpy to turn off gradient tracking
                 # for i in oom:

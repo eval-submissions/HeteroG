@@ -41,7 +41,7 @@ class Model(tf.keras.Model):
     def __init__(self, op_table):
         super(Model, self).__init__()
 
-        node_hidden = 32
+        node_hidden = 120
         edge_hidden = 8
         op_embedding_len = 8
 
@@ -52,6 +52,7 @@ class Model(tf.keras.Model):
         self.edge_trans = { etype: tf.keras.layers.Dense(edge_hidden, activation=tf.nn.elu) for etype in all_etypes }
 
         self.gconv_layers = [
+            GConv(node_hidden, tf.nn.elu),
             GConv(node_hidden, tf.nn.elu),
             GConv(node_hidden, tf.nn.elu),
             GConv(node_hidden, tf.identity)
@@ -94,12 +95,12 @@ class Model(tf.keras.Model):
         # if self.tgroups is not None:
         #     t_embedding = tf.concat([tf.expand_dims(tf.math.add_n([t_embedding[i, :] for i in group]), 0) for group in self.tgroups], 0)
 
-        # batches = []
-        # for i in range(op_feats.shape[0]):
-        #     x = tf.repeat(tf.reshape(op_feats[i, :], (1, -1)), repeats=[device_feats.shape[0]], axis=0)
-        #     x = tf.concat([x, device_feats], 1)
-        #     batches.append(x)
-        # x = tf.concat(batches, 0)
-        # return self.final_place(x)
+        g = self.graph['place'].local_var()
+        g.srcdata['i'] = op_feats
+        g.dstdata['i'] = device_feats
+        g.edata['i'] = edge_feats['place']
+        def decision(edge):
+            return { 'd': self.final_place(tf.concat([edge.src['i'], edge.data['i'], edge.dst['i']], axis=1))  }
+        g.apply_edges(decision)
 
-        return tf.matmul(op_feats, device_feats, transpose_b=True)
+        return g.edata['d']
