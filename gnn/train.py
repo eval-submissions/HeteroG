@@ -21,13 +21,20 @@ with tf.device("/gpu:0"):
     try:
         model.load_weights('weights')
         info("load saved weight")
+        init = 1000
     except:
         info("no saved weight")
+        init = 0
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=.01, clipnorm=6)
     L2_regularization_factor = .0005
+    optimizer = tf.keras.optimizers.Adam(learning_rate=.002, clipnorm=6)
 
-    for epoch in range(20000):
+    for epoch in range(init, 20000):
+        if epoch == 100:
+            optimizer = tf.keras.optimizers.Adam(learning_rate=.01, clipnorm=6)
+        elif epoch == 1000:
+            optimizer = tf.keras.optimizers.Adam(learning_rate=.001, clipnorm=1)
+
         record = records[np.random.randint(len(records))]
         # record = records[1]
 
