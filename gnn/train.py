@@ -24,7 +24,7 @@ with tf.device("/gpu:0"):
     except:
         info("no saved weight")
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=.00005, clipnorm=6)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=.001, clipnorm=6)
     L2_regularization_factor = 0 #.0005
 
     for epoch in range(20000):
@@ -97,6 +97,6 @@ with tf.device("/gpu:0"):
         #     info(f"{d}: {c}")
         # info("time: ", sqrt_time, oom, leftout)
 
-        # p = sample(placement_logit)
+        # p = sample(nodelogit)
         # info(strategy.astype(np.int))
         # info(p)
