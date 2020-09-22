@@ -24,33 +24,35 @@ with tf.device("/gpu:0"):
     except:
         info("no saved weight")
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=.00002, clipnorm=1)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=.00005, clipnorm=6)
     L2_regularization_factor = 0 #.0005
 
     for epoch in range(20000):
         # record = records[np.random.randint(len(records))]
         record = records[1]
 
-        cnfeats = tf.convert_to_tensor(record["cnfeats"], dtype=tf.float32)
-        cefeats = tf.convert_to_tensor(record["cefeats"], dtype=tf.float32)
-        cntypes = tf.convert_to_tensor(record["cntypes"], dtype=tf.float32)
-        tnfeats = tf.convert_to_tensor(record["tnfeats"], dtype=tf.float32)
-        tefeats = tf.convert_to_tensor(record["tefeats"], dtype=tf.float32)
-        model.set_graphs(record["cgraph"], record["tgraph"])
-        model.set_groups(record["cgroups"], record["tgroups"])
+        op_types = tf.convert_to_tensor(record["op_types"], dtype=tf.float32)
+        op_feats = tf.convert_to_tensor(record["op_feats"], dtype=tf.float32)
+        device_feats = tf.convert_to_tensor(record["device_feats"], dtype=tf.float32)
+        tensor_feats = tf.convert_to_tensor(record["tensor_feats"], dtype=tf.float32)
+        link_feats = tf.convert_to_tensor(record["link_feats"], dtype=tf.float32)
+        model.set_graph(record["graph"])
 
         with tf.GradientTape() as tape:
             tape.watch(model.trainable_weights)
             loss = 0
             for _ in range(10):
-                strategy = np.zeros((cnfeats.shape[0], tnfeats.shape[0]), dtype=np.bool)
-                for i in range(cnfeats.shape[0]):
-                    for j in range(tnfeats.shape[0]):
+                strategy = np.zeros((op_feats.shape[0], device_feats.shape[0]), dtype=np.float32)
+                for i in range(strategy.shape[0]):
+                    for j in range(strategy.shape[1]):
                         if np.random.rand() > 0.5:
                             strategy[i, j] = 1
 
-                nodelogit = model([cnfeats, cefeats, cntypes, tnfeats, tefeats, strategy, None], training=True)
-                loss += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(strategy.astype(np.float32), nodelogit))
+                placement_feats = [ [strategy[i,j]] for i in range(strategy.shape[0]) for j in range(strategy.shape[1]) ]
+                placement_feats = tf.convert_to_tensor(placement_feats, dtype=tf.float32)
+
+                nodelogit = model([op_feats, device_feats, tensor_feats, link_feats, placement_feats, op_types], training=True)
+                loss += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(strategy, nodelogit))
 
                 # ncclmask, nodemask, advantage, sqrt_time, oom, leftout = sample_and_evaluate(record, nccllogit.numpy(), nodelogit.numpy()) # numpy to turn off gradient tracking
                 # for i in oom:

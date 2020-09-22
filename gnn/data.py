@@ -56,8 +56,7 @@ def gen_data(gdef, prof_data, op_table, devices, inter=2810, intra=2810):
             op_table[node.op] = len(op_table)
         op_types.append(op_table[node.op])
     op_feats = [[np.mean(prof_data[(node.name, nrep)]) / 10_000 for nrep in (1, 2, 4, 8)] for node in gdef.node]
-    prev_feats = []
-    succ_feats = []
+    tensor_feats = []
     edge_prev = ([], [])
     edge_succ = ([], [])
     reverse_dict = { node.name: i for i, node in enumerate(gdef.node) }
@@ -88,8 +87,7 @@ def gen_data(gdef, prof_data, op_table, devices, inter=2810, intra=2810):
                     tensorsize *= size
             except:
                 tensorsize = -1
-            prev_feats.append([tensorsize / 100_000_000])
-            succ_feats.append([tensorsize / 100_000_000])
+            tensor_feats.append([tensorsize / 100_000_000])
     prof_data = { key: [int(np.mean(times) * time_ratio) for _, time_ratio, _ in devices] for key, times in prof_data.items() }
 
     # def group_with_layer_name():
@@ -154,9 +152,8 @@ def gen_data(gdef, prof_data, op_table, devices, inter=2810, intra=2810):
         "device_groups": None, # groups,
         "op_feats": op_feats,
         "op_types": op_types,
-        "prev_feats": prev_feats,
-        "succ_feats": succ_feats,
         "device_feats": device_feats,
+        "tensor_feats": tensor_feats,
         "link_feats": link_feats,
         "op_table": op_table,
         # the two are workarounds; should write a graph parser in tge.py to get the links and bandwidth from graph
