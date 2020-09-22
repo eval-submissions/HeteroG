@@ -41,7 +41,7 @@ class Model(tf.keras.Model):
     def __init__(self, op_table):
         super(Model, self).__init__()
 
-        node_hidden = 120
+        node_hidden = 64 - 8
         edge_hidden = 8
         op_embedding_len = 8
 
@@ -69,10 +69,10 @@ class Model(tf.keras.Model):
         self.device_groups = device_groups
 
     def call(self, inputs):
-        [op_feats, device_feats, tensor_feats, link_feats, placement_feats, op_types] = inputs
+        [op_feats, device_feats, tensor_feats, link_feats, placement_feats, op_types, nodes_to_place] = inputs
 
         op_embedding = self.op_embedding(tf.expand_dims(op_types, 1)) # shape: (n_nodes, 1, op_embedding_len)
-        op_feats = tf.concat([op_feats, tf.squeeze(op_embedding, axis=1)], 1)
+        op_feats = tf.concat([op_feats, tf.squeeze(op_embedding, axis=1), tf.expand_dims(nodes_to_place, 1)], 1)
 
         op_feats = self.op_trans(op_feats)
         device_feats = self.device_trans(device_feats)

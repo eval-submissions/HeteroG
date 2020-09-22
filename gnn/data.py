@@ -90,32 +90,32 @@ def gen_data(gdef, prof_data, op_table, devices, inter=2810, intra=2810):
             tensor_feats.append([tensorsize / 100_000_000])
     prof_data = { key: [int(np.mean(times) * time_ratio) for _, time_ratio, _ in devices] for key, times in prof_data.items() }
 
-    # def group_with_layer_name():
-    #     group_table = {}
-    #     for i, node in enumerate(gdef.node):
-    #         if node.name.startswith("GradientDescent") or node.name.startswith("gradients"):
-    #             prefix = '/'.join(node.name.split('/')[1:3])
-    #         else:
-    #             prefix = '/'.join(node.name.split('/')[:2])
-    #         if prefix in group_table:
-    #             group_table[prefix].append(i)
-    #         else:
-    #             group_table[prefix] = [i]
-    #     return list(group_table.values())
+    def group_with_layer_name():
+        group_table = {}
+        for i, node in enumerate(gdef.node):
+            if node.name.startswith("GradientDescent") or node.name.startswith("gradients"):
+                prefix = '/'.join(node.name.split('/')[1:3])
+            else:
+                prefix = '/'.join(node.name.split('/')[:2])
+            if prefix in group_table:
+                group_table[prefix].append(i)
+            else:
+                group_table[prefix] = [i]
+        return list(group_table.values())
 
-    # def group_with_k_spanning_tree():
-    #     seed = [i for i, node in enumerate(gdef.node) if node.name == 'GradientDescent'][0]
-    #     return k_spanning_tree(g, [x[1] for x in efeats], 20, seed)
+    def group_with_k_spanning_tree():
+        seed = [i for i, node in enumerate(gdef.node) if node.name == 'GradientDescent'][0]
+        return k_spanning_tree(g, [x[1] for x in efeats], 20, seed)
 
-    # def group_with_topk_nodes():
-    #     from utils import group_around_topk_costs
-    #     from tge import TGE
+    def group_with_topk_nodes():
+        from utils import group_around_topk_costs
+        from tge import TGE
 
-    #     base_groups = TGE(gdef, [dev for dev, _, _ in devices]).get_groups()
-    #     id_list = group_around_topk_costs(gdef, base_groups, prof_data, 19)
-    #     return list(groupby(enumerate(id_list), key=cadr, value=car).values())
+        base_groups = TGE(gdef, [dev for dev, _, _ in devices]).get_groups()
+        id_list = group_around_topk_costs(gdef, base_groups, prof_data, 19)
+        return list(groupby(enumerate(id_list), key=cadr, value=car).values())
 
-    # cgroups = group_with_topk_nodes()
+    op_groups = group_with_topk_nodes()
 
     # out_of_group = []
     # for i in range(len(gdef.node)):
@@ -148,7 +148,7 @@ def gen_data(gdef, prof_data, op_table, devices, inter=2810, intra=2810):
         "gdef": gdef,
         "prof_data": prof_data,
         "devices": devices,
-        "op_groups": None, # cgroups,
+        "op_groups": op_groups,
         "device_groups": None, # groups,
         "op_feats": op_feats,
         "op_types": op_types,

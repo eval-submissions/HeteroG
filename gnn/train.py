@@ -35,7 +35,8 @@ with tf.device("/gpu:0"):
         elif epoch == 1000:
             optimizer = tf.keras.optimizers.Adam(learning_rate=.001, clipnorm=1)
 
-        record = records[np.random.randint(len(records))]
+        record_id = np.random.randint(len(records))
+        record = records[record_id]
         # record = records[1]
 
         op_types = tf.convert_to_tensor(record["op_types"], dtype=tf.float32)
@@ -47,19 +48,28 @@ with tf.device("/gpu:0"):
 
         with tf.GradientTape() as tape:
             tape.watch(model.trainable_weights)
-            loss = 0
-            for _ in range(10):
-                strategy = np.zeros((op_feats.shape[0], device_feats.shape[0]), dtype=np.float32)
-                for i in range(strategy.shape[0]):
-                    for j in range(strategy.shape[1]):
-                        if np.random.rand() > 0.5:
-                            strategy[i, j] = 1
 
+            strategy = np.zeros((op_feats.shape[0], device_feats.shape[0]), dtype=np.float32)
+            logp = 0
+            for gid in range(len(record['op_groups'])):
                 placement_feats = [ [strategy[i,j]] for i in range(strategy.shape[0]) for j in range(strategy.shape[1]) ]
                 placement_feats = tf.convert_to_tensor(placement_feats, dtype=tf.float32)
 
-                nodelogit = model([op_feats, device_feats, tensor_feats, link_feats, placement_feats, op_types], training=True)
-                loss += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(placement_feats, nodelogit))
+                nodes_to_place = [ 1 if i in record['op_groups'][gid] else 0 for i in range(op_feats.shape[0]) ]
+                nodes_to_place = tf.convert_to_tensor(nodes_to_place, dtype=tf.float32)
+                nodelogit = model([op_feats, device_feats, tensor_feats, link_feats, placement_feats, op_types, nodes_to_place], training=True) # TODO: nodes that are already placed
+                nodelogit = tf.reshape(nodelogit, strategy.shape)
+
+                group_mask = np.zeros(nodelogit.shape, dtype=np.float32)
+                for i in record['op_groups'][gid]:
+                    group_mask[i, :] = 1
+                p = sample(nodelogit.numpy())
+                logp += -tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(tf.convert_to_tensor(p, dtype=tf.float32), nodelogit) * group_mask)
+                for i in record['op_groups'][gid]:
+                    strategy[i, :] = p[i, :]
+
+            loss_env = evaluate(record, np.zeros((op_feats.shape[0],)), strategy)[0]
+            loss = loss_env * logp
 
                 # ncclmask, nodemask, advantage, sqrt_time, oom, leftout = sample_and_evaluate(record, nccllogit.numpy(), nodelogit.numpy()) # numpy to turn off gradient tracking
                 # for i in oom:
@@ -79,7 +89,8 @@ with tf.device("/gpu:0"):
 
                 # info(loss)
 
-            info(loss.numpy())
+            if epoch % 10 == 0:
+                info(record_id, loss_env, evaluate(record, np.zeros((op_feats.shape[0],)), np.ones(strategy.shape))[1])
 
             if L2_regularization_factor > 0:
                 for weight in model.trainable_weights:
