@@ -41,7 +41,7 @@ class Model(tf.keras.Model):
     def __init__(self, op_table):
         super(Model, self).__init__()
 
-        node_hidden = 64 - 8
+        node_hidden = 40
         edge_hidden = 8
         op_embedding_len = 8
 

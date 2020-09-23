@@ -30,8 +30,8 @@ def evaluate(record, ncclmask, nodemask):
     time, mem = tge.evaluate(record["prof_data"])
 
     oom = [ i for i in range(len(mem)) if mem[i] > record["devices"][i][2] ]
-    return time / 1_000_000, [x / 1_000_000_000 for x in mem]
-    # return np.sqrt(time / 1_000_000), oom, leftout
+    # return time / 1_000_000, [x / 1_000_000_000 for x in mem]
+    return np.sqrt(time / 1_000_000), oom, leftout
 
 def sample_and_evaluate(record, placement_logit):
     placement_mask = sample(nodelogit)

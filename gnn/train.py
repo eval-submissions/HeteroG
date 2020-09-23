@@ -26,7 +26,7 @@ with tf.device("/gpu:0"):
         info("no saved weight")
         init = 0
 
-    L2_regularization_factor = .0005
+    L2_regularization_factor = .0001
     optimizer = tf.keras.optimizers.Adam(learning_rate=.002, clipnorm=6)
 
     for epoch in range(init, 20000):
@@ -50,7 +50,7 @@ with tf.device("/gpu:0"):
             tape.watch(model.trainable_weights)
 
             strategy = np.zeros((op_feats.shape[0], device_feats.shape[0]), dtype=np.float32)
-            logp = 0
+            negative_logp = 0
             for gid in range(len(record['op_groups'])):
                 placement_feats = [ [strategy[i,j]] for i in range(strategy.shape[0]) for j in range(strategy.shape[1]) ]
                 placement_feats = tf.convert_to_tensor(placement_feats, dtype=tf.float32)
@@ -64,12 +64,19 @@ with tf.device("/gpu:0"):
                 for i in record['op_groups'][gid]:
                     group_mask[i, :] = 1
                 p = sample(nodelogit.numpy())
-                logp += -tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(tf.convert_to_tensor(p, dtype=tf.float32), nodelogit) * group_mask)
+                negative_logp += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(tf.convert_to_tensor(p, dtype=tf.float32), nodelogit) * group_mask)
                 for i in record['op_groups'][gid]:
                     strategy[i, :] = p[i, :]
 
-            loss_env = evaluate(record, np.zeros((op_feats.shape[0],)), strategy)[0]
-            loss = loss_env * logp
+            sqrt_time = evaluate(record, np.zeros((op_feats.shape[0],)), strategy)[0]
+            if "hist" not in record:
+                record["hist"] = [sqrt_time]
+            else:
+                record["hist"].append(sqrt_time)
+                record["hist"] = record["hist"][-100:]
+            baseline = np.mean(record["hist"])
+            advantage = -(sqrt_time - baseline) / baseline
+            loss = advantage * negative_logp
 
                 # ncclmask, nodemask, advantage, sqrt_time, oom, leftout = sample_and_evaluate(record, nccllogit.numpy(), nodelogit.numpy()) # numpy to turn off gradient tracking
                 # for i in oom:
@@ -90,7 +97,7 @@ with tf.device("/gpu:0"):
                 # info(loss)
 
             if epoch % 10 == 0:
-                info(record_id, loss_env, evaluate(record, np.zeros((op_feats.shape[0],)), np.ones(strategy.shape))[1])
+                info(record_id, sqrt_time, evaluate(record, np.zeros((op_feats.shape[0],)), np.ones(strategy.shape))[0])
 
             if L2_regularization_factor > 0:
                 for weight in model.trainable_weights:
