@@ -1,0 +1,4 @@
+[submodule <submodule_name>]
+    path = tensorflow
+    url = https://github.com/xiaodong-yi/tensorflow.git
+    branch = r1.14
