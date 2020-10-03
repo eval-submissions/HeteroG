@@ -1,47 +1,65 @@
 import tensorflow as tf
 import numpy as np
 from environment import sample, evaluate, sample_and_evaluate
-from utils import info
+from utils import save, load, info
 
-def search(record, c_embeddings, t_embeddings):
-    c_var = tf.Variable(initial_value=c_embeddings, trainable=True)
-    t_var = tf.Variable(initial_value=t_embeddings, trainable=True)
-    variables = [c_var, t_var]
+from pymoo.model.problem import Problem
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=.01, clipnorm=1)
-    L2_regularization_factor = .00001
+class MyProblem(Problem):
+    def __init__(self, record):
+        self.record = record
+        n = len(record['cgroups']) * len(record['devices'])
+        super().__init__(n_var=n, n_obj=1, n_constr=0, xl=0, xu=1, elementwise_evaluation=True)
 
-    hist = []
-    for epoch in range(2000):
-        with tf.GradientTape() as tape:
-            tape.watch(variables)
-            logit = tf.matmul(c_var, t_var, transpose_b=True)
+    def _evaluate(self, x, out, *args, **kwargs):
+        pheno = (x > .5).astype(int)
+        strategy = np.reshape(pheno, (len(self.record['cgroups']), len(self.record['devices'])))
+        k = evaluate(self.record, [1] * len(self.record['cgroups']), strategy)[0]
+        info(k)
+        out["F"] = k
+        out["pheno"] = pheno
+        out["hash"] = hash(str(pheno))
 
-            # info(logit)
+record = load("records")[7] # 15
+problem = MyProblem(record)
 
-            strategy = sample(logit)
-            sqrt_time, oom, leftout = evaluate(record, [1] * strategy.shape[0], strategy)
+from pymoo.algorithms.so_brkga import BRKGA
+from pymoo.optimize import minimize
 
-            if 'best' not in record or record['best'] > sqrt_time:
-                record['best'] = sqrt_time
+from pymoo.model.duplicate import ElementwiseDuplicateElimination
 
-            if 'dp' not in record:
-                record['dp'] = evaluate(record, [1] * strategy.shape[0], np.ones(strategy.shape, int))[0]
+class MyElementwiseDuplicateElimination(ElementwiseDuplicateElimination):
+    def is_equal(self, a, b):
+        info(a.get("hash"))
+        return a.get("hash") == b.get("hash")
 
-            hist.append(sqrt_time)
-            hist = hist[-100:]
-            baseline = np.mean(hist)
-            advantage = -(sqrt_time - baseline) / baseline
+from pymoo.model.sampling import Sampling
 
-            loss = advantage * tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(strategy.astype(np.float32), logit))
+class MySampling(Sampling):
+    def _do(self, problem, n_samples, **kwargs):
+        X = np.full((n_samples, problem.n_var), None, dtype=np.float)
 
-            info(loss.numpy(), record['best'], record['dp'])
+        for i in range(n_samples):
+            for j in range(problem.n_var):
+                X[i, j] = 1 if np.random.rand() < .95 else 0
 
-            if L2_regularization_factor > 0:
-                for v in variables:
-                    loss += L2_regularization_factor * tf.nn.l2_loss(v)
+        return X
 
-            grads = tape.gradient(loss, variables)
-            # info([tf.reduce_mean(tf.abs(grad)).numpy() for grad in grads])
-            optimizer.apply_gradients(zip(grads, variables))
+algorithm = BRKGA(
+    n_elites=20,
+    n_offsprings=60,
+    n_mutants=20,
+    bias=0.7,
+    sampling=MySampling(),
+    eliminate_duplicates=MyElementwiseDuplicateElimination)
 
+res = minimize(problem,
+               algorithm,
+               ("n_gen", 20),
+               seed=1,
+               verbose=False)
+
+info("Best solution found: \nX = %s\nF = %s" % (res.X, res.F))
+info("Solution", res.opt.get("pheno")[0])
+
+# def search(record):

@@ -18,7 +18,7 @@ except:
 from search import search
 
 with tf.device("/gpu:0"):
-    search(records[0], np.random.randn(len(records[0]['cgroups']), 32).astype('f'), np.random.randn(len(records[0]['devices']), 32).astype('f'))
+    search(records[0])
 
 raise SystemExit
 
