@@ -18,7 +18,7 @@ except:
 from search import search
 
 with tf.device("/gpu:0"):
-    search(records[0])
+    search(records[15])
 
 raise SystemExit
 

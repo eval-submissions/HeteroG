@@ -49,3 +49,8 @@ def sample_and_evaluate(record, placement_logit):
         advantage = 0
 
     return ncclmask, nodemask, advantage, sqrt_time, oom, leftout
+
+def f(arg):
+    record, pheno = arg
+    strategy = np.reshape(pheno, (len(record['cgroups']), len(record['devices'])))
+    return evaluate(record, [1] * len(record['cgroups']), strategy)[0]
