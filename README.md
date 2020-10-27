@@ -33,7 +33,7 @@ We conduct experiments using 8 models including VGG-19,ResNet200, InceptionV3, M
 ## Installation
 We will detailed introduced the installation steps of heteroG in this part.
 ### Install python environment. 
-We recommand to use anaconda: https://docs.anaconda.com/anaconda/install/
+We recommand to use anaconda, please download the installation script to install anaconda through the link: https://repo.anaconda.com/archive/Anaconda2-2019.10-Linux-x86_64.sh
 After the installation, create an environment named heterog with python3.7
 
 `conda create -n heterog python=3.7`
