@@ -5,7 +5,13 @@ The GNN in HeteroG is implemented using Tensorflow1.14 which is modified to supp
 The detailed software and hardware requirements are introduced in following sections. We will also introduce the dependencies needed and the procedures to install HeteroG, and the detailed steps to conduct corresponding experiments.
 
 ## Hardware dependency
-We deploy HeteroG-boosted TensorFlow framework in 4 physical machines: one equipped with two NVIDIA 16GBTesla V100 GPUs, two 10-core Intel Xeon processor E5-2630v4 CPUs and one 100GbE Mellanox RDMA card; two equipped with two 11GB NVIDIA GTX 1080 Ti GPUs, one 8-core IntelXeon E5-1660 v4 CPU and one 50GbE Mellanox RDMA card;and the other equipped with two 12GB NVIDIA Tesla P100 GPUs, one 8-core Intel Xeon E5-1660 v4 CPU and one 50GbE Mellanox RDMA card. The machines are connected through a 100Gbps switch.
+For offline training, we use one server equipped with two NVIDIA 16GB Tesla V100 GPUs, two 10-core Intel Xeon processor E5-2630v4 CPUs.
+
+For distributed experiments, we deploy HeteroG-boosted Tensor-Flow framework in 4 physical machines and a 100Gbps switch:
+- One server equipped with two NVIDIA 16GB Tesla V100GPUs, two 10-core Intel Xeon processor E5-2630 v4 CPUsand one 100GbE Mellanox RDMA card.
+- Two servers equipped with two 11GB NVIDIA GTX 1080 TiGPUs, one 8-core Intel Xeon E5-1660 v4 CPU and one 50GbEMellanox RDMA card.
+- One server equipped with two 12GB NVIDIA Tesla P100GPUs, one 8-core Intel Xeon E5-1660 v4 CPU and one 50GbEMellanox RDMA card.
+- One Dell Networking Z9100-ON switch, 32x QSFP28 100GbE.
 
 ## Software dependency
 Dependency | Version 
