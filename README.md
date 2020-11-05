@@ -77,7 +77,7 @@ Then configure the build:
 `./configure`
 
 The following shows a sample run of ./configure script (your session may differ):
-
+```
   You have bazel 0.24 installed.
 
   Please specify the location of python. [Default is /usr/bin/python3]: 
@@ -169,7 +169,7 @@ Preconfigured Bazel build configs to DISABLE default on features:
   --config=nonccl         # Disable NVIDIA NCCL support.
 
 Configuration finished
-
+```
 After Configuration, run the build script in the folder. Before running it, please modify the file accordingly to specify a path to store the whl file. After that you can run:
 
 `sh build.sh`
@@ -177,7 +177,27 @@ After Configuration, run the build script in the folder. Before running it, plea
 After the execution of the script. The modified tensorflow should be successfully installed.
 
 ## Offline training of HeteroG
+After sucessfully building the customized tensorflow. We can start training HeteroG. First, please change the folder to GAT:
+`cd ../GAT`
+In this folder, the file to train HeteroG is named as "main.py". Before executing the file, we need to write a config file named "config.txt" in the folder first. To be convenient, we already provided the file with a sample configuration:
+ ```
+ {"inputs": ["data/graph1"], "devices":[
+    "/job:worker/replica:0/task:0/device:GPU:0",
+    "/job:worker/replica:0/task:0/device:GPU:1",
+    "/job:worker/replica:0/task:0/device:GPU:2",
+    "/job:worker/replica:0/task:0/device:GPU:3"
 
+],
+"sinks":[["GradientDescent"]],
+"CUDA_VISIBLE_DEVICES": "0,1,2,3", "max_replica_num": 4, "learning_rate": 5e-5, 
+"bandwidth": ["10000", "747"], "device_mems": [13000000000.0, 13000000000.0, 10000000000.0, 10000000000.0]}
+```
+The file is in json format. "data/graph1" is the path of model for HeteroG to find best strategy. We provided a sample model(VGG19) in the folder "data/graph1", as well as its profiling data obtained from 4 GPUs. In this sample configuration, HeteroG will find best stratgey to deploy the VGG model in a 4-GPU environment.
+
+To launch the training, we only need to run:
+`python main.py`
+
+Then we can see the training process from the screen.
 ## Experiment workflow
 
 The experiment workflow is as follows: (1) profile 8 models toobtain the computation cost model; 
