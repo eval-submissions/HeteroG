@@ -201,7 +201,7 @@ To launch the training, we only need to run:
 
 Then we can see the training process from the screen.
 
-In order to conveniently observe the training process, the program produces two files during the training process: *time.log* and *best_time.log* under the folder "HeteroG/GAT/". *time.log* records the simulated per-iteration time of found strategies every 10 steps. *best_time.log* records the simulated per-iteration time of the best strategies that HeteroG ever found.
+In order to conveniently observe the training process, the program produces two files during the training process: *time.log* and *best_time.log* under the folder "HeteroG/GAT/". *time.log* records the simulated per-iteration time of found strategies every 10 steps. *best_time.log* records the simulated per-iteration time of the best strategies that HeteroG ever found. You can launch another terminal to view the contents in these two files.
 ## Experiment workflow
 
 The experiment workflow is as follows: (1) profile 8 models toobtain the computation cost model; 
