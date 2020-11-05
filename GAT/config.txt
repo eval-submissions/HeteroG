@@ -1,0 +1,9 @@
+{"inputs": ["data/graph1"], "devices":[
+    "/job:worker/replica:0/task:0/device:GPU:0",
+    "/job:worker/replica:0/task:0/device:GPU:1",
+    "/job:worker/replica:0/task:0/device:GPU:2",
+    "/job:worker/replica:0/task:0/device:GPU:3"
+
+],
+"sinks":[["GradientDescent"]],
+"CUDA_VISIBLE_DEVICES": "0,1,2,3", "max_replica_num": 4, "learning_rate": 5e-5, "bandwidth": ["10000", "747"], "device_mems": [13000000000.0, 13000000000.0, 10000000000.0, 10000000000.0]}
