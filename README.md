@@ -178,8 +178,10 @@ After the execution of the script. The modified tensorflow should be successfull
 
 ## Offline training of HeteroG
 After sucessfully building the customized tensorflow. We can start training HeteroG. First, please change the folder to GAT:
+
 `cd ../GAT`
-In this folder, the file to train HeteroG is named as "main.py". Before executing the file, we need to write a config file named "config.txt" in the folder first. To be convenient, we already provided the file with a sample configuration:
+
+In this folder, the file to train HeteroG is named as *main.py*. Before executing the file, we need to write a config file named *config.txt* in the folder first. To be convenient, we already provided the file with a sample configuration:
  ```
  {"inputs": ["data/graph1"], "devices":[
     "/job:worker/replica:0/task:0/device:GPU:0",
