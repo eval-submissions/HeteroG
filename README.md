@@ -176,6 +176,7 @@ After Configuration, run the build script in the folder. Before running it, plea
 
 After the execution of the script. The modified tensorflow should be successfully installed.
 
+## Offline training of HeteroG
 
 ## Experiment workflow
 
