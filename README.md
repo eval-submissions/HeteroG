@@ -31,7 +31,7 @@ CUDNN can be downloaded from https://developer.nvidia.com/cudnn-download-survey.
 The modified Tensorflow should be downloaded from our this repository.
 
 ## Dataset
-We conduct experiments based on both synthetic data and real training data sets including cifar10 and SQuAD. These data sets are already included in the repository.
+We conduct experiments based on both synthetic data and real training data sets including cifar10 and SQuAD.
 
 ## Models
 We conduct experiments using 8 models including VGG-19,ResNet200, InceptionV3, MobileNetV2, NasNet, Transformer,Bert-large and XLNet-large. The implementation of all these models is already included in the github repository.
